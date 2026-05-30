@@ -29,6 +29,10 @@ public class AdminStatsController {
     private final GenerationTaskMapper taskMapper;
     private final AssetMapper assetMapper;
 
+    /** trends 结果按天缓存,跨天自动失效。 */
+    private volatile Map<String, Object> cachedTrends;
+    private volatile LocalDate cachedTrendsDate;
+
     @GetMapping("/overview")
     public ApiResult<Map<String, Object>> overview() {
         Map<String, Object> stats = new LinkedHashMap<>();
@@ -54,41 +58,65 @@ public class AdminStatsController {
 
     @GetMapping("/trends")
     public ApiResult<Map<String, Object>> trends() {
-        Map<String, Object> result = new LinkedHashMap<>();
         LocalDate today = LocalDate.now();
-        DateTimeFormatter fmt = DateTimeFormatter.ofPattern("MM-dd");
-
-        // 近7天每日任务数
-        List<Map<String, Object>> dailyTasks = new ArrayList<>();
-        for (int i = 6; i >= 0; i--) {
-            LocalDate day = today.minusDays(i);
-            String dayLabel = day.format(fmt);
-            Long count = taskMapper.selectCount(
-                    new com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper<GenerationTask>()
-                            .apply("DATE(created_at) = {0}", day.toString()));
-            Map<String, Object> item = new LinkedHashMap<>();
-            item.put("date", dayLabel);
-            item.put("count", count != null ? count : 0);
-            dailyTasks.add(item);
+        // 结果按当天缓存,同一天内重复请求直接复用,避免重复聚合
+        if (cachedTrends != null && today.equals(cachedTrendsDate)) {
+            return ApiResult.ok(cachedTrends);
         }
-        result.put("dailyTasks", dailyTasks);
 
-        // 近7天每日注册用户
+        DateTimeFormatter fmt = DateTimeFormatter.ofPattern("MM-dd");
+        LocalDate startDay = today.minusDays(6);
+        String startTime = startDay.atStartOfDay().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"));
+
+        // 各表一次 GROUP BY DATE 聚合,替代每天一次的 14 次 COUNT
+        Map<String, Long> taskCountByDay = countByDay(taskMapper.selectMaps(
+                new com.baomidou.mybatisplus.core.conditions.query.QueryWrapper<GenerationTask>()
+                        .select("DATE(created_at) AS d", "COUNT(*) AS c")
+                        .ge("created_at", startTime)
+                        .groupBy("DATE(created_at)")));
+        Map<String, Long> userCountByDay = countByDay(userMapper.selectMaps(
+                new com.baomidou.mybatisplus.core.conditions.query.QueryWrapper<User>()
+                        .select("DATE(created_at) AS d", "COUNT(*) AS c")
+                        .ge("created_at", startTime)
+                        .groupBy("DATE(created_at)")));
+
+        List<Map<String, Object>> dailyTasks = new ArrayList<>();
         List<Map<String, Object>> dailyUsers = new ArrayList<>();
         for (int i = 6; i >= 0; i--) {
             LocalDate day = today.minusDays(i);
-            String dayLabel = day.format(fmt);
-            Long count = userMapper.selectCount(
-                    new com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper<User>()
-                            .apply("DATE(created_at) = {0}", day.toString()));
-            Map<String, Object> item = new LinkedHashMap<>();
-            item.put("date", dayLabel);
-            item.put("count", count != null ? count : 0);
-            dailyUsers.add(item);
+            String key = day.toString();
+            String label = day.format(fmt);
+            dailyTasks.add(dayItem(label, taskCountByDay.getOrDefault(key, 0L)));
+            dailyUsers.add(dayItem(label, userCountByDay.getOrDefault(key, 0L)));
         }
+
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("dailyTasks", dailyTasks);
         result.put("dailyUsers", dailyUsers);
 
+        cachedTrends = result;
+        cachedTrendsDate = today;
         return ApiResult.ok(result);
+    }
+
+    /** 将 GROUP BY DATE 聚合结果(含 d/c 列)转为 {yyyy-MM-dd -> count}。 */
+    private Map<String, Long> countByDay(List<Map<String, Object>> rows) {
+        Map<String, Long> map = new HashMap<>();
+        for (Map<String, Object> row : rows) {
+            Object d = row.get("d");
+            Object c = row.get("c");
+            if (d != null) {
+                map.put(String.valueOf(d), c == null ? 0L : ((Number) c).longValue());
+            }
+        }
+        return map;
+    }
+
+    private Map<String, Object> dayItem(String label, long count) {
+        Map<String, Object> item = new LinkedHashMap<>();
+        item.put("date", label);
+        item.put("count", count);
+        return item;
     }
 
     @GetMapping("/export/csv")
