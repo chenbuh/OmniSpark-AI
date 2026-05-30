@@ -8,10 +8,10 @@
     <n-card class="glass-card" :bordered="false">
       <div class="toolbar">
         <n-space align="center">
-          <n-select v-model:value="typeFilter" :options="typeOptions" placeholder="资产类型" style="width:140px" clearable @update:value="loadAssets" />
-          <n-input v-model:value="searchText" placeholder="搜索文件名..." style="width:200px;" clearable @update:value="loadAssets" />
+          <n-select v-model:value="typeFilter" :options="typeOptions" placeholder="资产类型" style="width:140px" clearable @update:value="reload" />
+          <n-input v-model:value="searchText" placeholder="搜索文件名..." style="width:200px;" clearable @update:value="reload" />
         </n-space>
-        <span class="count">共 {{ assets.length }} 个资产</span>
+        <span class="count">共 {{ total }} 个资产</span>
       </div>
 
       <div class="assets-grid" v-if="assets.length > 0">
@@ -36,6 +36,10 @@
       </div>
 
       <n-empty v-else description="暂无资产" style="padding:40px 0;" />
+
+      <div class="pager" v-if="total > pageSize">
+        <n-pagination v-model:page="page" :page-size="pageSize" :item-count="total" @update:page="loadAssets" />
+      </div>
     </n-card>
 
     <!-- 预览弹窗 -->
@@ -81,6 +85,9 @@ const typeFilter = ref<string | null>(null)
 const searchText = ref('')
 const showPreview = ref(false)
 const previewAsset = ref<any>(null)
+const page = ref(1)
+const pageSize = 12
+const total = ref(0)
 
 const typeOptions = [
   { label: '全部', value: '' }, { label: '图片', value: 'image' }, { label: '视频', value: 'video' }, { label: '参考图', value: 'reference' }
@@ -88,19 +95,31 @@ const typeOptions = [
 
 onMounted(loadAssets)
 
+// 过滤变化时回到第 1 页
+function reload() {
+  page.value = 1
+  loadAssets()
+}
+
 async function loadAssets() {
   try {
-    const params: Record<string, string> = {}
+    const params: Record<string, any> = { page: page.value, pageSize }
     if (typeFilter.value) params.assetType = typeFilter.value
     if (searchText.value) params.search = searchText.value
     const res = await request.get('/api/admin/assets', { params })
-    assets.value = (res as any).data || []
-  } catch { assets.value = [] }
+    const data = (res as any).data || {}
+    assets.value = data.records || []
+    total.value = data.total || 0
+  } catch (err: any) { assets.value = []; message.error(err.message || '加载资产失败') }
 }
 
 async function handleDelete(id: number) {
-  try { await request.delete(`/api/admin/assets/${id}`); assets.value = assets.value.filter(a => a.id !== id); message.success('已删除') }
-  catch { message.error('删除失败') }
+  try {
+    await request.delete(`/api/admin/assets/${id}`)
+    message.success('已删除')
+    if (assets.value.length === 1 && page.value > 1) page.value--
+    await loadAssets()
+  } catch (err: any) { message.error(err.message || '删除失败') }
 }
 
 function openPreview(asset: any) {
@@ -126,6 +145,7 @@ function downloadAsset() {
 .glass-card { background: rgba(15,23,42,0.4) !important; backdrop-filter: blur(16px); border: 1px solid var(--border-color) !important; border-radius: 16px !important; }
 .toolbar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; flex-wrap: wrap; gap: 8px; }
 .count { font-size: 12px; color: var(--text-muted); }
+.pager { display: flex; justify-content: flex-end; margin-top: 16px; }
 
 .assets-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 12px; }
 .asset-card {

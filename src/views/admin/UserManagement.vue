@@ -21,7 +21,7 @@
           <n-button size="small" secondary @click="triggerImport">
             <template #icon><Upload class="s-icon" /></template>导入
           </n-button>
-          <span class="count">共 {{ totalCount }} 个用户</span>
+          <span class="count">共 {{ total }} 个用户</span>
           <n-button type="primary" size="small" @click="showCreate = true">
             <template #icon><Plus /></template>创建用户
           </n-button>
@@ -50,7 +50,7 @@
             </tr>
           </thead>
           <tbody>
-            <tr v-for="u in pagedUsers" :key="u.id">
+            <tr v-for="u in users" :key="u.id">
               <td><code>#{{ u.id }}</code></td>
               <td>
                 <n-avatar
@@ -119,18 +119,19 @@
         </n-table>
 
         <!-- 空状态 -->
-        <div v-if="pagedUsers.length === 0 && !loading" class="empty-row">
+        <div v-if="users.length === 0 && !loading" class="empty-row">
           <n-empty description="暂无匹配的用户" />
         </div>
 
         <!-- 分页 -->
-        <div class="pagination-wrap" v-if="totalCount > pageSize">
+        <div class="pagination-wrap" v-if="total > pageSize">
           <n-pagination
             v-model:page="page"
-            :page-count="pageCount"
+            :item-count="total"
             :page-size="pageSize"
             :page-slot="7"
             size="small"
+            @update:page="loadUsers"
           />
         </div>
       </template>
@@ -161,7 +162,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import { ref, onMounted } from 'vue'
 import { useMessage, useDialog } from 'naive-ui'
 import { Search, Download, Upload, Plus, RefreshCw } from 'lucide-vue-next'
 import request from '@/api/request'
@@ -174,9 +175,10 @@ const users = ref<any[]>([])
 const search = ref('')
 const loading = ref(true)
 
-// --- 分页 ---
+// --- 分页(服务端) ---
 const page = ref(1)
 const pageSize = 10
+const total = ref(0)
 
 // --- 内联编辑 ---
 const editingId = ref<number | null>(null)
@@ -192,36 +194,21 @@ const roleOptions = [
   { label: '普通用户', value: 'user' }
 ]
 
-// --- 计算 ---
-const filteredUsers = computed(() => {
-  if (!search.value) return users.value
-  const q = search.value.toLowerCase()
-  return users.value.filter(u =>
-    u.username?.toLowerCase().includes(q) ||
-    u.nickname?.toLowerCase().includes(q)
-  )
-})
-
-const totalCount = computed(() => filteredUsers.value.length)
-const pageCount = computed(() => Math.max(1, Math.ceil(totalCount.value / pageSize)))
-
-const pagedUsers = computed(() => {
-  const start = (page.value - 1) * pageSize
-  return filteredUsers.value.slice(start, start + pageSize)
-})
-
 // --- 生命周期 ---
 onMounted(loadUsers)
 
 async function loadUsers() {
   loading.value = true
   try {
-    const params: Record<string, string> = {}
+    const params: Record<string, any> = { page: page.value, pageSize }
     if (search.value) params.search = search.value
     const res = await request.get('/api/admin/users', { params })
-    users.value = (res as any).data || []
-  } catch {
+    const data = (res as any).data || {}
+    users.value = data.records || []
+    total.value = data.total || 0
+  } catch (err: any) {
     users.value = []
+    message.error(err.message || '加载用户失败')
   } finally {
     loading.value = false
   }
@@ -347,9 +334,11 @@ async function handleDeleteUser(u: any) {
     onPositiveClick: async () => {
       try {
         await request.delete(`/api/admin/users/${u.id}`)
-        users.value = users.value.filter(x => x.id !== u.id)
         message.success('已删除')
-      } catch { message.error('删除失败') }
+        // 删除当前页最后一条时回退一页,再重新请求保持 total 同步
+        if (users.value.length === 1 && page.value > 1) page.value--
+        await loadUsers()
+      } catch (err: any) { message.error(err.message || '删除失败') }
     }
   })
 }

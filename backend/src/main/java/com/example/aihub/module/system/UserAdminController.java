@@ -30,17 +30,19 @@ public class UserAdminController {
     private final UserMapper userMapper;
 
     @GetMapping
-    public ApiResult<List<UserVO>> list(@RequestParam(required = false) String search) {
-        List<User> users;
+    public ApiResult<com.example.aihub.common.result.PageResult<UserVO>> list(
+            @RequestParam(required = false) String search,
+            @RequestParam(defaultValue = "1") long page,
+            @RequestParam(defaultValue = "10") long pageSize) {
+        var wrapper = new com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper<User>();
         if (search != null && !search.isBlank()) {
-            users = userMapper.selectList(new com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper<User>()
-                    .like(User::getUsername, search)
-                    .or().like(User::getNickname, search));
-        } else {
-            users = userMapper.selectList(new com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper<User>()
-                    .orderByDesc(User::getId));
+            wrapper.and(w -> w.like(User::getUsername, search).or().like(User::getNickname, search));
         }
-        return ApiResult.ok(users.stream().map(u -> {
+        wrapper.orderByDesc(User::getId);
+
+        var p = userMapper.selectPage(
+                new com.baomidou.mybatisplus.extension.plugins.pagination.Page<>(page, pageSize), wrapper);
+        List<UserVO> records = p.getRecords().stream().map(u -> {
             UserVO vo = new UserVO();
             vo.setId(u.getId());
             vo.setUsername(u.getUsername());
@@ -50,7 +52,8 @@ public class UserAdminController {
             vo.setStatus(u.getStatus());
             vo.setCreatedAt(u.getCreatedAt());
             return vo;
-        }).toList());
+        }).toList();
+        return ApiResult.ok(new com.example.aihub.common.result.PageResult<>(p.getTotal(), p.getPages(), records));
     }
 
     @PutMapping("/{id}/role")

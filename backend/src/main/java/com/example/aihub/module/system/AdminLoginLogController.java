@@ -8,8 +8,6 @@ import com.example.aihub.infrastructure.mapper.LoginLogMapper;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.*;
 
-import java.util.List;
-
 @RestController
 @RequiredArgsConstructor
 @RequestMapping("/api/admin/login-logs")
@@ -19,12 +17,15 @@ public class AdminLoginLogController {
     private final LoginLogMapper loginLogMapper;
 
     @GetMapping
-    public ApiResult<List<LoginLog>> list(
+    public ApiResult<com.example.aihub.common.result.PageResult<LoginLog>> list(
             @RequestParam(required = false) Long userId,
-            @RequestParam(defaultValue = "100") int limit) {
+            @RequestParam(defaultValue = "1") long page,
+            @RequestParam(defaultValue = "20") long pageSize) {
         var wrapper = new com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper<LoginLog>();
         if (userId != null) wrapper.eq(LoginLog::getUserId, userId);
-        wrapper.orderByDesc(LoginLog::getId).last("LIMIT " + limit);
-        return ApiResult.ok(loginLogMapper.selectList(wrapper));
+        wrapper.orderByDesc(LoginLog::getId);
+        var p = loginLogMapper.selectPage(
+                new com.baomidou.mybatisplus.extension.plugins.pagination.Page<>(page, pageSize), wrapper);
+        return ApiResult.ok(new com.example.aihub.common.result.PageResult<>(p.getTotal(), p.getPages(), p.getRecords()));
     }
 }

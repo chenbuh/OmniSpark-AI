@@ -21,15 +21,21 @@ public class AdminAssetsController {
     private final AssetService assetService;
 
     @GetMapping
-    public ApiResult<List<AssetVO>> list(@RequestParam(required = false) String assetType,
-                                          @RequestParam(required = false) String search) {
+    public ApiResult<com.example.aihub.common.result.PageResult<AssetVO>> list(@RequestParam(required = false) String assetType,
+                                          @RequestParam(required = false) String search,
+                                          @RequestParam(defaultValue = "1") long page,
+                                          @RequestParam(defaultValue = "12") long pageSize) {
         var wrapper = new com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper<com.example.aihub.infrastructure.entity.Asset>();
         if (assetType != null && !assetType.isBlank()) wrapper.eq(com.example.aihub.infrastructure.entity.Asset::getAssetType, assetType);
         if (search != null && !search.isBlank()) wrapper.like(com.example.aihub.infrastructure.entity.Asset::getFileName, search);
         wrapper.orderByDesc(com.example.aihub.infrastructure.entity.Asset::getId);
-        return ApiResult.ok(assetMapper.selectList(wrapper).stream()
+
+        var p = assetMapper.selectPage(
+                new com.baomidou.mybatisplus.extension.plugins.pagination.Page<>(page, pageSize), wrapper);
+        List<AssetVO> records = p.getRecords().stream()
                 .map(a -> com.example.aihub.common.util.VoMapper.copy(a, AssetVO.class))
-                .toList());
+                .toList();
+        return ApiResult.ok(new com.example.aihub.common.result.PageResult<>(p.getTotal(), p.getPages(), records));
     }
 
     @DeleteMapping("/{id}")

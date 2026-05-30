@@ -8,11 +8,11 @@
     <n-card class="glass-card" :bordered="false">
       <div class="toolbar">
         <n-space>
-          <n-select v-model:value="statusFilter" :options="statusOptions" placeholder="状态" style="width:120px" clearable @update:value="loadTasks" />
-          <n-select v-model:value="typeFilter" :options="typeOptions" placeholder="类型" style="width:120px" clearable @update:value="loadTasks" />
-          <n-input v-model:value="searchText" placeholder="搜索提示词..." style="width:200px;" clearable @update:value="loadTasks" />
+          <n-select v-model:value="statusFilter" :options="statusOptions" placeholder="状态" style="width:120px" clearable @update:value="reload" />
+          <n-select v-model:value="typeFilter" :options="typeOptions" placeholder="类型" style="width:120px" clearable @update:value="reload" />
+          <n-input v-model:value="searchText" placeholder="搜索提示词..." style="width:200px;" clearable @update:value="reload" />
         </n-space>
-        <span class="count">共 {{ tasks.length }} 条</span>
+        <span class="count">共 {{ total }} 条</span>
       </div>
 
       <n-table :single-line="false" class="admin-table">
@@ -47,6 +47,9 @@
           <tr v-if="tasks.length===0"><td colspan="8" class="empty-cell">暂无任务</td></tr>
         </tbody>
       </n-table>
+      <div class="pager" v-if="total > pageSize">
+        <n-pagination v-model:page="page" :page-size="pageSize" :item-count="total" @update:page="loadTasks" />
+      </div>
     </n-card>
 
     <!-- 详情抽屉 -->
@@ -93,6 +96,9 @@ const typeFilter = ref<string | null>(null)
 const searchText = ref('')
 const showDrawer = ref(false)
 const detail = ref<any>(null)
+const page = ref(1)
+const pageSize = 10
+const total = ref(0)
 
 const statusOptions = [
   { label: '运行中', value: 'running' }, { label: '成功', value: 'success' }, { label: '失败', value: 'failed' }
@@ -103,20 +109,33 @@ const typeOptions = [
 
 onMounted(loadTasks)
 
+// 过滤条件变化时回到第 1 页再查
+function reload() {
+  page.value = 1
+  loadTasks()
+}
+
 async function loadTasks() {
   try {
-    const params: Record<string, string> = {}
+    const params: Record<string, any> = { page: page.value, pageSize }
     if (statusFilter.value) params.status = statusFilter.value
     if (typeFilter.value) params.taskType = typeFilter.value
     if (searchText.value) params.search = searchText.value
     const res = await request.get('/api/admin/tasks', { params })
-    tasks.value = (res as any).data || []
-  } catch { tasks.value = [] }
+    const data = (res as any).data || {}
+    tasks.value = data.records || []
+    total.value = data.total || 0
+  } catch (err: any) { tasks.value = []; message.error(err.message || '加载任务失败') }
 }
 
 async function handleDelete(id: number) {
-  try { await request.delete(`/api/admin/tasks/${id}`); tasks.value = tasks.value.filter(t => t.id !== id); message.success('已删除') }
-  catch { message.error('删除失败') }
+  try {
+    await request.delete(`/api/admin/tasks/${id}`)
+    message.success('已删除')
+    // 删除当前页最后一条时回退一页,避免停留空页
+    if (tasks.value.length === 1 && page.value > 1) page.value--
+    await loadTasks()
+  } catch (err: any) { message.error(err.message || '删除失败') }
 }
 
 function showDetail(t: any) {
@@ -141,6 +160,7 @@ function formatJson(s: string) {
 .admin-table th { background: rgba(128,128,128,0.02) !important; color: var(--text-muted) !important; border-bottom: 1px solid var(--border-color) !important; font-size: 12px; }
 .admin-table td { border-bottom: 1px solid var(--border-light) !important; color: var(--text-secondary); padding: 8px; font-size: 12px; }
 .empty-cell { text-align: center; padding: 30px !important; color: var(--text-muted); }
+.pager { display: flex; justify-content: flex-end; margin-top: 16px; }
 
 .drawer-body { display: flex; flex-direction: column; gap: 16px; }
 .ds-card { display: flex; flex-direction: column; gap: 8px; padding: 12px; background: rgba(128,128,128,0.02); border-radius: 10px; }

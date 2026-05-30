@@ -23,19 +23,24 @@ public class AdminTasksController {
     private final AssetService assetService;
 
     @GetMapping
-    public ApiResult<List<GenerationTaskVO>> list(
+    public ApiResult<com.example.aihub.common.result.PageResult<GenerationTaskVO>> list(
             @RequestParam(required = false) String status,
             @RequestParam(required = false) String taskType,
-            @RequestParam(required = false) String search) {
+            @RequestParam(required = false) String search,
+            @RequestParam(defaultValue = "1") long page,
+            @RequestParam(defaultValue = "10") long pageSize) {
         var wrapper = new com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper<GenerationTask>();
         if (status != null && !status.isBlank()) wrapper.eq(GenerationTask::getStatus, status);
         if (taskType != null && !taskType.isBlank()) wrapper.eq(GenerationTask::getTaskType, taskType);
         if (search != null && !search.isBlank()) wrapper.like(GenerationTask::getPrompt, search);
         wrapper.orderByDesc(GenerationTask::getId);
-        return ApiResult.ok(taskMapper.selectList(wrapper).stream().map(t -> {
-            GenerationTaskVO vo = com.example.aihub.common.util.VoMapper.copy(t, GenerationTaskVO.class);
-            return vo;
-        }).collect(Collectors.toList()));
+
+        var p = taskMapper.selectPage(
+                new com.baomidou.mybatisplus.extension.plugins.pagination.Page<>(page, pageSize), wrapper);
+        List<GenerationTaskVO> records = p.getRecords().stream()
+                .map(t -> com.example.aihub.common.util.VoMapper.copy(t, GenerationTaskVO.class))
+                .collect(Collectors.toList());
+        return ApiResult.ok(new com.example.aihub.common.result.PageResult<>(p.getTotal(), p.getPages(), records));
     }
 
     @DeleteMapping("/{id}")
