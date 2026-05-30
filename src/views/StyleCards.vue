@@ -28,7 +28,7 @@
     <div class="cards-grid" v-if="filteredCards.length > 0">
       <div v-for="card in filteredCards" :key="card.id" class="card-item glass-card">
         <div class="card-preview" v-if="card.previewUrl">
-          <img :src="card.previewUrl" class="preview-img" />
+          <img :src="resolveAssetUrl(card.previewUrl)" :alt="card.name || '卡片预览图'" class="preview-img" />
         </div>
         <div class="card-preview placeholder-preview" v-else>
           <div class="placeholder-icon-box" :class="card.type">
@@ -129,8 +129,27 @@
           </n-col>
         </n-row>
 
-        <n-form-item label="预览图 URL">
-          <n-input v-model:value="form.previewUrl" placeholder="可选：输入示例图的 URL" />
+        <n-form-item label="预览图">
+          <div class="preview-picker">
+            <div class="preview-box" v-if="form.previewUrl">
+              <img :src="resolveAssetUrl(form.previewUrl)" alt="卡片预览图" class="preview-thumb" />
+              <div class="preview-remove" @click="form.previewUrl = ''">
+                <Trash2 class="remove-icon" />
+              </div>
+            </div>
+            <div class="preview-empty" v-else>
+              <ImageIcon class="empty-thumb-icon" />
+            </div>
+            <div class="preview-actions">
+              <n-button size="small" secondary @click="openAssetPicker">
+                <template #icon><FolderOpen /></template>从资产库选择
+              </n-button>
+              <n-button size="small" secondary :loading="uploading" @click="triggerUpload">
+                <template #icon><Upload /></template>上传本地
+              </n-button>
+              <input ref="uploadInput" type="file" accept="image/*" style="display:none" @change="handleUploadFile" />
+            </div>
+          </div>
         </n-form-item>
       </n-form>
 
@@ -141,6 +160,31 @@
         </n-space>
       </template>
     </n-modal>
+
+    <!-- 从共享资产库选择预览图 -->
+    <n-modal
+      v-model:show="showAssetPicker"
+      preset="card"
+      title="从共享资产库选择预览图"
+      style="width: 60vw; max-width: 800px;"
+    >
+      <div class="assets-picker-grid">
+        <div
+          v-for="asset in imageAssets"
+          :key="asset.id"
+          class="picker-item"
+          @click="handleSelectAsset(asset)"
+        >
+          <img :src="asset.thumbUrl" :alt="asset.fileName || '可选资产缩略图'" class="picker-thumb" />
+          <div class="picker-info">
+            <span class="picker-name">{{ asset.fileName }}</span>
+          </div>
+        </div>
+        <div v-if="imageAssets.length === 0" class="picker-empty">
+          资产库中尚无图片，可先上传本地图片或前往生图页生成。
+        </div>
+      </div>
+    </n-modal>
   </div>
 </template>
 
@@ -149,18 +193,31 @@ import { ref, computed, reactive, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useMessage } from 'naive-ui'
 import { useProjectStore } from '@/store/project'
+import { useAssetStore, resolveAssetUrl, type Asset } from '@/store/asset'
+import { assetApi } from '@/api/assets'
 import { styleCardApi, type StyleCard } from '@/api/styleCards'
-import { Plus, Zap, Edit3, Trash2, User, Palette, Search } from 'lucide-vue-next'
+import { Plus, Zap, Edit3, Trash2, User, Palette, Search, Image as ImageIcon, FolderOpen, Upload } from 'lucide-vue-next'
 
 const router = useRouter()
 const message = useMessage()
 const projectStore = useProjectStore()
+const assetStore = useAssetStore()
 
 const activeType = ref('all')
 const searchQuery = ref('')
 const cards = ref<StyleCard[]>([])
 const showAddModal = ref(false)
 const editingCard = ref<StyleCard | null>(null)
+const showAssetPicker = ref(false)
+const uploading = ref(false)
+const uploadInput = ref<HTMLInputElement | null>(null)
+
+// 共享资产库中的图片资产
+const imageAssets = computed(() => {
+  return assetStore
+    .getAssetsByProject(projectStore.activeProjectId)
+    .filter(a => a.assetType === 'image' || a.assetType === 'reference')
+})
 
 const form = reactive({
   name: '',
@@ -200,7 +257,73 @@ async function loadCards() {
   }
 }
 
-onMounted(loadCards)
+onMounted(async () => {
+  await loadCards()
+  // 预加载资产库，供预览图选择器使用
+  try {
+    await assetStore.refresh({ projectId: projectStore.activeProjectId })
+  } catch { /* 忽略，选择器会显示空态 */ }
+})
+
+// 打开资产库选择器
+async function openAssetPicker() {
+  showAssetPicker.value = true
+  try {
+    await assetStore.refresh({ projectId: projectStore.activeProjectId })
+  } catch { /* 忽略 */ }
+}
+
+// 选中资产库中的图片作为预览图（保存相对路径，避免把后端 origin 写死）
+function handleSelectAsset(asset: Asset) {
+  form.previewUrl = toRelativeUrl(asset.fileUrl)
+  showAssetPicker.value = false
+}
+
+// 把可能为绝对地址的资源 URL 转成相对路径（/uploads/...），跨源部署仍可用
+function toRelativeUrl(url: string): string {
+  if (!url) return ''
+  if (/^https?:\/\//i.test(url)) {
+    try {
+      return new URL(url).pathname
+    } catch {
+      return url
+    }
+  }
+  return url
+}
+
+// 触发本地文件选择
+function triggerUpload() {
+  uploadInput.value?.click()
+}
+
+// 上传本地图片到共享资产库，并设为预览图
+async function handleUploadFile(e: Event) {
+  const input = e.target as HTMLInputElement
+  const file = input.files?.[0]
+  if (!file) return
+  if (!file.type.startsWith('image/')) {
+    message.error('请选择图片文件')
+    input.value = ''
+    return
+  }
+  uploading.value = true
+  try {
+    const formData = new FormData()
+    formData.append('projectId', String(projectStore.activeProjectId))
+    formData.append('file', file)
+    const res = await assetApi.uploadAsset(formData)
+    // 后端返回的 fileUrl 为相对路径，直接保存
+    form.previewUrl = res.data?.fileUrl || ''
+    await assetStore.refresh({ projectId: projectStore.activeProjectId })
+    message.success('预览图已上传')
+  } catch (err: any) {
+    message.error(err.message || '上传失败')
+  } finally {
+    uploading.value = false
+    input.value = ''
+  }
+}
 
 function resetForm() {
   form.name = ''
@@ -396,6 +519,128 @@ function handleApply(card: StyleCard) {
   width: 24px;
   height: 24px;
   color: #9ca3af;
+}
+
+/* 预览图选择器 */
+.preview-picker {
+  display: flex;
+  gap: 14px;
+  align-items: flex-start;
+  width: 100%;
+}
+
+.preview-box {
+  position: relative;
+  width: 96px;
+  height: 96px;
+  border-radius: 10px;
+  overflow: hidden;
+  flex-shrink: 0;
+}
+
+.preview-thumb {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.preview-remove {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  width: 22px;
+  height: 22px;
+  border-radius: 6px;
+  background: rgba(0, 0, 0, 0.55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.preview-remove:hover {
+  background: rgba(239, 68, 68, 0.85);
+}
+
+.remove-icon {
+  width: 13px;
+  height: 13px;
+  color: #fff;
+}
+
+.preview-empty {
+  width: 96px;
+  height: 96px;
+  border-radius: 10px;
+  border: 1px dashed rgba(255, 255, 255, 0.15);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.empty-thumb-icon {
+  width: 28px;
+  height: 28px;
+  color: #6b7280;
+}
+
+.preview-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-top: 4px;
+}
+
+/* 资产选择网格 */
+.assets-picker-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+  gap: 12px;
+  max-height: 60vh;
+  overflow-y: auto;
+}
+
+.picker-item {
+  border-radius: 10px;
+  overflow: hidden;
+  cursor: pointer;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  transition: transform 0.15s, border-color 0.15s;
+}
+
+.picker-item:hover {
+  transform: translateY(-2px);
+  border-color: rgba(16, 185, 129, 0.6);
+}
+
+.picker-thumb {
+  width: 100%;
+  height: 100px;
+  object-fit: cover;
+  display: block;
+}
+
+.picker-info {
+  padding: 6px 8px;
+}
+
+.picker-name {
+  font-size: 11px;
+  color: #9ca3af;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  display: block;
+}
+
+.picker-empty {
+  grid-column: 1 / -1;
+  text-align: center;
+  padding: 40px 20px;
+  color: #6b7280;
+  font-size: 13px;
 }
 
 .card-body {
