@@ -133,8 +133,15 @@
       </n-space>
     </div>
 
-    <div class="pager" v-if="filteredAssets.length > pageSize">
-      <n-pagination v-model:page="page" :page-size="pageSize" :item-count="filteredAssets.length" />
+    <div class="pager" v-if="filteredAssets.length > 0">
+      <n-pagination
+        v-model:page="page"
+        :page-size="pageSize"
+        :item-count="filteredAssets.length"
+        show-size-picker
+        :page-sizes="pageSizeOptions"
+        @update:page-size="handlePageSizeChange"
+      />
     </div>
 
     <n-drawer v-model:show="showDetailDrawer" :width="560" placement="right" class="glass-drawer">
@@ -448,11 +455,16 @@ const filteredAssets = computed(() => {
 
 // 前端分页(assetStore 全量不动,仅渲染层切片)
 const page = ref(1)
-const pageSize = 24
+const pageSize = ref(24)
+const pageSizeOptions = [12, 24, 48, 96]
 const pagedAssets = computed(() => {
-  const start = (page.value - 1) * pageSize
-  return filteredAssets.value.slice(start, start + pageSize)
+  const start = (page.value - 1) * pageSize.value
+  return filteredAssets.value.slice(start, start + pageSize.value)
 })
+function handlePageSizeChange(size: number) {
+  pageSize.value = size
+  page.value = 1
+}
 // 切换 tab / 过滤 / 排序 / 项目时回到第 1 页
 watch([activeTab, assetTab, searchKeyword, sortBy, () => projectStore.activeProjectId], () => { page.value = 1 })
 
