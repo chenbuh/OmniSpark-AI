@@ -69,8 +69,15 @@
       </template>
     </n-empty>
 
-    <div class="pager" v-if="filteredTemplates.length > pageSize">
-      <n-pagination v-model:page="page" :page-size="pageSize" :item-count="filteredTemplates.length" />
+    <div class="pager" v-if="filteredTemplates.length > 0">
+      <n-pagination
+        v-model:page="page"
+        :page-size="pageSize"
+        :item-count="filteredTemplates.length"
+        show-size-picker
+        :page-sizes="pageSizeOptions"
+        @update:page-size="handlePageSizeChange"
+      />
     </div>
 
     <!-- 新增/编辑弹窗 -->
@@ -176,11 +183,16 @@ const filteredTemplates = computed(() => {
 
 // 前端分页
 const page = ref(1)
-const pageSize = 12
+const pageSize = ref(12)
+const pageSizeOptions = [12, 24, 48, 96]
 const pagedTemplates = computed(() => {
-  const start = (page.value - 1) * pageSize
-  return filteredTemplates.value.slice(start, start + pageSize)
+  const start = (page.value - 1) * pageSize.value
+  return filteredTemplates.value.slice(start, start + pageSize.value)
 })
+function handlePageSizeChange(size: number) {
+  pageSize.value = size
+  page.value = 1
+}
 watch([activeTag, searchQuery, () => projectStore.activeProjectId], () => { page.value = 1 })
 
 function handleApplyTemplate(tpl: PromptTemplate) {
