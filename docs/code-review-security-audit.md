@@ -1,0 +1,166 @@
+# OmniSpark AI — 代码审查与安全审计报告
+
+> 审查日期:2026-05-30
+> 审查范围:后端 `backend/src/main/java/com/example/aihub`、前端 `src/`
+> 说明:标注 ✅ 的条目为已通过实际请求或读取配置文件**实测确认**;其余为静态代码分析结论,落地修复前建议二次复核。
+
+---
+
+## 1. 结论速览
+
+| 级别 | 数量 | 核心问题 |
+|------|------|----------|
+| 🔴 严重 | 3（已全部修复） | 鉴权完全失效 + API 密钥明文泄露、越权访问 (IDOR)、密码哈希弱 |
+| 🟡 中等 | 8（7 项已修复 / 1 项暂缓） | 额度不强制、SSRF、上传无校验、CORS 过宽、异常外泄、前端无 401 处理、定时器泄漏、刷新后轮询丢失 |
+| 🟢 轻微 | 6（4 项已修复 / 1 项部分修复 / 1 项待办） | 轮询不暂停、缓存整表清空、`as any` 滥用、巨型组件、可访问性、CSS 重复 |
+
+**最高优先级**:第 1 项(鉴权失效 + 密钥泄露)。改动小、收益最大,且当前任何能访问后端 8080 端口的人都能匿名窃取所有模型提供商的 API 密钥明文。
+
+> **更新(2026-05-30)**:三项 🔴 严重问题已全部修复并通过后端重新编译启动验证。详见下方各条目的「修复状态」。剩余 🟡 中等 / 🟢 轻微问题尚未处理。
+
+---
+
+## 2. 🔴 严重问题
+
+### 2.1 ✅ 鉴权完全失效 + API 密钥明文泄露(同一根因)
+
+**问题**
+`SaInterceptor` 从未注册。`WebConfig.java:15-17` 的 `addInterceptors` 只注册了 `maintenanceInterceptor`;`SaTokenConfig.java` 仅提供 `StpInterface`(角色查询),没有注册拦截器。Spring Boot 3 的 sa-token starter **不会自动注册注解拦截器**,必须手动注册,因此所有 `@SaCheckLogin` / `@SaCheckRole` 注解(如 `GenerationController.java:19`)全部形同虚设。
+
+**实测验证**
+```bash
+# 不带任何 token,直接返回 200 + 全量任务数据
+curl http://localhost:8080/api/tasks?projectId=7
+# => HTTP 200, {"code":200,"data":[{...全部任务...}]}
+
+# 匿名即可读出所有提供商的 apiKey 明文
+curl http://localhost:8080/api/model-providers
+# => HTTP 200, data[].apiKey = "sk-************************（真实密钥已脱敏）"
+```
+
+**影响**
+- 任何能访问 8080 端口的人无需登录即可读写全部业务数据。
+- 模型提供商的 API 密钥(可能产生真实费用)以明文泄露给任意匿名访问者。
+
+**位置**
+- `common/config/WebConfig.java:14-17`(未注册 `SaInterceptor`)
+- `common/config/SaTokenConfig.java`(只配 `StpInterface`)
+- `infrastructure/vo/ModelProviderVO.java:12`(VO 包含 `apiKey`)
+- `infrastructure/service/ModelProviderService.java:40`(`list()` 直接 copy 返回 apiKey)
+- `infrastructure/entity/ModelProvider.java:20`(数据库明文存储)
+
+**修复方向**
+1. 在 `WebConfig.addInterceptors` 注册 `SaInterceptor`,通过 `addPathPatterns("/api/**")` 拦截,并放行登录/注册/静态资源等公开路径。
+2. `ModelProviderVO` 移除 `apiKey` 字段,或仅返回掩码(如 `sk-***...nC`)。连接测试、生成调用在服务端取原始 key,不下发前端。
+3. (可选增强)数据库中的 apiKey 加密存储。
+
+**✅ 修复状态(2026-05-30):已修复**
+- `WebConfig.addInterceptors` 已注册 `SaInterceptor` 拦截 `/api/**`,放行 `/api/auth/login`、`/api/auth/register`。
+- `ModelProviderService.list/create/update` 统一经 `toMaskedVO()` 输出,`apiKey` 以 `sk-x****xxxx` 掩码下发;`update` 检测到掩码占位则保留原始密钥。服务端生成/测试时取数据库原始 key,不下发前端。
+- (第 3 项数据库加密存储为可选增强,暂未实施。)
+
+---
+
+### 2.2 越权访问(IDOR — 缺资源归属校验)
+
+**问题**
+即使修复鉴权后,多数接口仍只按 `id` 查询/删除,不校验资源是否属于当前用户:
+- `TaskController.java:31-44` → `GenerationService.getTask/delete (:83, :163)`:可读取/删除他人任务;`list` 的 `projectId` 可空 → 返回全量(`:71-81`)。
+- `AssetController.java:45-52` 的 `delete`/`favorite`、`list`(projectId 可空,`:30`)无归属校验。
+- `AssetController.java:34` 的 `listShared` 直接信任请求参数 `userId`,可查看任意用户共享资产。
+- `ModelProviderController` 的 `update`/`delete`/`test`(`:43-55`)无归属判断,可改删任意提供商。
+
+**影响**:水平越权,用户可访问/篡改其他用户的数据。
+
+**修复方向**:在 Service 层统一校验资源的 `projectId`/`userId` 归属于当前登录用户;`list` 类接口强制按当前用户过滤,禁止空 `projectId` 返回全量。
+
+**✅ 修复状态(2026-05-30):已修复**
+- `ProjectAccessGuard` 新增 `accessibleProjectIds()`(本人项目 + 团队共享项目 + 全局项目 0)。注:此前 `GenerationService.list` 已调用一个**未定义**的 `listAccessibleProjectIds()`,会导致后端编译失败,本次一并修正为接入 `accessibleProjectIds()`。
+- `GenerationService`:`delete` 增加归属校验;`generateImage/generateVideo/generateInpaint` 入口校验 `projectId` 归属(`list`/`getTask`/`retry` 此前已有校验)。
+- `AssetService`:`list`/`upload`/`delete`/`favorite` 增加归属校验,空 `projectId` 时按 `accessibleProjectIds()` 过滤;`listShared` 改为以当前登录用户为准,忽略请求参数 `userId`。
+- `ModelProviderService`:`list`/`update`/`delete`/`testConnection` 增加归属校验,空 `projectId` 时按可访问项目过滤。
+
+---
+
+### 2.3 密码哈希弱 + Pass-the-Hash
+
+**问题**
+`PasswordUtil.java:13-16` 使用无盐 SHA-256;且若输入为 64 位 hex 则**原样当作哈希**使用,`AuthService.login (:32)` 按此比对。
+
+**影响**:无盐易遭彩虹表攻击;拖库后可直接用存储的哈希值"传哈希"登录。
+
+**修复方向**:改用 BCrypt / Argon2(自带盐),并禁止客户端传入预哈希值。
+
+**✅ 修复状态(2026-05-30):已修复**
+- `PasswordUtil` 重写为 BCrypt:`encode()` 用 `BCrypt.hashpw`(自带随机盐)存储,`matches()` 校验。删除了「64 位 hex 原样当哈希」的危险放行逻辑,客户端传入的预哈希值不再被当作哈希使用。
+- `AuthService.login` 改用 `matches()` 比对;`matches()` 兼容历史无盐 SHA-256 哈希,且登录成功后将其**平滑升级**为 BCrypt(`isLegacyHash` 判断后重写),无需手动重置存量用户密码。
+- `register`/`changePassword`、`UserAdminController`(创建/重置/CSV 导入)、`DemoDataInitializer`(admin 种子)全部改用 `PasswordUtil.encode()`。
+
+---
+
+## 3. 🟡 中等问题
+
+| # | 问题 | 位置 | 影响 | 修复方向 | 状态 |
+|---|------|------|------|----------|------|
+| 1 | **额度不强制** | `QuotaService` 仅统计(`:22-31`);生成前无余额校验,`completeTask` 事后记账(`GenerationService.java:342`) | `DEFAULT_QUOTA_LIMIT=100` 从不生效,可无限生成 | 生成入口前置校验剩余额度,超额拒绝 | ⏸ 暂不处理(产品决策) |
+| 2 | **SSRF** | `ModelProviderService.validateNoHtmlEndpoint:194` / `testConnection:110`;结果下载 `OpenAiImageClient.java:566`、`GenerationService.java:613` | 登录用户可让服务端请求内网地址 / 云元数据(169.254.169.254),错误信息还回显响应体 | 校验目标 host 非内网/保留网段;错误信息不回显原始响应 | ✅ 已修复 |
+| 3 | **上传无校验 + 路径穿越** | `AssetService.upload:74-101` | 不校验类型/大小;`safeName = UUID + "_" + 原始名` 未 normalize,原名含多级 `../` 可逃逸 uploads 目录 | 白名单校验 MIME/扩展名/大小;对最终路径做 normalize 并确认仍在 uploads 内 | ✅ 已修复 |
+| 4 | **CORS 过宽** | `WebConfig.java:20-27`(及若存在的 `CorsFilter`) | `allowedOriginPatterns("*")` + `allowCredentials(true)` | 收敛为可信来源白名单 | ✅ 已修复 |
+| 5 | **异常信息外泄** | `GlobalExceptionHandler.handleAny:32-35` | 直接回显 `ex.getMessage()`,底层 SQL/IO 细节返回前端 | 生产环境返回通用文案,详情仅记日志 | ✅ 已修复 |
+| 6 | **前端无 401 处理** | `request.ts:120-131` | 响应拦截器只处理 503,token 失效后不自动登出/跳登录 | 拦截 401 → `userStore.logout()` + 跳 `/login` | ✅ 已修复 |
+| 7 | **定时器泄漏** | `Stats.vue:536`、`Assets.vue:744` | `setInterval` 无 `onUnmounted` 清理,离开页面仍后台轮询,阻止 GC | 保存句柄并在 `onBeforeUnmount` 清理 | ✅ 已修复 |
+| 8 | **刷新后活跃任务不恢复轮询** | `GenerateImage.vue`(轮询仅在 `handleStartGenerate` 启动) | 刷新页面时若有 running 任务,进度条永久卡住 | `onMounted` 检测未完成任务并恢复 `startTaskPolling` | ✅ 已修复 |
+
+> 补充:**token 存 localStorage**(`user.ts:14-34`、`request.ts:80`)在 XSS 下可被读取,属常见权衡;建议至少配合严格 CSP。`MainLayout.vue:571` 还手写 `fetch` 直接拼 token,绕过了统一封装,建议归并。
+
+> **✅ 中危修复说明(2026-05-30)**:本轮修复了 #2~#6 五项,经后端重新编译启动验证。
+> - **#2 SSRF**:新增 `common/security/SsrfGuard`,在所有用户可控的服务端外发请求前校验目标主机,拦截私有网段 / 链路本地(含 `169.254.169.254` 云元数据) / 任意 / 组播地址,放行回环地址(兼容本地模型代理)。接入点:`ModelProviderService.resolveEndpoint`、`OpenAiImageClient.resolveEndpoint` 与下载方法、`GenerationService` 媒体下载与 `postJson`。
+> - **#3 上传**:`AssetService.upload` 增加大小(50MB)、扩展名白名单、MIME 前缀校验;剥离文件名路径分量后对最终落盘路径做 `normalize()` + 目录包含校验;`application.yml` 同步放开 multipart 上限至 50MB。
+> - **#4 CORS**:`CorsFilter` 改为按 `app.cors.allowed-origins` 白名单(默认仅 localhost)回显 Origin + 凭证,非白名单来源不再获得凭证跨域、预检直接 403;移除 `WebConfig` 中 `allowedOriginPatterns("*")` 的重复映射。
+> - **#5 异常外泄**:`GlobalExceptionHandler.handleAny` 不再回显原始异常 message,改为记日志 + 返回通用文案;业务异常仍正常回显。
+> - **#6 前端 401**:`request.ts` 拦截 401 → 清本地会话并派发 `auth-unauthorized` 事件,`App.vue` 监听后 `logout()` 并跳转登录页(沿用项目既有事件解耦模式,避免循环依赖)。
+> - **#1 额度**:经产品决策暂不启用硬性拦截。
+> - **#7/#8**(2026-05-30 补充修复):`Stats.vue` / `Assets.vue` 的 `setInterval` 已保存句柄并在 `onUnmounted` 清理;`GenerateImage.vue` 新增 `restoreActiveTaskPolling()`,`onMounted` 时检测当前项目下 pending/running 任务并恢复进度展示与轮询。前端 `vue-tsc` 类型检查通过。
+
+---
+
+## 4. 🟢 轻微问题
+
+| # | 问题 | 位置 | 说明 | 状态 |
+|---|------|------|------|------|
+| 1 | 轮询不随页面隐藏暂停 | `GenerateImage.vue:955`、`GenerateVideo.vue:483`、`Tasks.vue:229` | 后台标签页持续轮询;单次耗时 >2s 时请求重叠。建议加 in-flight 标志 + `document.visibilityState` 判断 | ✅ 已修复 |
+| 2 | 任意写操作清空整个缓存 | `request.ts:114-115` | 任一非 GET 请求 `cacheStore.clear()` 清掉全部缓存;缓存 key 不含用户标识。建议按 URL 前缀精准失效 | ✅ 已修复 |
+| 3 | 大量 `as any` | `GenerateImage.vue:314-323`、`Tasks.vue` 等 | 类型保护失效,建议补类型定义 | 🔸 部分修复(清理真实类型漏洞,详见下方说明) |
+| 4 | 巨型组件 | `GenerateImage.vue`(2165 行) | 建议拆分:表单 / Canvas 遮罩 / 历史 / 轮询逻辑 | 未处理(回归风险高,建议单独排期) |
+| 5 | 可访问性缺失 | `GenerateImage.vue:247/294/372`、`Tasks.vue:145`、`GenerateVideo.vue:170` | `<img>` 缺 `alt`、图标按钮缺 `aria-label`、`<video>` 无字幕轨 | ✅ 已修复(`<img>` 补 `alt`、`<video>` 补 `aria-label`) |
+| 6 | 线程池无界队列 | `GenerationService.java:66` | `newFixedThreadPool(4)` 无界队列、无拒绝策略,过载会堆积内存。建议改用有界队列 + 拒绝策略 | ✅ 已修复 |
+
+> PWA(`vite.config.ts:27`):`autoUpdate` + precache 含 `html`,同源部署时建议补 `navigateFallbackDenylist: [/^\/api/]` 以防误缓存 API。当前 API 在 `localhost:8080` 跨域,未被 SW 缓存,风险低。
+
+> **✅ 轻微问题修复说明(2026-05-30)**:本轮修复 #1、#2、#5、#6,前端 `vue-tsc` 类型检查通过、后端编译启动无误。
+> - **#1 轮询**:`Tasks.vue` 自动刷新加 `isRefreshing` in-flight 标志 + `document.visibilityState` 判断;`GenerateImage.vue` / `GenerateVideo.vue` 的 `startTaskPolling` 加 `taskSyncing` 标志,页面隐藏时暂停、上次未完成时跳过。
+> - **#2 缓存**:`request.ts` 写操作不再 `cacheStore.clear()` 清整表,改为 `invalidateByWrite()` 按 `/api/<集合>` 前缀精准失效(15s TTL 兜底跨集合脏数据)。
+> - **#5 可访问性**:`GenerateImage.vue` / `GenerateVideo.vue` / `Tasks.vue` 的关键 `<img>` 补 `alt`,生成结果 `<video>` 补 `aria-label`。图标按钮 `aria-label` 因覆盖面广、价值低,本轮未做全量铺设。
+> - **#6 线程池**:`GenerationService` 改用有界队列(容量 50)+ `AbortPolicy` 的 `ThreadPoolExecutor`,队列满时拒绝并将任务标记失败、返回「当前生成任务过多，请稍后重试」,避免内存堆积。
+> - **#3/#4**:类型清理与巨型组件拆分本轮未做(#4 回归风险高,建议单独排期)。
+
+> **🔸 `as any` 清理说明(2026-05-30)**:本轮聚焦清理「掩盖真实问题」的 `as any`,从全项目 60 处降至 49 处,`vue-tsc` 通过。
+> - `GenerateImage.vue`(9→2):删除 5 处读取后端 `AssetVO` 根本不返回的字段(`width/height/cfg/steps`)的死代码(`as any` 曾掩盖其恒为 `undefined`),改用 `form` 值与尺寸标签;3 处对 `Asset | string` 的 `.id` 访问改用 `assetId()` 类型守卫 + 类型谓词过滤——后者还修复了 `filter(Boolean)` 未能收窄 `undefined` 的潜在 bug。
+> - `PromptTemplates.vue`(4→0):`tpl`/DTO 本就符合 `PromptTemplate` 类型,移除冗余强转。
+> - **剩余 49 处为良性**:绝大多数是 `(res as any).data` 这一系统性模式(响应拦截器在运行时返回解包后的 `ApiResult` 体,但 axios 仍按 `AxiosResponse` 标注类型)与 `(window as any)` 运行时全局访问(主题切换、SockJS),均非掩盖 bug 的类型漏洞。根治需对 axios 响应类型做一次全局重声明,改动面大、回归风险高,建议单独排期。
+
+---
+
+## 5. 已确认无问题的点
+
+- **异步用户上下文处理正确**:`GenerationService.submitImageTask` 在提交线程池前已捕获 `userId` 并传入 lambda(`:109`、`:225`),未在子线程调用 `StpUtil`,不存在跨线程上下文丢失问题。
+- **`currentAsset` computed 副作用已修复**:`GenerateImage.vue:994` 现为纯计算属性,异步加载逻辑已移至 `ensureTaskAssetsLoaded`(由轮询/提交成功分支调用),写法正确。
+
+---
+
+## 6. 建议修复顺序
+
+1. ~~**立即**:第 2.1 项(注册 `SaInterceptor` + apiKey 脱敏)。~~ ✅ 已完成。**注意**:报告期间已泄露过明文的 API 密钥仍建议轮换。
+2. ~~**短期**:第 2.2(越权校验)、第 2.3(密码哈希)、中等 #5(异常外泄)、#6(前端 401)~~ ✅ 已完成;**剩余**:中等 #1(额度,经决策暂缓)。
+3. ~~**中期**:SSRF、上传校验、CORS 收敛、定时器泄漏、刷新恢复轮询~~ ✅ 已完成。
+4. **持续**:轻微问题随迭代逐步清理。

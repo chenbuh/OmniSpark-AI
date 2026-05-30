@@ -1,0 +1,88 @@
+# 前后端联调与集成指南 (Frontend Integration Guide)
+
+本系统是一款专为生图与视频创作平台 MVP 设计的**纯前端高保真管理系统**。为了让您在编写 Spring Boot 后端时能够无缝对接，系统在设计之初就做好了完善的接口层封装和 DTO/VO 对齐。
+
+---
+
+## 1. 前端目录与架构设计
+
+前端基于 **Vue 3 (Setup 语法) + TypeScript + Vite + Naive UI + Pinia + Axios** 搭建。核心文件结构如下：
+
+```text
+src/
+├── main.ts             # 挂载入口（全局 Naive UI 插件注入、全局缓存预置、支持自动登录）
+├── App.vue             # 根组件（设置全局 Provider，并直接在模板层挂载 RouterView 规避黑屏）
+├── api/                # API 统一封装层（重点！与后端接口完全对齐）
+│   ├── request.ts      # Axios 公共实例（处理 Token 传输与统一响应码）
+│   ├── auth.ts         # 认证相关接口 (Sa-Token Token)
+│   ├── projects.ts     # 项目空间管理接口
+│   ├── providers.ts    # 模型提供商管理接口 (包含一键测试连接)
+│   ├── generation.ts   # 文生图、图生图、文生视频、图生视频触发接口
+│   ├── tasks.ts        # 任务中心队列查询、重试、删除接口
+│   ├── assets.ts       # 共享素材资产库管理接口
+│   └── templates.ts    # 提示词模板数据库接口
+├── router/             # 路由配置表与全局前置守卫拦截
+├── store/              # Pinia 状态管理层（负责高拟真 LocalStorage 数据库驱动）
+│   ├── user.ts         # 用户身份与认证状态
+│   ├── project.ts      # 项目空间列表与隔离激活
+│   ├── provider.ts     # 模型提供商数据管理与测试测试
+│   ├── asset.ts        # 共享资产瀑布流与后端资产数据
+│   └── task.ts         # 任务队列数据同步
+├── layouts/            # 框架毛玻璃侧边栏主布局 (MainLayout.vue)
+├── views/              # 10 个独立路由业务页面组件
+└── assets/             # 全局公共样式 style.css
+```
+
+### 1.1 路由拦截设计 (Vue Router 4 最新规范)
+
+为了适配 `Vue Router 4` 规避废弃警告，系统的全局前置守卫（`src/router/index.ts`）已采用**现代返回值设计**代替了传统的 `next()` 回调：
+* 未登录用户访问非 `/login` 页面时，守卫直接返回 `{ name: 'Login' }` 重定向。
+* 已登录用户重复访问登录页时，守卫直接返回 `{ name: 'Dashboard' }`。
+* 正常通行时直接返回 `true`。
+
+---
+
+## 2. API 对接与联调规范
+
+前端所有的 API 请求都封装在 `src/api/` 下，使用标准的 `axios` 发送。
+
+### 2.1 统一请求头 (Sa-Token)
+在 `src/api/request.ts` 中，我们配置了请求拦截器。当浏览器中存在 `satoken` 缓存时，会自动在 HTTP 请求头中添加名为 `satoken` 的 Key：
+```typescript
+config.headers['satoken'] = localStorage.getItem('satoken')
+```
+您的 Spring Boot 后端仅需引入 `sa-token-spring-boot3-starter` 并在 Controller 或 Filter 中开启鉴权，即可直接无缝接收并识别该 Token！
+
+### 2.2 统一响应体 (ApiResult)
+前端响应拦截器严格期望后端返回如下 JSON 格式：
+```json
+{
+  "code": 200,      // 成功状态码为 200
+  "message": "操作成功",
+  "data": { ... }   // 对应的业务 VO 数据
+}
+```
+
+---
+
+## 3. 后端开发交接说明
+
+当您开始编写 Spring Boot Controller 时，以下是与前端 API 绑定的契合点：
+
+| 功能模块 | 前端 API 调用 | 后端接口端点 (Endpoint) | 期望 DTO/VO |
+| :--- | :--- | :--- | :--- |
+| **登录认证** | `authApi.login()` | `POST /api/auth/login` | DTO: `{username, password}` |
+| **账号注册** | `authApi.register()` | `POST /api/auth/register` | DTO: `{username, passwordHash, nickname}` |
+| **项目空间** | `projectApi.getProjects()` | `GET /api/projects` | 返回当前用户的所有 Project 列表 |
+| **模型配置** | `providerApi.testConnection()` | `POST /api/model-providers/{id}/test` | 后端执行远程 API Ping 测试连接 |
+| **构建生图** | `generationApi.generateImage()` | `POST /api/generation/image` | 接收 ImageGenerateDTO 并写入任务表 |
+| **构建视频** | `generationApi.generateVideo()` | `POST /api/generation/video` | 接收 VideoGenerateDTO 并写入任务表 |
+| **异步队列** | `taskApi.getTasks()` | `GET /api/tasks` | 返回任务列表，包含状态与渲染进度 |
+| **资产库** | `assetApi.getAssets()` | `GET /api/assets` | 支持过滤，返回图像/视频资产列表 |
+
+## 4. UI 排版美化与全局暗黑主题挂载说明
+
+为了解决纯前端环境下某些浏览器对暗黑样式的兼容，系统进行了如下架构加固：
+1. **全局组件渗透**：在 `src/App.vue` 中使用 Naive UI 官方 `<n-layout>` 作为根渲染节点，替代了普通的 `<div>`。这使得全站的自定义 HTML5 标签（如 `h1`, `h2`, `p`, 列表等）以及各种基础字族能够完美继承 Naive UI 全局暗黑主题下的 `bodyColor`、`textColor` 以及字体平滑规则，彻底消除了惨白、反差刺眼的“未适配”感。
+2. **图标与菜单结构对齐**：在 `src/layouts/MainLayout.vue` 中，菜单选项的图标生成器 `renderIcon` 升级为使用 Naive UI 官方推荐 of `<NIcon>` 进行编程式包裹渲染。这完美激活了侧边栏内置的高度、行高与间距 CSS 选择器，彻底解决了先前由于类名缺失导致的菜单高度塌陷与文字重合等排版大 Bug，带给用户丝滑均衡的比例对齐。
+3. **品牌名称视觉统一 (Brand Renaming)**：系统品牌名称正式由 `Antigravity AI` 重塑为更契合文生图与生视频领域、富有爆发力的 **`OmniSpark AI`（中文推荐译名：万曜智能 / 万影 AI）**。已在 index.html Title、 package.json 属性、全局侧边栏 Logo 以及登录/注册头部信息中完成了全方位的文本更迭，实现系统级品牌视觉统一。

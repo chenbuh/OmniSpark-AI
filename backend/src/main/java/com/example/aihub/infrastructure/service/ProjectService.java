@@ -1,0 +1,231 @@
+package com.example.aihub.infrastructure.service;
+
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.example.aihub.common.exception.BusinessException;
+import com.example.aihub.common.util.SecurityUtil;
+import com.example.aihub.common.util.VoMapper;
+import com.example.aihub.infrastructure.dto.ProjectSaveDTO;
+import com.example.aihub.infrastructure.dto.StyleCardSaveDTO;
+import com.example.aihub.infrastructure.entity.*;
+import com.example.aihub.infrastructure.mapper.*;
+import com.example.aihub.infrastructure.vo.*;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import lombok.RequiredArgsConstructor;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
+import java.util.*;
+import java.util.stream.Collectors;
+
+@Service
+@RequiredArgsConstructor
+public class ProjectService {
+    private final ProjectMapper projectMapper;
+    private final ProjectShareMapper shareMapper;
+    private final TeamMemberMapper teamMemberMapper;
+    private final ModelProviderMapper providerMapper;
+    private final PromptTemplateMapper templateMapper;
+    private final StyleCardMapper styleCardMapper;
+    private final WorkflowMapper workflowMapper;
+    private final WorkflowRunMapper workflowRunMapper;
+    private final AssetMapper assetMapper;
+    private final ObjectMapper objectMapper;
+
+    // ===== 原有 listMine / create / update / delete 保持不变 =====
+
+    public List<ProjectVO> listMine() {
+        // ... (existing code)
+        Long userId = SecurityUtil.loginUserId();
+        List<Project> myProjects = projectMapper.selectList(new LambdaQueryWrapper<Project>()
+                .eq(Project::getUserId, userId)
+                .orderByDesc(Project::getId));
+        List<TeamMember> memberships = teamMemberMapper.selectList(
+                new LambdaQueryWrapper<TeamMember>()
+                        .eq(TeamMember::getUserId, userId)
+                        .eq(TeamMember::getStatus, 1));
+        if (!memberships.isEmpty()) {
+            Set<Long> teamIds = memberships.stream().map(TeamMember::getTeamId).collect(Collectors.toSet());
+            List<ProjectShare> shares = shareMapper.selectList(
+                    new LambdaQueryWrapper<ProjectShare>().in(ProjectShare::getTeamId, teamIds));
+            if (!shares.isEmpty()) {
+                Set<Long> sharedProjectIds = shares.stream().map(ProjectShare::getProjectId).collect(Collectors.toSet());
+                Set<Long> myProjectIds = myProjects.stream().map(Project::getId).collect(Collectors.toSet());
+                sharedProjectIds.removeAll(myProjectIds);
+                if (!sharedProjectIds.isEmpty()) {
+                    List<Project> sharedProjects = projectMapper.selectList(
+                            new LambdaQueryWrapper<Project>().in(Project::getId, sharedProjectIds));
+                    myProjects.addAll(sharedProjects);
+                }
+            }
+        }
+        return myProjects.stream().map(item -> VoMapper.copy(item, ProjectVO.class)).toList();
+    }
+
+    @Transactional(rollbackFor = Exception.class)
+    public ProjectVO create(ProjectSaveDTO dto) {
+        Project project = new Project();
+        project.setUserId(SecurityUtil.loginUserId());
+        project.setName(dto.getName());
+        project.setDescription(dto.getDescription());
+        project.setStatus(1);
+        projectMapper.insert(project);
+        return VoMapper.copy(project, ProjectVO.class);
+    }
+
+    @Transactional(rollbackFor = Exception.class)
+    public ProjectVO update(Long id, ProjectSaveDTO dto) {
+        Project project = projectMapper.selectById(id);
+        if (project == null) throw new BusinessException("项目不存在");
+        Long userId = SecurityUtil.loginUserId();
+        if (!project.getUserId().equals(userId)) {
+            boolean isAdmin = shareMapper.selectCount(new LambdaQueryWrapper<ProjectShare>()
+                    .eq(ProjectShare::getProjectId, id)
+                    .in(ProjectShare::getTeamId, getMyTeamIds(userId))
+                    .in(ProjectShare::getPermission, "admin", "edit")) > 0;
+            if (!isAdmin) throw new BusinessException("没有编辑该项目的权限");
+        }
+        project.setName(dto.getName());
+        project.setDescription(dto.getDescription());
+        projectMapper.updateById(project);
+        return VoMapper.copy(project, ProjectVO.class);
+    }
+
+    @Transactional(rollbackFor = Exception.class)
+    public void delete(Long id) {
+        Project project = projectMapper.selectById(id);
+        if (project == null) throw new BusinessException("项目不存在");
+        if (!project.getUserId().equals(SecurityUtil.loginUserId()))
+            throw new BusinessException("只有项目所有者才能删除项目");
+        projectMapper.deleteById(id);
+    }
+
+    private List<Long> getMyTeamIds(Long userId) {
+        return teamMemberMapper.selectList(
+                new LambdaQueryWrapper<TeamMember>()
+                        .eq(TeamMember::getUserId, userId)
+                        .eq(TeamMember::getStatus, 1))
+                .stream().map(TeamMember::getTeamId).toList();
+    }
+
+    // ===== 导出/导入 =====
+
+    public ProjectExportVO exportProject(Long projectId) {
+        Project project = projectMapper.selectById(projectId);
+        if (project == null) throw new BusinessException("项目不存在");
+
+        ProjectExportVO vo = new ProjectExportVO();
+        vo.setVersion("1.0");
+        vo.setExportedAt(LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")));
+        vo.setProject(VoMapper.copy(project, ProjectVO.class));
+        vo.setProviders(providerMapper.selectList(
+                new LambdaQueryWrapper<ModelProvider>().eq(ModelProvider::getProjectId, projectId))
+                .stream().map(p -> VoMapper.copy(p, ModelProviderVO.class)).toList());
+        vo.setPromptTemplates(templateMapper.selectList(
+                new LambdaQueryWrapper<PromptTemplate>().eq(PromptTemplate::getProjectId, projectId))
+                .stream().map(t -> VoMapper.copy(t, PromptTemplateVO.class)).toList());
+        vo.setStyleCards(styleCardMapper.selectList(
+                new LambdaQueryWrapper<StyleCard>().eq(StyleCard::getProjectId, projectId))
+                .stream().map(s -> VoMapper.copy(s, StyleCardVO.class)).toList());
+        vo.setWorkflows(workflowMapper.selectList(
+                new LambdaQueryWrapper<Workflow>().eq(Workflow::getProjectId, projectId))
+                .stream().map(w -> {
+                    Map<String, Object> m = new LinkedHashMap<>();
+                    m.put("id", w.getId());
+                    m.put("name", w.getName());
+                    m.put("description", w.getDescription());
+                    m.put("stepsJson", w.getStepsJson());
+                    return m;
+                }).toList());
+        vo.setAssets(assetMapper.selectList(
+                new LambdaQueryWrapper<Asset>().eq(Asset::getProjectId, projectId))
+                .stream().map(a -> {
+                    Map<String, Object> m = new LinkedHashMap<>();
+                    m.put("id", a.getId());
+                    m.put("assetType", a.getAssetType());
+                    m.put("fileName", a.getFileName());
+                    m.put("fileUrl", a.getFileUrl());
+                    m.put("mimeType", a.getMimeType());
+                    m.put("fileSize", a.getFileSize());
+                    m.put("prompt", a.getPrompt());
+                    m.put("modelName", a.getModelName());
+                    return m;
+                }).toList());
+        return vo;
+    }
+
+    @Transactional(rollbackFor = Exception.class)
+    public Long importProject(ProjectExportVO data) {
+        if (data.getProject() == null) throw new BusinessException("导入数据缺少项目信息");
+
+        // 创建项目
+        Project project = new Project();
+        project.setUserId(SecurityUtil.loginUserId());
+        project.setName(data.getProject().getName() + " (导入)");
+        project.setDescription(data.getProject().getDescription());
+        project.setStatus(1);
+        projectMapper.insert(project);
+        Long newId = project.getId();
+
+        // 导入模型提供商
+        if (data.getProviders() != null) {
+            for (ModelProviderVO p : data.getProviders()) {
+                ModelProvider entity = new ModelProvider();
+                entity.setProjectId(newId);
+                entity.setName(p.getName());
+                entity.setType(p.getType());
+                entity.setBaseUrl(p.getBaseUrl());
+                entity.setApiKey(p.getApiKey());
+                entity.setModelName(p.getModelName());
+                entity.setEnabled(p.getEnabled());
+                entity.setIsDefault(p.getIsDefault());
+                providerMapper.insert(entity);
+            }
+        }
+
+        // 导入提示词模板
+        if (data.getPromptTemplates() != null) {
+            for (PromptTemplateVO t : data.getPromptTemplates()) {
+                PromptTemplate entity = new PromptTemplate();
+                entity.setProjectId(newId);
+                entity.setName(t.getName());
+                entity.setContent(t.getContent());
+                entity.setTag(t.getTag());
+                entity.setStatus(1);
+                templateMapper.insert(entity);
+            }
+        }
+
+        // 导入风格卡
+        if (data.getStyleCards() != null) {
+            for (StyleCardVO s : data.getStyleCards()) {
+                StyleCard entity = new StyleCard();
+                entity.setProjectId(newId);
+                entity.setName(s.getName());
+                entity.setType(s.getType());
+                entity.setContent(s.getContent());
+                entity.setNegativePrompt(s.getNegativePrompt());
+                entity.setModelName(s.getModelName());
+                entity.setTag(s.getTag());
+                entity.setStatus(1);
+                styleCardMapper.insert(entity);
+            }
+        }
+
+        // 导入工作流
+        if (data.getWorkflows() != null) {
+            for (Map<String, Object> w : data.getWorkflows()) {
+                Workflow entity = new Workflow();
+                entity.setProjectId(newId);
+                entity.setName((String) w.getOrDefault("name", "导入工作流"));
+                entity.setDescription((String) w.getOrDefault("description", ""));
+                entity.setStepsJson((String) w.getOrDefault("stepsJson", "[]"));
+                entity.setStatus(1);
+                workflowMapper.insert(entity);
+            }
+        }
+
+        return newId;
+    }
+}

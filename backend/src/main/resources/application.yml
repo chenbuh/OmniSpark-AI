@@ -1,0 +1,55 @@
+spring:
+  application:
+    name: aihub-backend
+  datasource:
+    url: jdbc:mysql://127.0.0.1:3306/aihub?useUnicode=true&characterEncoding=utf8&useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=Asia/Shanghai
+    username: ${DB_USERNAME:root}
+    password: ${DB_PASSWORD:}
+    driver-class-name: com.mysql.cj.jdbc.Driver
+  data:
+    redis:
+      host: 127.0.0.1
+      port: 6379
+      database: 0
+  sql:
+    init:
+      mode: always
+      schema-locations: classpath:schema.sql
+      encoding: utf-8
+  jackson:
+    time-zone: Asia/Shanghai
+    date-format: yyyy-MM-dd HH:mm:ss
+  servlet:
+    multipart:
+      max-file-size: 50MB
+      max-request-size: 50MB
+  task:
+    scheduling:
+      pool:
+        size: 5
+
+app:
+  version: 1.0.0
+  build-time: 2025-07-20
+  cors:
+    # 可信来源白名单（逗号分隔），仅这些来源允许携带凭证跨域。生产环境部署后追加正式域名。
+    allowed-origins: http://localhost:5173,http://127.0.0.1:5173,http://localhost:8080,http://127.0.0.1:8080
+
+server:
+  port: 8080
+
+mybatis-plus:
+  configuration:
+    map-underscore-to-camel-case: true
+    log-impl: org.apache.ibatis.logging.stdout.StdOutImpl
+  global-config:
+    db-config:
+      id-type: auto
+
+sa-token:
+  token-name: satoken
+  token-prefix: ""
+  is-log: true
+  is-concurrent: true
+  is-share: false
+  token-style: tik

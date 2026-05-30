@@ -1,0 +1,241 @@
+package com.example.aihub.module.system;
+
+import cn.dev33.satoken.annotation.SaCheckLogin;
+import cn.dev33.satoken.annotation.SaCheckRole;
+import com.example.aihub.common.result.ApiResult;
+import com.example.aihub.common.util.PasswordUtil;
+import com.example.aihub.infrastructure.entity.User;
+import com.example.aihub.infrastructure.mapper.UserMapper;
+import com.example.aihub.infrastructure.vo.UserVO;
+import jakarta.servlet.http.HttpServletResponse;
+import lombok.RequiredArgsConstructor;
+import org.springframework.web.bind.annotation.*;
+
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+
+@RestController
+@RequiredArgsConstructor
+@RequestMapping("/api/admin/users")
+@SaCheckLogin
+@SaCheckRole("admin")
+public class UserAdminController {
+    private final UserMapper userMapper;
+
+    @GetMapping
+    public ApiResult<List<UserVO>> list(@RequestParam(required = false) String search) {
+        List<User> users;
+        if (search != null && !search.isBlank()) {
+            users = userMapper.selectList(new com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper<User>()
+                    .like(User::getUsername, search)
+                    .or().like(User::getNickname, search));
+        } else {
+            users = userMapper.selectList(new com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper<User>()
+                    .orderByDesc(User::getId));
+        }
+        return ApiResult.ok(users.stream().map(u -> {
+            UserVO vo = new UserVO();
+            vo.setId(u.getId());
+            vo.setUsername(u.getUsername());
+            vo.setNickname(u.getNickname());
+            vo.setAvatar(u.getAvatar());
+            vo.setRole(u.getRole());
+            vo.setStatus(u.getStatus());
+            vo.setCreatedAt(u.getCreatedAt());
+            return vo;
+        }).toList());
+    }
+
+    @PutMapping("/{id}/role")
+    public ApiResult<Void> updateRole(@PathVariable Long id, @RequestParam String role) {
+        User user = userMapper.selectById(id);
+        if (user == null) return ApiResult.fail("用户不存在");
+        user.setRole(role);
+        userMapper.updateById(user);
+        return ApiResult.ok();
+    }
+
+    @PutMapping("/{id}/status")
+    public ApiResult<Void> updateStatus(@PathVariable Long id, @RequestParam Integer status) {
+        User user = userMapper.selectById(id);
+        if (user == null) return ApiResult.fail("用户不存在");
+        user.setStatus(status);
+        userMapper.updateById(user);
+        return ApiResult.ok();
+    }
+
+    // ===== 创建用户 =====
+
+    @PostMapping
+    public ApiResult<UserVO> create(@RequestParam String username,
+                                     @RequestParam(required = false, defaultValue = "123456") String password,
+                                     @RequestParam(required = false, defaultValue = "") String nickname,
+                                     @RequestParam(required = false, defaultValue = "user") String role) {
+        Long exists = userMapper.selectCount(
+                new com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper<User>()
+                        .eq(User::getUsername, username));
+        if (exists != null && exists > 0) {
+            return ApiResult.fail("用户名已存在");
+        }
+        User user = new User();
+        user.setUsername(username);
+        user.setPassword(PasswordUtil.encode(password));
+        user.setNickname(nickname.isBlank() ? username : nickname);
+        user.setRole(role);
+        user.setStatus(1);
+        userMapper.insert(user);
+
+        UserVO vo = new UserVO();
+        vo.setId(user.getId());
+        vo.setUsername(user.getUsername());
+        vo.setNickname(user.getNickname());
+        vo.setRole(user.getRole());
+        vo.setStatus(user.getStatus());
+        vo.setCreatedAt(user.getCreatedAt());
+        return ApiResult.ok(vo);
+    }
+
+    // ===== 更新昵称 =====
+
+    @PutMapping("/{id}/nickname")
+    public ApiResult<Void> updateNickname(@PathVariable Long id, @RequestParam String nickname) {
+        User user = userMapper.selectById(id);
+        if (user == null) return ApiResult.fail("用户不存在");
+        user.setNickname(nickname);
+        userMapper.updateById(user);
+        return ApiResult.ok();
+    }
+
+    // ===== 重置密码 =====
+
+    @PutMapping("/{id}/reset-password")
+    public ApiResult<Void> resetPassword(@PathVariable Long id,
+                                          @RequestParam(required = false, defaultValue = "123456") String password) {
+        User user = userMapper.selectById(id);
+        if (user == null) return ApiResult.fail("用户不存在");
+        user.setPassword(PasswordUtil.encode(password));
+        userMapper.updateById(user);
+        return ApiResult.ok();
+    }
+
+    // ===== 删除 =====
+
+    @DeleteMapping("/{id}")
+    public ApiResult<Void> delete(@PathVariable Long id) {
+        userMapper.deleteById(id);
+        return ApiResult.ok();
+    }
+
+    // ===== 导出 =====
+
+    @GetMapping("/export")
+    public void exportCsv(HttpServletResponse response) throws Exception {
+        response.setContentType("text/csv;charset=UTF-8");
+        response.setHeader("Content-Disposition", "attachment;filename=users_" + java.time.LocalDate.now() + ".csv");
+
+        StringBuilder csv = new StringBuilder();
+        csv.append("\uFEFF"); // BOM for Excel UTF-8
+        csv.append("ID,用户名,昵称,角色,状态\n");
+
+        List<User> users = userMapper.selectList(null);
+        for (User u : users) {
+            csv.append(u.getId()).append(",")
+               .append(u.getUsername()).append(",")
+               .append(u.getNickname() != null ? u.getNickname() : "").append(",")
+               .append(u.getRole()).append(",")
+               .append(u.getStatus()).append("\n");
+        }
+        response.getWriter().write(csv.toString());
+    }
+
+    // ===== 导入 =====
+
+    @PostMapping("/import")
+    public ApiResult<Map<String, Object>> importCsv(@RequestBody String csvBody) {
+        Map<String, Object> result = new LinkedHashMap<>();
+        int success = 0, failed = 0;
+        List<String> errors = new ArrayList<>();
+
+        try {
+            String[] lines = csvBody.split("\n");
+            for (int i = 1; i < lines.length; i++) { // 跳过标题行
+                String line = lines[i].trim();
+                if (line.isBlank() || line.startsWith("\uFEFF")) continue;
+                String[] parts = line.split(",", -1);
+                if (parts.length < 2) { failed++; continue; }
+
+                try {
+                    boolean exportedRow = isNumeric(parts[0].trim());
+                    String username = exportedRow ? safePart(parts, 1) : safePart(parts, 0);
+                    if (username.isBlank()) {
+                        errors.add("行 " + (i + 1) + " 用户名为空，已跳过");
+                        failed++;
+                        continue;
+                    }
+                    String password = exportedRow ? "123456" : defaultIfBlank(safePart(parts, 1), "123456");
+                    String nickname = exportedRow
+                            ? defaultIfBlank(safePart(parts, 2), username)
+                            : defaultIfBlank(safePart(parts, 2), username);
+                    String role = exportedRow
+                            ? defaultIfBlank(safePart(parts, 3), "user")
+                            : defaultIfBlank(safePart(parts, 3), "user");
+                    int status = exportedRow ? parseStatus(safePart(parts, 4)) : 1;
+
+                    // 检查是否已存在
+                    Long exists = userMapper.selectCount(
+                            new com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper<User>()
+                                    .eq(User::getUsername, username));
+                    if (exists != null && exists > 0) {
+                        errors.add("用户 " + username + " 已存在，跳过");
+                        failed++; continue;
+                    }
+
+                    User user = new User();
+                    user.setUsername(username);
+                    user.setPassword(PasswordUtil.encode(password));
+                    user.setNickname(nickname);
+                    user.setRole(role);
+                    user.setStatus(status);
+                    userMapper.insert(user);
+                    success++;
+                } catch (Exception e) {
+                    errors.add("行 " + (i + 1) + " 导入失败: " + e.getMessage());
+                    failed++;
+                }
+            }
+        } catch (Exception e) {
+            return ApiResult.fail("导入失败: " + e.getMessage());
+        }
+
+        result.put("success", success);
+        result.put("failed", failed);
+        result.put("errors", errors);
+        return ApiResult.ok(result);
+    }
+
+    private static String safePart(String[] parts, int index) {
+        return parts.length > index ? parts[index].trim() : "";
+    }
+
+    private static String defaultIfBlank(String value, String fallback) {
+        return value == null || value.isBlank() ? fallback : value;
+    }
+
+    private static boolean isNumeric(String value) {
+        if (value == null || value.isBlank()) {
+            return false;
+        }
+        for (int i = 0; i < value.length(); i++) {
+            if (!Character.isDigit(value.charAt(i))) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private static int parseStatus(String value) {
+        return "0".equals(value) ? 0 : 1;
+    }
+}

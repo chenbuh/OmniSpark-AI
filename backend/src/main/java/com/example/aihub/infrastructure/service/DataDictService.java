@@ -1,0 +1,106 @@
+package com.example.aihub.infrastructure.service;
+
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.example.aihub.common.exception.BusinessException;
+import com.example.aihub.infrastructure.entity.DataDict;
+import com.example.aihub.infrastructure.entity.DataDictItem;
+import com.example.aihub.infrastructure.mapper.DataDictItemMapper;
+import com.example.aihub.infrastructure.mapper.DataDictMapper;
+import lombok.RequiredArgsConstructor;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
+import java.util.List;
+
+@Service
+@RequiredArgsConstructor
+public class DataDictService {
+    private final DataDictMapper dictMapper;
+    private final DataDictItemMapper itemMapper;
+
+    // ===== 字典 CRUD =====
+
+    public List<DataDict> listDicts() {
+        return dictMapper.selectList(new LambdaQueryWrapper<DataDict>().orderByDesc(DataDict::getId));
+    }
+
+    public DataDict getDict(Long id) {
+        DataDict dict = dictMapper.selectById(id);
+        if (dict == null) throw new BusinessException("字典不存在");
+        return dict;
+    }
+
+    @Transactional(rollbackFor = Exception.class)
+    public DataDict createDict(String code, String name, String description) {
+        Long exists = dictMapper.selectCount(new LambdaQueryWrapper<DataDict>().eq(DataDict::getDictCode, code));
+        if (exists != null && exists > 0) throw new BusinessException("字典编码已存在");
+        DataDict dict = new DataDict();
+        dict.setDictCode(code);
+        dict.setDictName(name);
+        dict.setDescription(description);
+        dict.setStatus(1);
+        dictMapper.insert(dict);
+        return dict;
+    }
+
+    @Transactional(rollbackFor = Exception.class)
+    public DataDict updateDict(Long id, String name, String description) {
+        DataDict dict = dictMapper.selectById(id);
+        if (dict == null) throw new BusinessException("字典不存在");
+        dict.setDictName(name);
+        dict.setDescription(description);
+        dictMapper.updateById(dict);
+        return dict;
+    }
+
+    @Transactional(rollbackFor = Exception.class)
+    public void deleteDict(Long id) {
+        dictMapper.deleteById(id);
+        itemMapper.delete(new LambdaQueryWrapper<DataDictItem>().eq(DataDictItem::getDictId, id));
+    }
+
+    // ===== 字典条目 CRUD =====
+
+    public List<DataDictItem> listItems(Long dictId) {
+        return itemMapper.selectList(new LambdaQueryWrapper<DataDictItem>()
+                .eq(DataDictItem::getDictId, dictId)
+                .orderByAsc(DataDictItem::getSortOrder)
+                .orderByAsc(DataDictItem::getId));
+    }
+
+    public List<DataDictItem> getItemsByCode(String dictCode) {
+        DataDict dict = dictMapper.selectOne(new LambdaQueryWrapper<DataDict>().eq(DataDict::getDictCode, dictCode));
+        if (dict == null) return List.of();
+        return listItems(dict.getId());
+    }
+
+    @Transactional(rollbackFor = Exception.class)
+    public DataDictItem createItem(Long dictId, String code, String name, Integer sortOrder) {
+        DataDict dict = dictMapper.selectById(dictId);
+        if (dict == null) throw new BusinessException("字典不存在");
+        DataDictItem item = new DataDictItem();
+        item.setDictId(dictId);
+        item.setItemCode(code);
+        item.setItemName(name);
+        item.setSortOrder(sortOrder != null ? sortOrder : 0);
+        item.setStatus(1);
+        itemMapper.insert(item);
+        return item;
+    }
+
+    @Transactional(rollbackFor = Exception.class)
+    public DataDictItem updateItem(Long id, String name, Integer sortOrder, Integer status) {
+        DataDictItem item = itemMapper.selectById(id);
+        if (item == null) throw new BusinessException("条目不存在");
+        if (name != null) item.setItemName(name);
+        if (sortOrder != null) item.setSortOrder(sortOrder);
+        if (status != null) item.setStatus(status);
+        itemMapper.updateById(item);
+        return item;
+    }
+
+    @Transactional(rollbackFor = Exception.class)
+    public void deleteItem(Long id) {
+        itemMapper.deleteById(id);
+    }
+}

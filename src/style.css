@@ -1,0 +1,34 @@
+/* 自定义全局科技滚动条样式 */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: rgba(0, 0, 0, 0.1);
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(128, 128, 128, 0.2);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(16, 185, 129, 0.3); /* 悬浮时变绿 */
+}
+
+/* 选择文本高亮 */
+::selection {
+  background-color: rgba(16, 185, 129, 0.3);
+  color: #fff;
+}
+
+/* 霓虹文字发光辅助 */
+.neon-glow-text {
+  text-shadow: 0 0 10px rgba(16, 185, 129, 0.5);
+}
+
+/* 常用渐变背景工具 */
+.gradient-primary-bg {
+  background: linear-gradient(135deg, #10b981 0%, #3b82f6 100%);
+}

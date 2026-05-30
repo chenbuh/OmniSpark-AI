@@ -1,0 +1,154 @@
+<template>
+  <div class="admin-tasks">
+    <div class="page-header">
+      <h2>全局任务监管 (Task Supervision)</h2>
+      <p class="subtitle">查看和管理所有用户的任务。</p>
+    </div>
+
+    <n-card class="glass-card" :bordered="false">
+      <div class="toolbar">
+        <n-space>
+          <n-select v-model:value="statusFilter" :options="statusOptions" placeholder="状态" style="width:120px" clearable @update:value="loadTasks" />
+          <n-select v-model:value="typeFilter" :options="typeOptions" placeholder="类型" style="width:120px" clearable @update:value="loadTasks" />
+          <n-input v-model:value="searchText" placeholder="搜索提示词..." style="width:200px;" clearable @update:value="loadTasks" />
+        </n-space>
+        <span class="count">共 {{ tasks.length }} 条</span>
+      </div>
+
+      <n-table :single-line="false" class="admin-table">
+        <thead>
+          <tr>
+            <th style="width:55px">ID</th>
+            <th style="width:65px">项目</th>
+            <th style="width:55px">类型</th>
+            <th>提示词</th>
+            <th style="width:75px">模型</th>
+            <th style="width:65px">状态</th>
+            <th style="width:55px">进度</th>
+            <th style="width:110px">操作</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr v-for="t in tasks" :key="t.id">
+            <td><code>#{{ t.id }}</code></td>
+            <td>{{ t.projectId }}</td>
+            <td><n-tag size="small" :type="t.taskType==='image'?'success':'warning'" round>{{ t.taskType==='image'?'生图':'视频' }}</n-tag></td>
+            <td><n-ellipsis :line-clamp="1" :tooltip="true">{{ t.prompt }}</n-ellipsis></td>
+            <td><n-tag size="mini" type="info" :bordered="false"><code>{{ t.modelName }}</code></n-tag></td>
+            <td><n-tag size="small" :type="t.status==='success'?'success':t.status==='failed'?'error':'warning'">{{ t.status }}</n-tag></td>
+            <td>{{ t.progress }}%</td>
+            <td>
+              <n-space :size="4">
+                <n-button size="tiny" quaternary @click="showDetail(t)"><template #icon><FileText /></template></n-button>
+                <n-button size="tiny" type="error" tertiary @click="handleDelete(t.id)"><template #icon><Trash2 /></template></n-button>
+              </n-space>
+            </td>
+          </tr>
+          <tr v-if="tasks.length===0"><td colspan="8" class="empty-cell">暂无任务</td></tr>
+        </tbody>
+      </n-table>
+    </n-card>
+
+    <!-- 详情抽屉 -->
+    <n-drawer v-model:show="showDrawer" :width="500" placement="right" class="glass-drawer">
+      <n-drawer-content :title="'任务 #' + (detail?.id||'')" closable>
+        <div v-if="detail" class="drawer-body">
+          <div class="ds-card">
+            <div class="ds-row"><span class="ds-lbl">状态</span>
+              <n-tag :type="detail.status==='success'?'success':detail.status==='failed'?'error':'warning'" round>{{ detail.status }}</n-tag>
+            </div>
+            <div class="ds-row"><span class="ds-lbl">进度</span><span>{{ detail.progress }}%</span></div>
+            <div class="ds-row" v-if="detail.progressText"><span class="ds-lbl">进度描述</span><span class="ds-val">{{ detail.progressText }}</span></div>
+            <div class="ds-row"><span class="ds-lbl">类型</span><span>{{ detail.taskType==='image'?'文生图/图生图':'视频' }}</span></div>
+            <div class="ds-row"><span class="ds-lbl">项目</span><span>项目 #{{ detail.projectId }}</span></div>
+          </div>
+          <div class="ds-card">
+            <div class="ds-row"><span class="ds-lbl">模型</span><n-tag size="small" type="info"><code>{{ detail.modelName }}</code></n-tag></div>
+            <div class="ds-row"><span class="ds-lbl">创建</span><span>{{ String(detail.createdAt||'').replace('T',' ').substring(0,19) }}</span></div>
+          </div>
+          <div class="ds-section"><h4 class="ds-title">提示词</h4><div class="ds-code">{{ detail.prompt }}</div></div>
+          <div class="ds-section" v-if="detail.negativePrompt"><h4 class="ds-title">负向提示词</h4><div class="ds-code">{{ detail.negativePrompt }}</div></div>
+          <div class="ds-section" v-if="detail.requestJson"><h4 class="ds-title">请求参数</h4><n-code :code="formatJson(detail.requestJson)" language="json" /></div>
+          <div class="ds-section" v-if="detail.responseJson"><h4 class="ds-title">响应数据</h4><n-code :code="formatJson(detail.responseJson)" language="json" /></div>
+          <div class="ds-section" v-if="detail.errorMessage">
+            <h4 class="ds-title" style="color:#ef4444;">错误信息</h4>
+            <n-alert type="error" :bordered="false" style="font-size:12px;">{{ detail.errorMessage }}</n-alert>
+          </div>
+        </div>
+      </n-drawer-content>
+    </n-drawer>
+  </div>
+</template>
+
+<script setup lang="ts">
+import { ref, onMounted } from 'vue'
+import { useMessage } from 'naive-ui'
+import { FileText, Trash2 } from 'lucide-vue-next'
+import request from '@/api/request'
+
+const message = useMessage()
+const tasks = ref<any[]>([])
+const statusFilter = ref<string | null>(null)
+const typeFilter = ref<string | null>(null)
+const searchText = ref('')
+const showDrawer = ref(false)
+const detail = ref<any>(null)
+
+const statusOptions = [
+  { label: '运行中', value: 'running' }, { label: '成功', value: 'success' }, { label: '失败', value: 'failed' }
+]
+const typeOptions = [
+  { label: '生图', value: 'image' }, { label: '视频', value: 'video' }
+]
+
+onMounted(loadTasks)
+
+async function loadTasks() {
+  try {
+    const params: Record<string, string> = {}
+    if (statusFilter.value) params.status = statusFilter.value
+    if (typeFilter.value) params.taskType = typeFilter.value
+    if (searchText.value) params.search = searchText.value
+    const res = await request.get('/api/admin/tasks', { params })
+    tasks.value = (res as any).data || []
+  } catch { tasks.value = [] }
+}
+
+async function handleDelete(id: number) {
+  try { await request.delete(`/api/admin/tasks/${id}`); tasks.value = tasks.value.filter(t => t.id !== id); message.success('已删除') }
+  catch { message.error('删除失败') }
+}
+
+function showDetail(t: any) {
+  detail.value = t
+  showDrawer.value = true
+}
+
+function formatJson(s: string) {
+  try { return JSON.stringify(JSON.parse(s), null, 2) } catch { return s }
+}
+</script>
+
+<style scoped>
+.admin-tasks { padding-bottom: 40px; }
+.page-header { margin-bottom: 24px; }
+.page-header h2 { font-size: 24px; font-weight: 700; margin: 0 0 6px 0; color: var(--text-primary); }
+.subtitle { font-size: 13px; color: var(--text-muted); margin: 0; }
+.glass-card { background: rgba(15,23,42,0.4) !important; backdrop-filter: blur(16px); border: 1px solid var(--border-color) !important; border-radius: 16px !important; }
+.toolbar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; flex-wrap: wrap; gap: 8px; }
+.count { font-size: 12px; color: var(--text-muted); }
+.admin-table { background: transparent !important; }
+.admin-table th { background: rgba(128,128,128,0.02) !important; color: var(--text-muted) !important; border-bottom: 1px solid var(--border-color) !important; font-size: 12px; }
+.admin-table td { border-bottom: 1px solid var(--border-light) !important; color: var(--text-secondary); padding: 8px; font-size: 12px; }
+.empty-cell { text-align: center; padding: 30px !important; color: var(--text-muted); }
+
+.drawer-body { display: flex; flex-direction: column; gap: 16px; }
+.ds-card { display: flex; flex-direction: column; gap: 8px; padding: 12px; background: rgba(128,128,128,0.02); border-radius: 10px; }
+.ds-row { display: flex; justify-content: space-between; align-items: center; font-size: 13px; }
+.ds-lbl { color: var(--text-muted); font-size: 12px; }
+.ds-val { color: #10b981; }
+.ds-section { display: flex; flex-direction: column; gap: 8px; }
+.ds-title { font-size: 13px; font-weight: 600; color: var(--text-primary); margin: 0; padding-bottom: 4px; border-bottom: 1px solid var(--border-color); }
+.ds-code { font-size: 12px; color: var(--text-secondary); line-height: 1.5; padding: 10px; background: rgba(128,128,128,0.04); border-radius: 8px; word-break: break-all; }
+.glass-drawer { background: rgba(11,15,23,0.95) !important; backdrop-filter: blur(20px); }
+</style>

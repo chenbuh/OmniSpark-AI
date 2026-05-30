@@ -1,0 +1,528 @@
+# OmniSpark AI 管理系统 — 完整技术文档
+
+## 1. 项目概述
+
+OmniSpark AI 是一个统一生图与视频创作管理平台。用户在一个账号内完成文生图、图生视频、模型配置、素材管理、团队协作等全流程创作。
+
+### 1.1 技术栈
+
+| 层级 | 技术 | 版本 |
+|------|------|------|
+| 前端框架 | Vue 3 (Composition API + `<script setup>`) | ^3.5 |
+| 构建工具 | Vite | ^8.0 |
+| UI 组件库 | Naive UI | ^2.44 |
+| 状态管理 | Pinia | ^3.0 |
+| HTTP 客户端 | Axios | ^1.16 |
+| 图标库 | Lucide Vue Next | ^1.0 |
+| 后端框架 | Spring Boot | 3.0.5 |
+| ORM | MyBatis-Plus | 3.5.15 |
+| 数据库 | MySQL | 8.0+ |
+| 缓存/会话 | Redis | 7.x |
+| 鉴权 | Sa-Token | 1.45.0 |
+| 工具库 | Hutool | 5.8.36 |
+| JVM | Java | 17+ |
+
+---
+
+## 2. 前端架构
+
+### 2.1 目录结构
+
+```
+src/
+├── api/                  # Axios API 封装层
+│   ├── request.ts        # Axios 实例 + SWR 缓存 + 拦截器
+│   ├── auth.ts           # 认证接口
+│   ├── generation.ts     # 生图/生视频接口
+│   ├── projects.ts       # 项目 CRUD
+│   ├── providers.ts      # 模型提供商
+│   ├── tasks.ts          # 任务中心
+│   ├── assets.ts         # 资产库
+│   ├── templates.ts      # 提示词模板
+│   ├── teams.ts          # 团队管理
+│   ├── projectShares.ts  # 项目共享
+│   ├── styleCards.ts     # 角色/风格卡
+│   ├── subtitles.ts      # 字幕
+│   └── stats.ts          # 统计
+├── components/           # 公共组件
+│   └── SkeletonCard.vue  # 骨架屏加载组件
+├── layouts/
+│   └── MainLayout.vue    # 主布局（侧边栏 + 顶栏 + 项目切换 + 通知）
+├── router/
+│   └── index.ts          # Vue Router 配置 + 导航守卫
+├── store/                # Pinia 状态管理
+│   ├── user.ts           # 用户身份 + 登录态
+│   ├── project.ts        # 项目空间列表
+│   ├── provider.ts       # 模型提供商
+│   ├── task.ts           # 任务队列
+│   ├── asset.ts          # 资产库
+│   └── team.ts           # 团队管理
+├── views/                # 页面组件（13 个）
+│   ├── Login.vue
+│   ├── Dashboard.vue
+│   ├── GenerateImage.vue
+│   ├── GenerateVideo.vue
+│   ├── Tasks.vue
+│   ├── Assets.vue
+│   ├── ModelProviders.vue
+│   ├── PromptTemplates.vue
+│   ├── StyleCards.vue
+│   ├── Workflows.vue
+│   ├── Teams.vue
+│   ├── AuditLog.vue
+│   ├── Community.vue
+│   └── Settings.vue
+├── main.ts               # 入口文件
+├── App.vue               # 根组件（暗黑主题 + Naive UI Provider）
+└── style.css             # 全局样式
+```
+
+### 2.2 路由设计
+
+| 路径 | 页面 | 权限 |
+|------|------|------|
+| `/login` | 登录 | 未登录 |
+| `/dashboard` | 控制台 | 需登录 |
+| `/generate/image` | 生图中心 | 需登录 |
+| `/generate/video` | 生视频中心 | 需登录 |
+| `/tasks` | 任务中心 | 需登录 |
+| `/assets` | 共享资产库 | 需登录 |
+| `/model-providers` | 模型配置 | 需登录 |
+| `/prompt-templates` | 提示词模板 | 需登录 |
+| `/style-cards` | 角色/风格卡 | 需登录 |
+| `/workflows` | 工作流编排 | 需登录 |
+| `/teams` | 团队管理 | 需登录 |
+| `/community` | 社区共享 | 需登录 |
+| `/audit-logs` | 审计日志 | 需登录 |
+| `/settings` | 系统设置 | 需登录 |
+
+导航守卫逻辑：
+- 未登录访问非 `/login` → 跳转 `/login`
+- 已登录访问 `/login` → 跳转 `/dashboard`
+
+### 2.3 状态管理 (Pinia Store)
+
+**userStore** — 用户身份
+```typescript
+state: { isLoggedIn, userInfo, token }
+actions: { setSession(), logout() }
+```
+
+**projectStore** — 项目空间
+```typescript
+state: { projects[], activeProjectId }
+actions: { refresh(), addProject(), deleteProject() }
+```
+
+**taskStore** — 任务队列
+```typescript
+state: { tasks[] }
+actions: { refresh(), retryTask(), deleteTask() }
+```
+
+**providerStore** — 模型提供商
+```typescript
+state: { providers[] }
+actions: { refresh(), addProvider(), testConnection() }
+```
+
+**assetStore** — 资产库
+```typescript
+state: { assets[] }
+actions: { refresh(), toggleFavorite(), deleteAsset() }
+```
+
+### 2.4 API 请求封装 (request.ts)
+
+Axios 实例配置：
+- `baseURL`: 环境变量 `VITE_API_BASE_URL` 或 `http://localhost:8080`
+- `timeout`: 15 秒
+- 请求拦截器：自动附加 `satoken` 到请求头
+- 响应拦截器：统一错误处理，成功响应自动解包
+- **SWR 缓存**：GET 请求 15 秒内存缓存，`clearCache()` 可手动清除
+
+### 2.5 组件通信规范
+
+- 父子组件：Props + Emits
+- 全局状态：Pinia Store
+- 页面间传参：Vue Router query 参数（如生图页接收 prompt/model/size 参数）
+
+---
+
+## 3. 后端架构
+
+### 3.1 目录结构
+
+```
+src/main/java/com/example/aihub/
+├── AiHubApplication.java            # 启动类
+├── common/
+│   ├── annotation/
+│   │   └── RequireProjectPermission.java  # 项目权限注解
+│   ├── config/
+│   │   ├── MybatisPlusConfig.java    # MyBatis-Plus 分页 + 自动填充
+│   │   ├── SaTokenConfig.java        # Sa-Token 角色接口
+│   │   ├── WebConfig.java            # CORS + 静态资源
+│   │   ├── WebSocketConfig.java      # STOMP WebSocket
+│   │   ├── OpenApiConfig.java        # Swagger/OpenAPI
+│   │   ├── AuditAspect.java          # 审计日志 AOP
+│   │   └── PermissionAspect.java     # 权限校验 AOP
+│   ├── exception/
+│   │   ├── BusinessException.java    # 业务异常
+│   │   └── GlobalExceptionHandler.java  # 全局异常拦截
+│   ├── result/
+│   │   ├── ApiResult.java            # 统一响应体 {code, message, data}
+│   │   └── PageResult.java           # 分页响应
+│   └── util/
+│       ├── PasswordUtil.java         # 密码 SHA256 加密
+│       ├── SecurityUtil.java         # 当前登录用户工具
+│       └── VoMapper.java            # Bean 拷贝工具
+├── infrastructure/
+│   ├── bootstrap/
+│   │   ├── DemoDataInitializer.java  # 演示数据初始化
+│   │   └── SchemaMigrationRunner.java # 数据库迁移
+│   ├── dto/                          # 请求 DTO（18 个）
+│   ├── entity/                       # 数据实体（18 个）
+│   ├── mapper/                       # MyBatis-Plus Mapper（17 个）
+│   ├── service/                      # 业务服务层（13 个）
+│   └── vo/                           # 响应 VO（20 个）
+└── module/                           # 控制器模块（13 个）
+    ├── asset/                        # 资产
+    ├── audit/                        # 审计日志
+    ├── auth/                         # 认证
+    ├── community/                    # 社区共享
+    ├── generation/                   # 生图/生视频
+    ├── modelprovider/                # 模型提供商
+    ├── notification/                 # 通知
+    ├── project/                      # 项目
+    ├── prompttemplate/               # 提示词模板
+    ├── quota/                        # 配额
+    ├── share/                        # 项目共享
+    ├── stylecard/                    # 角色/风格卡
+    ├── subtitle/                     # 字幕
+    ├── system/                       # 系统配置
+    ├── team/                         # 团队
+    └── workflow/                     # 工作流
+```
+
+### 3.2 统一响应格式
+
+```json
+{
+  "code": 200,
+  "message": "操作成功",
+  "data": { ... }
+}
+```
+
+成功：`code=200`，`data` 为业务数据
+失败：`code=500`，`message` 为错误描述
+
+### 3.3 异常处理
+
+| 异常 | 说明 | HTTP 状态码 |
+|------|------|-------------|
+| `BusinessException` | 业务逻辑错误（如账号不存在） | 500 |
+| `MethodArgumentNotValidException` | 参数校验失败 | 500 |
+| `ConstraintViolationException` | 约束违规 | 500 |
+| `Exception` | 其他未预期异常 | 500 |
+
+### 3.4 鉴权体系
+
+- **登录**：`StpUtil.login(userId)` → 返回 token
+- **前端存储**：`localStorage.setItem('satoken', token)`
+- **请求传递**：Axios 拦截器自动附加 `satoken` 请求头
+- **后端验证**：`@SaCheckLogin` 注解保护接口
+- **角色**：`StpInterface` 从数据库 `user.role` 字段加载角色
+- **项目级权限**：`@RequireProjectPermission("view"|"edit"|"admin")` 注解
+
+### 3.5 权限层级
+
+```
+admin  >  edit  >  view
+  3        2         1
+```
+
+- `view`：查看项目内容
+- `edit`：编辑项目内容
+- `admin`：管理项目共享设置
+
+---
+
+## 4. 数据库设计
+
+### 4.1 表清单
+
+| 表名 | 说明 | 核心字段 |
+|------|------|----------|
+| `user` | 用户 | username, password, nickname, avatar, role |
+| `role` | 角色 | role_code, role_name |
+| `project` | 项目空间 | user_id, name, description |
+| `model_provider` | 模型提供商 | project_id, base_url, api_key, model_name, type |
+| `generation_task` | 生成任务 | project_id, provider_id, prompt, status, request_json |
+| `asset` | 素材资产 | project_id, task_id, asset_type, file_url, prompt |
+| `prompt_template` | 提示词模板 | project_id, name, content, tag |
+| `style_card` | 角色/风格卡 | project_id, name, type, content, model_name |
+| `quota_record` | 配额记录 | user_id, project_id, amount |
+| `system_config` | 系统配置 | config_key, config_value, config_group |
+| `team` | 团队 | owner_id, name, description |
+| `team_member` | 团队成员 | team_id, user_id, role |
+| `project_share` | 项目共享 | project_id, team_id, permission |
+| `workflow` | 工作流 | project_id, name, steps_json |
+| `workflow_run` | 工作流运行记录 | workflow_id, status, steps_result_json |
+| `subtitle` | 字幕 | asset_id, language, srt_content, voice_url |
+| `audit_log` | 审计日志 | user_id, action, resource_type, detail, ip |
+| `notification` | 通知 | user_id, title, content, type, is_read |
+| `community_post` | 社区帖子 | user_id, title, prompt, image_url, category |
+| `community_like` | 社区点赞 | post_id, user_id |
+
+---
+
+## 5. 核心 API 列表
+
+### 5.1 认证
+
+| 方法 | 路径 | 说明 | 鉴权 |
+|------|------|------|------|
+| POST | `/api/auth/login` | 登录 | 无 |
+| POST | `/api/auth/register` | 注册 | 无 |
+| POST | `/api/auth/logout` | 退出 | 需登录 |
+| GET | `/api/auth/me` | 获取当前用户 | 需登录 |
+
+### 5.2 项目
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| GET | `/api/projects` | 我的项目列表（含共享项目） |
+| POST | `/api/projects` | 创建项目 |
+| PUT | `/api/projects/{id}` | 编辑项目 |
+| DELETE | `/api/projects/{id}` | 删除项目 |
+| POST | `/api/projects/{id}/export` | 导出项目数据 |
+| POST | `/api/projects/import` | 导入项目数据 |
+
+### 5.3 生图/生视频
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| POST | `/api/generation/image` | 文生图/图生图 |
+| POST | `/api/generation/image/inpaint` | 局部重绘 |
+| POST | `/api/generation/video` | 文生视频/图生视频 |
+
+### 5.4 任务
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| GET | `/api/tasks` | 任务列表（支持 projectId/status 过滤） |
+| GET | `/api/tasks/{id}` | 任务详情 |
+| POST | `/api/tasks/{id}/retry` | 重试任务 |
+| DELETE | `/api/tasks/{id}` | 删除任务 |
+
+### 5.5 模型提供商
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| GET | `/api/model-providers` | 列表 |
+| POST | `/api/model-providers` | 新增 |
+| PUT | `/api/model-providers/{id}` | 编辑 |
+| DELETE | `/api/model-providers/{id}` | 删除 |
+| POST | `/api/model-providers/{id}/test` | 测试连接 |
+
+### 5.6 资产
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| GET | `/api/assets` | 资产列表 |
+| POST | `/api/assets/upload` | 上传资产 |
+| DELETE | `/api/assets/{id}` | 删除资产 |
+| POST | `/api/assets/{id}/favorite` | 收藏/取消 |
+
+### 5.7 团队
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| GET | `/api/teams` | 我的团队 |
+| POST | `/api/teams` | 创建团队 |
+| PUT | `/api/teams/{id}` | 编辑团队 |
+| DELETE | `/api/teams/{id}` | 解散团队 |
+| GET | `/api/teams/{id}/members` | 成员列表 |
+| POST | `/api/teams/members/invite` | 邀请成员 |
+| DELETE | `/api/teams/{teamId}/members/{userId}` | 移除成员 |
+| POST | `/api/teams/{teamId}/leave` | 退出团队 |
+
+### 5.8 项目共享
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| GET | `/api/project-shares/{projectId}` | 共享列表 |
+| POST | `/api/project-shares` | 添加共享 |
+| PUT | `/api/project-shares/{shareId}/permission` | 修改权限 |
+| DELETE | `/api/project-shares/{shareId}` | 取消共享 |
+
+### 5.9 社区
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| GET | `/api/community/posts` | 帖子列表（支持 category/search） |
+| GET | `/api/community/posts/{id}` | 帖子详情 |
+| POST | `/api/community/posts` | 发布帖子 |
+| DELETE | `/api/community/posts/{id}` | 删除帖子 |
+| POST | `/api/community/posts/{id}/like` | 点赞/取消 |
+| GET | `/api/community/categories` | 分类列表 |
+
+### 5.10 通知
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| GET | `/api/notifications/unread` | 未读通知 |
+| GET | `/api/notifications` | 通知列表 |
+| GET | `/api/notifications/count` | 未读计数 |
+| POST | `/api/notifications/{id}/read` | 标记已读 |
+| POST | `/api/notifications/read-all` | 全部已读 |
+
+---
+
+## 6. 功能模块详解
+
+### 6.1 生图流程
+
+```
+用户填写表单 → 点击生成
+  → generationApi.generateImage(dto)
+  → POST /api/generation/image
+  → GenerationService.createTask() 创建任务
+  → OpenAiImageClient 调用 OpenAI 兼容 API
+  → 保存结果到 asset 表
+  → 更新任务状态为 success
+  → 推送通知到 WebSocket
+```
+
+### 6.2 局部重绘流程
+
+```
+用户上传参考图 → 在 Canvas 上绘制遮罩（白色区域=重绘区域）
+  → 遮罩图以 PNG 上传到资产库
+  → POST /api/generation/image/inpaint (带 maskAssetId)
+  → 后端加载原图 + 遮罩图
+  → 调用 OpenAI /images/edits API（带 mask 参数）
+  → 返回重绘结果
+```
+
+### 6.3 团队协作流程
+
+```
+创建团队 → 邀请成员（通过用户名）
+  → 被邀请用户收到通知
+  → 团队所有者可共享项目给团队
+  → 项目共享设置权限（view / edit / admin）
+  → 团队成员自动获得对应权限
+  → 在项目列表中看到共享项目
+```
+
+### 6.4 字幕/配音流程
+
+```
+视频资产详情 → 「从提示词生成字幕」
+  → 后端将 prompt 按句子分割 + 分配时间轴 → 生成 SRT
+  → 可编辑 SRT 内容
+  → 「配音」→ 保存文本 → 返回音频 URL（可接入 TTS API）
+  → 在资产详情中播放配音
+```
+
+### 6.5 工作流编排
+
+```
+用户定义 JSON 步骤数组：
+  [{"type":"image","prompt":"..."}, {"type":"video","prompt":"..."}]
+→ 保存为 Workflow
+→ 点击「执行」→ 后端依次执行每步
+→ 记录运行结果到 workflow_run
+→ 查看运行历史
+```
+
+---
+
+## 7. 部署指南
+
+### 7.1 环境要求
+
+- JDK 17+
+- MySQL 8.0+
+- Redis 7.x
+- Node.js 20+
+
+### 7.2 后端启动
+
+```bash
+# 1. 创建数据库
+mysql -u root -p -e "CREATE DATABASE IF NOT EXISTS aihub DEFAULT CHARSET utf8mb4"
+
+# 2. 修改配置
+# 编辑 backend/src/main/resources/application.yml
+# 修改 spring.datasource.url/username/password
+
+# 3. 启动
+cd backend
+mvn spring-boot:run
+# 自动建表 + 初始化管理员账号 admin / admin123
+```
+
+### 7.3 前端启动
+
+```bash
+cd frontend
+npm install
+npm run dev
+# 默认 http://localhost:5173
+```
+
+### 7.4 生产构建
+
+```bash
+npm run build
+# 输出到 dist/ 目录，部署到 Nginx
+```
+
+---
+
+## 8. 项目功能清单
+
+### P0 — 核心流程
+
+- [x] 登录 / 注册 / 退出
+- [x] 项目空间管理
+- [x] 文生图 / 图生图
+- [x] 文生视频 / 图生视频
+- [x] 任务队列
+- [x] 资产库
+- [x] 模型配置
+- [x] 配额统计
+
+### P1 — 增强功能
+
+- [x] 任务详情弹窗
+- [x] 批量结果网格
+- [x] 局部重绘 (Inpainting)
+- [x] 生成历史版本
+- [x] 团队协作
+- [x] 提示词模板
+- [x] 结果收藏/复用
+
+### P2 — 进阶功能
+
+- [x] 角色卡 / 风格卡
+- [x] 视频首尾帧控制
+- [x] 字幕 / 配音
+- [x] 工作流编排
+- [x] 企业级审计 / 权限
+
+### 扩展功能
+
+- [x] 通知系统 (WebSocket)
+- [x] Swagger API 文档
+- [x] PWA 离线支持
+- [x] 骨架屏加载
+- [x] API 缓存 (SWR)
+- [x] 代码分割
+- [x] 数据导入导出
+- [x] CI/CD 流水线
+- [x] 社区共享中心

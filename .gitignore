@@ -1,0 +1,42 @@
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+node_modules
+dist
+dist-ssr
+*.local
+
+# Editor directories and files
+.vscode/*
+!.vscode/extensions.json
+.idea
+.DS_Store
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# Backend build output & runtime
+backend/target
+backend/runtime-logs
+*.class
+
+# Generated test artifacts & local data (may contain secrets / large binaries)
+generated
+uploads
+
+# Local config overrides (keep secrets out of VCS)
+application-local.yml
+application-local.yaml
+*.env
+.env
+
+# Claude Code local settings (may contain tokens/keys in allowlisted commands)
+.claude

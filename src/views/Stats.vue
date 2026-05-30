@@ -1,0 +1,898 @@
+<template>
+  <div class="stats-container">
+    <div class="page-header">
+      <div>
+        <h2>用量统计分析 (Usage Stats)</h2>
+        <p class="subtitle">观察任务趋势、额度消耗、项目活跃度和最近操作，帮助判断当前创作负载。</p>
+      </div>
+      <n-space>
+        <n-select v-model:value="scopeMode" :options="scopeOptions" style="width: 170px;" />
+        <n-button secondary :loading="loading" @click="refreshPageData">
+          <template #icon><RefreshCw /></template>
+          刷新数据
+        </n-button>
+      </n-space>
+    </div>
+
+    <div class="stats-summary-grid">
+      <n-card v-for="card in summaryCards" :key="card.key" class="glass-card summary-card" :bordered="false">
+        <span class="summary-label">{{ card.label }}</span>
+        <strong class="summary-value" :class="card.color">{{ card.value }}</strong>
+        <span class="summary-hint">{{ card.hint }}</span>
+      </n-card>
+    </div>
+
+    <n-row :gutter="20" class="section-grid">
+      <n-col :span="16">
+        <n-card class="glass-card" :bordered="false">
+          <template #header>
+            <div class="section-header">
+              <span>最近 14 天任务与额度趋势</span>
+              <small>{{ scopeDetailLabel }}内的每日创作节奏</small>
+            </div>
+          </template>
+          <div class="trend-chart-box">
+            <svg viewBox="0 0 760 280" class="trend-chart">
+              <defs>
+                <linearGradient id="taskTrendFill" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stop-color="#10b981" stop-opacity="0.32" />
+                  <stop offset="100%" stop-color="#10b981" stop-opacity="0" />
+                </linearGradient>
+                <linearGradient id="quotaBars" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stop-color="#f59e0b" stop-opacity="0.9" />
+                  <stop offset="100%" stop-color="#f59e0b" stop-opacity="0.25" />
+                </linearGradient>
+              </defs>
+
+              <line v-for="grid in trendGridLines" :key="grid.key" :x1="60" :y1="grid.y" :x2="720" :y2="grid.y" class="chart-grid" />
+
+              <g v-for="bar in quotaBars" :key="bar.key">
+                <rect :x="bar.x - 10" :y="bar.y" width="20" :height="bar.height" rx="6" fill="url(#quotaBars)" opacity="0.7" />
+              </g>
+
+              <template v-if="taskTrendPath">
+                <path :d="taskTrendAreaPath" fill="url(#taskTrendFill)" />
+                <path :d="taskTrendPath" class="trend-line" />
+                <circle v-for="point in taskTrendPoints" :key="point.key" :cx="point.x" :cy="point.y" r="4.5" class="trend-dot" />
+              </template>
+
+              <text v-for="tick in yAxisTicks" :key="tick.key" :x="48" :y="tick.y + 4" class="axis-label" text-anchor="end">{{ tick.label }}</text>
+              <text v-for="label in xAxisLabels" :key="label.key" :x="label.x" y="252" class="axis-label" text-anchor="middle">{{ label.label }}</text>
+            </svg>
+          </div>
+          <div class="chart-legend-row">
+            <div class="legend-item">
+              <span class="legend-dot green"></span>
+              <span>任务量</span>
+            </div>
+            <div class="legend-item">
+              <span class="legend-dot amber"></span>
+              <span>额度消耗</span>
+            </div>
+          </div>
+        </n-card>
+      </n-col>
+
+      <n-col :span="8">
+        <n-card class="glass-card" :bordered="false">
+          <template #header>
+            <div class="section-header">
+              <span>生成类型占比</span>
+              <small>图像与视频的任务结构</small>
+            </div>
+          </template>
+          <div class="distribution-box">
+            <svg viewBox="0 0 220 220" width="180" height="180">
+              <circle cx="110" cy="110" r="64" fill="none" stroke="rgba(255,255,255,0.06)" stroke-width="24" />
+              <circle
+                cx="110"
+                cy="110"
+                r="64"
+                fill="none"
+                stroke="#10b981"
+                stroke-width="24"
+                :stroke-dasharray="typeImageDash"
+                stroke-dashoffset="0"
+                transform="rotate(-90 110 110)"
+                stroke-linecap="round"
+              />
+              <circle
+                cx="110"
+                cy="110"
+                r="64"
+                fill="none"
+                stroke="#f59e0b"
+                stroke-width="24"
+                :stroke-dasharray="typeVideoDash"
+                :stroke-dashoffset="-typeImageLength"
+                transform="rotate(-90 110 110)"
+                stroke-linecap="round"
+              />
+              <text x="110" y="104" class="donut-total" text-anchor="middle">{{ overview.taskCount }}</text>
+              <text x="110" y="126" class="donut-label" text-anchor="middle">任务总数</text>
+            </svg>
+            <div class="legend-col">
+              <div class="legend-item">
+                <span class="legend-dot green"></span>
+                <span>图像任务 {{ imageTaskPercent.toFixed(0) }}%</span>
+              </div>
+              <div class="legend-item">
+                <span class="legend-dot amber"></span>
+                <span>视频任务 {{ videoTaskPercent.toFixed(0) }}%</span>
+              </div>
+            </div>
+          </div>
+        </n-card>
+
+        <n-card class="glass-card status-card" :bordered="false">
+          <template #header>
+            <div class="section-header">
+              <span>任务状态分布</span>
+              <small>当前范围内的完成质量</small>
+            </div>
+          </template>
+          <div class="status-stack">
+            <div v-for="item in statusCards" :key="item.key" class="status-row">
+              <div class="status-meta">
+                <span class="status-name">{{ item.label }}</span>
+                <span class="status-value">{{ item.value }}</span>
+              </div>
+              <n-progress
+                type="line"
+                :percentage="item.percent"
+                :show-indicator="false"
+                :height="8"
+                :color="item.color"
+                rail-color="rgba(255,255,255,0.06)"
+              />
+            </div>
+          </div>
+        </n-card>
+      </n-col>
+    </n-row>
+
+    <n-row :gutter="20" class="section-grid">
+      <n-col :span="14">
+        <n-card class="glass-card" :bordered="false">
+          <template #header>
+            <div class="section-header">
+              <span>项目空间活跃排行</span>
+              <small>对比任务量、成功率和额度消耗</small>
+            </div>
+          </template>
+          <div v-if="projectRankings.length > 0" class="project-ranking-list">
+            <div v-for="item in projectRankings" :key="item.projectId" class="project-ranking-item">
+              <div class="project-row-top">
+                <div class="project-title">
+                  <span class="rank-badge">{{ item.rank }}</span>
+                  <div>
+                    <strong>{{ item.name }}</strong>
+                    <small>{{ item.description || '暂无项目描述' }}</small>
+                  </div>
+                </div>
+                <span class="project-last-active">{{ formatDateTime(item.lastActiveAt) }}</span>
+              </div>
+              <div class="project-metrics">
+                <span>任务 {{ item.taskCount }}</span>
+                <span>成功率 {{ item.successRate.toFixed(0) }}%</span>
+                <span>资产 {{ item.assetCount }}</span>
+                <span>额度 {{ item.quotaUsed }}</span>
+              </div>
+              <n-progress
+                type="line"
+                :percentage="item.weightPercent"
+                :show-indicator="false"
+                :height="8"
+                :color="item.rank === 1 ? '#10b981' : item.rank === 2 ? '#3b82f6' : '#f59e0b'"
+                rail-color="rgba(255,255,255,0.05)"
+              />
+            </div>
+          </div>
+          <n-empty v-else description="暂无项目数据" style="padding: 20px 0;" />
+        </n-card>
+      </n-col>
+
+      <n-col :span="10">
+        <n-card class="glass-card" :bordered="false">
+          <template #header>
+            <div class="section-header">
+              <span>最近活动</span>
+              <small>最近 8 条任务与额度变更</small>
+            </div>
+          </template>
+          <div v-if="recentActivities.length > 0" class="activity-list">
+            <div v-for="item in recentActivities" :key="`${item.type}-${item.title}-${item.createdAt}`" class="activity-item">
+              <div class="activity-dot" :class="activityTypeClass(item)"></div>
+              <div class="activity-body">
+                <div class="activity-top">
+                  <strong>{{ item.title }}</strong>
+                  <span>{{ formatDateTime(item.createdAt) }}</span>
+                </div>
+                <p>{{ item.description }}</p>
+              </div>
+            </div>
+          </div>
+          <n-empty v-else description="暂无近期活动" style="padding: 20px 0;" />
+        </n-card>
+      </n-col>
+    </n-row>
+  </div>
+</template>
+
+<script setup lang="ts">
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
+import { RefreshCw } from 'lucide-vue-next'
+import request, { clearCache } from '@/api/request'
+import {
+  type StatsActivity,
+  type StatsDashboard,
+  type StatsDistribution,
+  type StatsOverview,
+  type StatsProjectRanking,
+  type StatsTrendPoint
+} from '@/api/stats'
+import { useProjectStore } from '@/store/project'
+
+type ScopeMode = 'all' | 'current'
+
+const projectStore = useProjectStore()
+
+const loading = ref(false)
+const scopeMode = ref<ScopeMode>('all')
+const dashboard = ref<StatsDashboard>(createEmptyDashboard())
+const suppressAutoReload = ref(false)
+let refreshTimer: number | null = null
+
+const scopeOptions = [
+  { label: '全部项目', value: 'all' },
+  { label: '当前项目', value: 'current' }
+]
+
+const selectedProjectId = computed(() => {
+  if (scopeMode.value === 'current' && projectStore.activeProjectId) {
+    return projectStore.activeProjectId
+  }
+  return undefined
+})
+
+const currentProjectName = computed(() => {
+  if (!selectedProjectId.value) {
+    return ''
+  }
+  return projectStore.projects.find(item => item.id === selectedProjectId.value)?.name || ''
+})
+
+const scopeDetailLabel = computed(() => {
+  if (scopeMode.value === 'current' && currentProjectName.value) {
+    return currentProjectName.value
+  }
+  if (scopeMode.value === 'current') {
+    return '全部项目'
+  }
+  return '全部项目'
+})
+
+const overview = computed<StatsOverview>(() => dashboard.value.overview)
+const distribution = computed<StatsDistribution>(() => dashboard.value.distribution)
+const trends = computed<StatsTrendPoint[]>(() => dashboard.value.trends || [])
+const projectRankings = computed<StatsProjectRanking[]>(() => dashboard.value.projectRankings || [])
+const recentActivities = computed<StatsActivity[]>(() => dashboard.value.recentActivities || [])
+
+const failedTaskCount = computed(() => distribution.value.failedTaskCount || 0)
+const successRate = computed(() => {
+  const total = overview.value.taskCount || 0
+  return total > 0 ? ((distribution.value.successTaskCount || 0) / total) * 100 : 0
+})
+const imageTaskPercent = computed(() => {
+  const total = overview.value.taskCount || 0
+  return total > 0 ? ((distribution.value.imageTaskCount || 0) / total) * 100 : 0
+})
+const videoTaskPercent = computed(() => {
+  const total = overview.value.taskCount || 0
+  return total > 0 ? ((distribution.value.videoTaskCount || 0) / total) * 100 : 0
+})
+const quotaPercent = computed(() => {
+  const limit = overview.value.quotaLimit || 0
+  return limit > 0 ? (overview.value.quotaUsed / limit) * 100 : 0
+})
+
+const summaryCards = computed(() => [
+  {
+    key: 'tasks',
+    label: '任务总量',
+    value: `${overview.value.taskCount}`,
+    hint: `${scopeDetailLabel.value}内共发起 ${overview.value.taskCount} 次生成`,
+    color: 'green'
+  },
+  {
+    key: 'success-rate',
+    label: '成功率',
+    value: `${successRate.value.toFixed(1)}%`,
+    hint: `${distribution.value.successTaskCount} 成功 / ${failedTaskCount.value} 失败`,
+    color: 'blue'
+  },
+  {
+    key: 'assets',
+    label: '资产沉淀',
+    value: `${overview.value.assetCount}`,
+    hint: `其中收藏 ${overview.value.favoriteAssetCount} 项`,
+    color: 'purple'
+  },
+  {
+    key: 'quota',
+    label: '额度使用率',
+    value: `${quotaPercent.value.toFixed(1)}%`,
+    hint: `已消耗 ${overview.value.quotaUsed} / ${overview.value.quotaLimit}`,
+    color: 'amber'
+  }
+])
+
+const trendDays = computed(() => {
+  const total = Math.max(trends.value.length, 14)
+  const step = total > 1 ? 620 / (total - 1) : 0
+  return trends.value.map((item, index) => ({
+    key: `${item.date}-${index}`,
+    label: item.date,
+    x: 80 + index * step,
+    taskCount: item.taskCount || 0,
+    quotaUsed: item.quotaUsed || 0
+  }))
+})
+
+const maxTaskDaily = computed(() => Math.max(1, ...trendDays.value.map(item => item.taskCount)))
+const maxQuotaDaily = computed(() => Math.max(1, ...trendDays.value.map(item => item.quotaUsed)))
+
+const taskTrendPoints = computed(() => {
+  return trendDays.value.map((item, index) => ({
+    key: `task-${index}`,
+    x: item.x,
+    y: 220 - (item.taskCount / maxTaskDaily.value) * 150
+  }))
+})
+
+const taskTrendPath = computed(() => {
+  if (taskTrendPoints.value.length === 0) return ''
+  return taskTrendPoints.value
+    .map((point, index) => `${index === 0 ? 'M' : 'L'} ${point.x} ${point.y}`)
+    .join(' ')
+})
+
+const taskTrendAreaPath = computed(() => {
+  if (taskTrendPoints.value.length === 0) return ''
+  const first = taskTrendPoints.value[0]
+  const last = taskTrendPoints.value[taskTrendPoints.value.length - 1]
+  return `${taskTrendPath.value} L ${last.x} 220 L ${first.x} 220 Z`
+})
+
+const quotaBars = computed(() => {
+  return trendDays.value.map((item, index) => {
+    const height = (item.quotaUsed / maxQuotaDaily.value) * 120
+    return {
+      key: `quota-${index}`,
+      x: item.x,
+      y: 220 - height,
+      height
+    }
+  })
+})
+
+const trendGridLines = computed(() => [0, 1, 2, 3].map(item => ({ key: `grid-${item}`, y: 70 + item * 50 })))
+const xAxisLabels = computed(() => trendDays.value.filter((_, index) => index % 2 === 0 || index === trendDays.value.length - 1))
+const yAxisTicks = computed(() => [
+  { key: 'zero', y: 220, label: '0' },
+  { key: 'mid', y: 145, label: `${Math.round(maxTaskDaily.value / 2)}` },
+  { key: 'max', y: 70, label: `${maxTaskDaily.value}` }
+])
+
+const typeCircumference = 2 * Math.PI * 64
+const typeImageLength = computed(() => (typeCircumference * imageTaskPercent.value) / 100)
+const typeVideoLength = computed(() => (typeCircumference * videoTaskPercent.value) / 100)
+const typeImageDash = computed(() => `${typeImageLength.value} ${typeCircumference - typeImageLength.value}`)
+const typeVideoDash = computed(() => `${typeVideoLength.value} ${typeCircumference - typeVideoLength.value}`)
+
+const statusCards = computed(() => {
+  const total = Math.max(overview.value.taskCount, 1)
+  return [
+    {
+      key: 'success',
+      label: '成功',
+      value: distribution.value.successTaskCount,
+      percent: (distribution.value.successTaskCount / total) * 100,
+      color: '#10b981'
+    },
+    {
+      key: 'running',
+      label: '进行中',
+      value: distribution.value.runningTaskCount,
+      percent: (distribution.value.runningTaskCount / total) * 100,
+      color: '#3b82f6'
+    },
+    {
+      key: 'failed',
+      label: '失败',
+      value: distribution.value.failedTaskCount,
+      percent: (distribution.value.failedTaskCount / total) * 100,
+      color: '#ef4444'
+    }
+  ]
+})
+
+function createEmptyDashboard(): StatsDashboard {
+  return {
+    overview: {
+      projectCount: 0,
+      taskCount: 0,
+      successTaskCount: 0,
+      assetCount: 0,
+      favoriteAssetCount: 0,
+      quotaUsed: 0,
+      quotaLimit: 100
+    },
+    distribution: {
+      imageTaskCount: 0,
+      videoTaskCount: 0,
+      successTaskCount: 0,
+      runningTaskCount: 0,
+      failedTaskCount: 0
+    },
+    trends: [],
+    projectRankings: [],
+    recentActivities: []
+  }
+}
+
+function normalizeDateTime(value?: string) {
+  return String(value || '').replace('T', ' ').substring(0, 19)
+}
+
+function formatDateTime(value?: string) {
+  const normalized = normalizeDateTime(value)
+  return normalized ? normalized.substring(5, 16) : '--'
+}
+
+function activityTypeClass(item: StatsActivity) {
+  return item.status === 'failed' ? 'error' : item.type
+}
+
+function normalizeDashboard(data?: Partial<StatsDashboard>): StatsDashboard {
+  const base = createEmptyDashboard()
+  return {
+    overview: {
+      ...base.overview,
+      ...(data?.overview || {})
+    },
+    distribution: {
+      ...base.distribution,
+      ...(data?.distribution || {})
+    },
+    trends: (data?.trends || []).map(item => ({
+      date: item.date || '--',
+      taskCount: Number(item.taskCount || 0),
+      quotaUsed: Number(item.quotaUsed || 0)
+    })),
+    projectRankings: (data?.projectRankings || []).map(item => ({
+      ...item,
+      rank: Number(item.rank || 0),
+      projectId: Number(item.projectId || 0),
+      taskCount: Number(item.taskCount || 0),
+      successTaskCount: Number(item.successTaskCount || 0),
+      successRate: Number(item.successRate || 0),
+      assetCount: Number(item.assetCount || 0),
+      quotaUsed: Number(item.quotaUsed || 0),
+      weightPercent: Number(item.weightPercent || 0),
+      lastActiveAt: normalizeDateTime(item.lastActiveAt)
+    })),
+    recentActivities: (data?.recentActivities || []).map(item => ({
+      ...item,
+      createdAt: normalizeDateTime(item.createdAt)
+    }))
+  }
+}
+
+async function loadStatsData() {
+  loading.value = true
+  try {
+    clearCache('stats/dashboard')
+    clearCache('tasks')
+    clearCache('assets')
+    await projectStore.refresh()
+    const res = await request.get('/api/stats/dashboard', {
+      params: { projectId: selectedProjectId.value },
+      headers: { 'x-no-cache': '1' }
+    })
+    dashboard.value = normalizeDashboard(res.data)
+  } finally {
+    loading.value = false
+  }
+}
+
+async function refreshPageData() {
+  loading.value = true
+  try {
+    suppressAutoReload.value = true
+    await projectStore.refresh()
+    clearCache('stats/dashboard')
+    const res = await request.get('/api/stats/dashboard', {
+      params: { projectId: selectedProjectId.value },
+      headers: { 'x-no-cache': '1' }
+    })
+    dashboard.value = normalizeDashboard(res.data)
+  } finally {
+    suppressAutoReload.value = false
+    loading.value = false
+  }
+}
+
+watch([scopeMode, () => projectStore.activeProjectId], () => {
+  if (suppressAutoReload.value) {
+    return
+  }
+  loadStatsData()
+})
+
+onMounted(async () => {
+  await projectStore.refresh()
+  await loadStatsData()
+  // 每 15 秒自动刷新，让数据保持最新
+  refreshTimer = window.setInterval(() => {
+    if (document.visibilityState === 'visible') {
+      clearCache('stats/dashboard')
+      loadStatsData()
+    }
+  }, 15000)
+})
+
+onUnmounted(() => {
+  if (refreshTimer !== null) {
+    clearInterval(refreshTimer)
+    refreshTimer = null
+  }
+})
+</script>
+
+<style scoped>
+.stats-container {
+  padding-bottom: 40px;
+}
+
+.page-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 16px;
+  margin-bottom: 24px;
+}
+
+.page-header h2 {
+  font-size: 24px;
+  font-weight: 700;
+  margin: 0 0 6px 0;
+  color: var(--text-primary);
+}
+
+.subtitle {
+  font-size: 13px;
+  color: #9ca3af;
+  margin: 0;
+}
+
+.glass-card {
+  background: rgba(15, 23, 42, 0.4) !important;
+  backdrop-filter: blur(16px);
+  border: 1px solid var(--border-color) !important;
+  border-radius: 16px !important;
+}
+
+.stats-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 16px;
+  margin-bottom: 20px;
+}
+
+.summary-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.summary-label {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.summary-value {
+  font-size: 28px;
+  line-height: 1;
+  color: var(--text-primary);
+}
+
+.summary-value.green { color: #34d399; }
+.summary-value.blue { color: #60a5fa; }
+.summary-value.purple { color: #c084fc; }
+.summary-value.amber { color: #fbbf24; }
+
+.summary-hint {
+  font-size: 11px;
+  color: #7c8aa5;
+  line-height: 1.5;
+}
+
+.section-grid {
+  margin-top: 20px;
+}
+
+.section-header {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.section-header small {
+  font-size: 11px;
+  color: #94a3b8;
+  font-weight: 400;
+}
+
+.trend-chart-box {
+  width: 100%;
+  min-height: 280px;
+}
+
+.trend-chart {
+  width: 100%;
+  height: 280px;
+}
+
+.chart-grid {
+  stroke: rgba(128, 128, 128, 0.1);
+  stroke-dasharray: 4;
+}
+
+.trend-line {
+  fill: none;
+  stroke: #10b981;
+  stroke-width: 3;
+  filter: drop-shadow(0 0 8px rgba(16, 185, 129, 0.35));
+}
+
+.trend-dot {
+  fill: #ffffff;
+  stroke: #10b981;
+  stroke-width: 2;
+}
+
+.axis-label {
+  fill: #6b7280;
+  font-size: 10px;
+}
+
+.chart-legend-row,
+.legend-col {
+  display: flex;
+  gap: 14px;
+  margin-top: 10px;
+  flex-wrap: wrap;
+}
+
+.legend-col {
+  flex-direction: column;
+  align-items: flex-start;
+  margin-top: 0;
+}
+
+.legend-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: #9ca3af;
+}
+
+.legend-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+
+.legend-dot.green { background: #10b981; }
+.legend-dot.amber { background: #f59e0b; }
+
+.distribution-box {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  min-height: 220px;
+}
+
+.donut-total {
+  fill: var(--text-primary);
+  font-size: 28px;
+  font-weight: 800;
+}
+
+.donut-label {
+  fill: #94a3b8;
+  font-size: 11px;
+}
+
+.status-card {
+  margin-top: 20px;
+}
+
+.status-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.status-row {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.status-meta {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.status-name {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.status-value {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.project-ranking-list {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.project-ranking-item {
+  padding: 12px;
+  border-radius: 12px;
+  background: rgba(128, 128, 128, 0.03);
+  border: 1px solid var(--border-color);
+}
+
+.project-row-top {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: flex-start;
+  margin-bottom: 10px;
+}
+
+.project-title {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+}
+
+.rank-badge {
+  min-width: 24px;
+  height: 24px;
+  padding: 0 6px;
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(16, 185, 129, 0.18);
+  color: #34d399;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.project-title strong {
+  display: block;
+  font-size: 14px;
+  color: var(--text-primary);
+}
+
+.project-title small,
+.project-last-active {
+  font-size: 11px;
+  color: #94a3b8;
+}
+
+.project-metrics {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  font-size: 12px;
+  color: #cbd5e1;
+  margin-bottom: 10px;
+}
+
+.activity-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.activity-item {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+}
+
+.activity-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  margin-top: 6px;
+  flex-shrink: 0;
+}
+
+.activity-dot.image { background: #10b981; }
+.activity-dot.video { background: #f59e0b; }
+.activity-dot.error { background: #ef4444; }
+.activity-dot.quota { background: #3b82f6; }
+
+.activity-body {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.activity-top {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  align-items: center;
+}
+
+.activity-top strong {
+  font-size: 13px;
+  color: var(--text-primary);
+}
+
+.activity-top span {
+  font-size: 11px;
+  color: #94a3b8;
+}
+
+.activity-body p {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.5;
+  color: #94a3b8;
+}
+
+@media (max-width: 1200px) {
+  .stats-summary-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .distribution-box {
+    flex-direction: column;
+  }
+}
+
+@media (max-width: 900px) {
+  .page-header {
+    flex-direction: column;
+  }
+
+  .stats-summary-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .project-row-top,
+  .activity-top {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+}
+</style>
