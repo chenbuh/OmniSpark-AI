@@ -136,6 +136,7 @@
 
 数据库账号密码通过环境变量注入，不写入仓库。`application.yml` 中已配置占位：
 `username: ${DB_USERNAME:root}`、`password: ${DB_PASSWORD:}`。
+可参考根目录 `.env.example` 模板（复制为 `.env` 填入真实值，`.env` 已被 gitignore 排除）。
 
 启动前先设置环境变量（任选一种方式）：
 

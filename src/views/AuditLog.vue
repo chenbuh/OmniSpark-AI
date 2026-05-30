@@ -56,6 +56,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
 import { useMessage } from 'naive-ui'
+import request from '@/api/request'
 
 const message = useMessage()
 const logs = ref<any[]>([])
@@ -99,13 +100,9 @@ const formatAction = (action: string) => {
 
 async function loadLogs() {
   try {
-    const base = 'http://localhost:8080'
-    const token = localStorage.getItem('satoken') || ''
-    const res = await fetch(`${base}/api/audit-logs?page=0&size=200`, {
-      headers: { 'satoken': token }
-    })
-    const json = await res.json()
-    logs.value = json.data || []
+    // 普通用户仅查看本人审计日志，走统一 request 封装
+    const res = await request.get('/api/audit-logs/my', { params: { page: 0, size: 200 } })
+    logs.value = (res as any).data || []
   } catch {
     logs.value = []
     message.error('加载审计日志失败')

@@ -1,6 +1,7 @@
 package com.example.aihub.module.audit;
 
 import cn.dev33.satoken.annotation.SaCheckLogin;
+import cn.dev33.satoken.annotation.SaCheckRole;
 import cn.dev33.satoken.stp.StpUtil;
 import com.example.aihub.common.result.ApiResult;
 import com.example.aihub.infrastructure.service.AuditLogService;
@@ -17,7 +18,9 @@ import java.util.List;
 public class AuditController {
     private final AuditLogService auditLogService;
 
+    /** 全量审计日志查询，仅管理员可用。普通用户请用 /my 查看本人记录。 */
     @GetMapping
+    @SaCheckRole("admin")
     public ApiResult<List<AuditLogVO>> list(
             @RequestParam(required = false) String action,
             @RequestParam(required = false) Long userId,

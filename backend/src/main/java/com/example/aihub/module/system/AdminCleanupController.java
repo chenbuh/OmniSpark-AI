@@ -2,6 +2,7 @@ package com.example.aihub.module.system;
 
 import cn.dev33.satoken.annotation.SaCheckLogin;
 import cn.dev33.satoken.annotation.SaCheckRole;
+import com.example.aihub.common.exception.BusinessException;
 import com.example.aihub.common.result.ApiResult;
 import com.example.aihub.infrastructure.entity.Asset;
 import com.example.aihub.infrastructure.entity.AuditLog;
@@ -9,6 +10,7 @@ import com.example.aihub.infrastructure.entity.GenerationTask;
 import com.example.aihub.infrastructure.entity.LoginLog;
 import com.example.aihub.infrastructure.mapper.*;
 import lombok.RequiredArgsConstructor;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.*;
 
 import java.time.LocalDateTime;
@@ -21,6 +23,9 @@ import java.util.Map;
 @SaCheckLogin
 @SaCheckRole("admin")
 public class AdminCleanupController {
+    /** 清理保留天数下限，防止传入过小或负数导致误删近期/全量数据。 */
+    private static final int MIN_DAYS_OLD = 7;
+
     private final GenerationTaskMapper taskMapper;
     private final AssetMapper assetMapper;
     private final AuditLogMapper auditLogMapper;
@@ -28,6 +33,7 @@ public class AdminCleanupController {
 
     @GetMapping("/preview")
     public ApiResult<Map<String, Object>> preview(@RequestParam(defaultValue = "30") int daysOld) {
+        daysOld = requireValidDaysOld(daysOld);
         LocalDateTime cutoff = LocalDateTime.now().minusDays(daysOld);
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("daysOld", daysOld);
@@ -53,7 +59,9 @@ public class AdminCleanupController {
     }
 
     @DeleteMapping("/execute")
+    @Transactional(rollbackFor = Exception.class)
     public ApiResult<Map<String, Object>> execute(@RequestParam(defaultValue = "30") int daysOld) {
+        daysOld = requireValidDaysOld(daysOld);
         LocalDateTime cutoff = LocalDateTime.now().minusDays(daysOld);
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("cutoffDate", cutoff.toString());
@@ -75,5 +83,13 @@ public class AdminCleanupController {
         result.put("deletedLoginLogs", deletedLoginLogs);
 
         return ApiResult.ok(result);
+    }
+
+    /** 校验保留天数不低于下限，拒绝 0 / 负数等可能清空全库的取值。 */
+    private int requireValidDaysOld(int daysOld) {
+        if (daysOld < MIN_DAYS_OLD) {
+            throw new BusinessException("保留天数不能小于 " + MIN_DAYS_OLD + " 天，以防误删近期数据");
+        }
+        return daysOld;
     }
 }

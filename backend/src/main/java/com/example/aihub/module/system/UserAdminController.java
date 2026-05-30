@@ -4,6 +4,7 @@ import cn.dev33.satoken.annotation.SaCheckLogin;
 import cn.dev33.satoken.annotation.SaCheckRole;
 import com.example.aihub.common.result.ApiResult;
 import com.example.aihub.common.util.PasswordUtil;
+import com.example.aihub.common.util.SecurityUtil;
 import com.example.aihub.infrastructure.entity.User;
 import com.example.aihub.infrastructure.mapper.UserMapper;
 import com.example.aihub.infrastructure.vo.UserVO;
@@ -15,6 +16,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 @RestController
 @RequiredArgsConstructor
@@ -22,6 +24,9 @@ import java.util.Map;
 @SaCheckLogin
 @SaCheckRole("admin")
 public class UserAdminController {
+    /** 允许的角色白名单，防止写入非法角色。 */
+    private static final Set<String> ALLOWED_ROLES = Set.of("admin", "user");
+
     private final UserMapper userMapper;
 
     @GetMapping
@@ -50,6 +55,12 @@ public class UserAdminController {
 
     @PutMapping("/{id}/role")
     public ApiResult<Void> updateRole(@PathVariable Long id, @RequestParam String role) {
+        if (!ALLOWED_ROLES.contains(role)) {
+            return ApiResult.fail("非法的角色，仅允许 admin 或 user");
+        }
+        if (id.equals(SecurityUtil.loginUserId())) {
+            return ApiResult.fail("不能修改自己的角色");
+        }
         User user = userMapper.selectById(id);
         if (user == null) return ApiResult.fail("用户不存在");
         user.setRole(role);
@@ -59,6 +70,9 @@ public class UserAdminController {
 
     @PutMapping("/{id}/status")
     public ApiResult<Void> updateStatus(@PathVariable Long id, @RequestParam Integer status) {
+        if (id.equals(SecurityUtil.loginUserId())) {
+            return ApiResult.fail("不能修改自己的状态");
+        }
         User user = userMapper.selectById(id);
         if (user == null) return ApiResult.fail("用户不存在");
         user.setStatus(status);
@@ -124,6 +138,9 @@ public class UserAdminController {
 
     @DeleteMapping("/{id}")
     public ApiResult<Void> delete(@PathVariable Long id) {
+        if (id.equals(SecurityUtil.loginUserId())) {
+            return ApiResult.fail("不能删除自己的账号");
+        }
         userMapper.deleteById(id);
         return ApiResult.ok();
     }

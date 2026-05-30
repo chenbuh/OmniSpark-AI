@@ -33,12 +33,19 @@ public class LogViewerController {
         List<String> logLines = new ArrayList<>();
 
         try {
-            Path logFile = Paths.get(logPath, file);
+            Path base = Paths.get(logPath).toAbsolutePath().normalize();
+            Path logFile = base.resolve(file).normalize();
+            // 校验:必须仍在日志目录内，且仅允许 .log 文件，杜绝路径穿越读取任意文件
+            if (!logFile.startsWith(base) || !file.toLowerCase().endsWith(".log")) {
+                result.put("lines", List.of("非法的日志文件名"));
+                result.put("total", 0);
+                result.put("file", file);
+                return ApiResult.ok(result);
+            }
             if (!Files.exists(logFile)) {
                 // 尝试查找最近的日志文件
-                Path dir = Paths.get(logPath);
-                if (Files.exists(dir)) {
-                    try (var stream = Files.list(dir)) {
+                if (Files.exists(base)) {
+                    try (var stream = Files.list(base)) {
                         var files = stream.filter(f -> f.toString().endsWith(".log"))
                                 .sorted((a, b) -> b.toString().compareTo(a.toString()))
                                 .toList();
