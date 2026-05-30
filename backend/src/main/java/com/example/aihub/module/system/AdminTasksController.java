@@ -5,6 +5,7 @@ import cn.dev33.satoken.annotation.SaCheckRole;
 import com.example.aihub.common.result.ApiResult;
 import com.example.aihub.infrastructure.entity.GenerationTask;
 import com.example.aihub.infrastructure.mapper.GenerationTaskMapper;
+import com.example.aihub.infrastructure.service.AssetService;
 import com.example.aihub.infrastructure.vo.GenerationTaskVO;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.*;
@@ -19,6 +20,7 @@ import java.util.stream.Collectors;
 @SaCheckRole("admin")
 public class AdminTasksController {
     private final GenerationTaskMapper taskMapper;
+    private final AssetService assetService;
 
     @GetMapping
     public ApiResult<List<GenerationTaskVO>> list(
@@ -38,6 +40,8 @@ public class AdminTasksController {
 
     @DeleteMapping("/{id}")
     public ApiResult<Void> delete(@PathVariable Long id) {
+        // 先清理任务关联的资产(DB 记录 + 物理文件),再删任务,避免遗留孤儿文件
+        assetService.deleteByTaskId(id);
         taskMapper.deleteById(id);
         return ApiResult.ok();
     }

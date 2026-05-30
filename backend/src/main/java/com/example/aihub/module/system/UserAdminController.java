@@ -84,18 +84,24 @@ public class UserAdminController {
 
     @PostMapping
     public ApiResult<UserVO> create(@RequestParam String username,
-                                     @RequestParam(required = false, defaultValue = "123456") String password,
+                                     @RequestParam(required = false) String password,
                                      @RequestParam(required = false, defaultValue = "") String nickname,
                                      @RequestParam(required = false, defaultValue = "user") String role) {
+        if (!ALLOWED_ROLES.contains(role)) {
+            return ApiResult.fail("非法的角色，仅允许 admin 或 user");
+        }
         Long exists = userMapper.selectCount(
                 new com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper<User>()
                         .eq(User::getUsername, username));
         if (exists != null && exists > 0) {
             return ApiResult.fail("用户名已存在");
         }
+        // 未指定密码时随机生成，并在响应中返回供管理员转交，避免硬编码弱口令
+        boolean generated = password == null || password.isBlank();
+        String rawPassword = generated ? generateRandomPassword() : password;
         User user = new User();
         user.setUsername(username);
-        user.setPassword(PasswordUtil.encode(password));
+        user.setPassword(PasswordUtil.encode(rawPassword));
         user.setNickname(nickname.isBlank() ? username : nickname);
         user.setRole(role);
         user.setStatus(1);
@@ -108,6 +114,9 @@ public class UserAdminController {
         vo.setRole(user.getRole());
         vo.setStatus(user.getStatus());
         vo.setCreatedAt(user.getCreatedAt());
+        if (generated) {
+            vo.setInitialPassword(rawPassword);
+        }
         return ApiResult.ok(vo);
     }
 
@@ -125,13 +134,20 @@ public class UserAdminController {
     // ===== 重置密码 =====
 
     @PutMapping("/{id}/reset-password")
-    public ApiResult<Void> resetPassword(@PathVariable Long id,
-                                          @RequestParam(required = false, defaultValue = "123456") String password) {
+    public ApiResult<Map<String, Object>> resetPassword(@PathVariable Long id,
+                                          @RequestParam(required = false) String password) {
         User user = userMapper.selectById(id);
         if (user == null) return ApiResult.fail("用户不存在");
-        user.setPassword(PasswordUtil.encode(password));
+        // 未指定密码时随机生成，并返回供管理员转交
+        boolean generated = password == null || password.isBlank();
+        String rawPassword = generated ? generateRandomPassword() : password;
+        user.setPassword(PasswordUtil.encode(rawPassword));
         userMapper.updateById(user);
-        return ApiResult.ok();
+        Map<String, Object> result = new LinkedHashMap<>();
+        if (generated) {
+            result.put("initialPassword", rawPassword);
+        }
+        return ApiResult.ok(result);
     }
 
     // ===== 删除 =====
@@ -143,6 +159,17 @@ public class UserAdminController {
         }
         userMapper.deleteById(id);
         return ApiResult.ok();
+    }
+
+    /** 生成 12 位随机初始密码(含大小写字母与数字),替代硬编码弱口令。 */
+    private String generateRandomPassword() {
+        final String chars = "ABCDEFGHJKMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789";
+        java.security.SecureRandom random = new java.security.SecureRandom();
+        StringBuilder sb = new StringBuilder(12);
+        for (int i = 0; i < 12; i++) {
+            sb.append(chars.charAt(random.nextInt(chars.length())));
+        }
+        return sb.toString();
     }
 
     // ===== 导出 =====

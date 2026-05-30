@@ -143,7 +143,7 @@
           <n-input v-model:value="createForm.username" placeholder="登录用账号" :maxlength="30" />
         </n-form-item>
         <n-form-item label="密码">
-          <n-input v-model:value="createForm.password" placeholder="留空则默认为 123456" :maxlength="60" />
+          <n-input v-model:value="createForm.password" placeholder="留空则自动生成随机初始密码" :maxlength="60" />
         </n-form-item>
         <n-form-item label="昵称">
           <n-input v-model:value="createForm.nickname" placeholder="留空则同用户名" :maxlength="30" />
@@ -241,11 +241,20 @@ async function handleCreate() {
     if (createForm.value.password) params.set('password', createForm.value.password)
     if (createForm.value.nickname) params.set('nickname', createForm.value.nickname)
     params.set('role', createForm.value.role)
-    await request.post('/api/admin/users', params.toString(), {
+    const res = await request.post('/api/admin/users', params.toString(), {
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' }
     })
-    message.success('用户已创建')
     showCreate.value = false
+    const initial = (res as any).data?.initialPassword
+    if (initial) {
+      dialog.success({
+        title: '用户已创建',
+        content: `初始密码：${initial}（请妥善转交用户，关闭后将无法再次查看）`,
+        positiveText: '我已记录'
+      })
+    } else {
+      message.success('用户已创建')
+    }
     createForm.value = { username: '', password: '', nickname: '', role: 'user' }
     await loadUsers()
   } catch (err: any) {
@@ -306,13 +315,22 @@ async function confirmEdit(id: number) {
 async function handleResetPassword(u: any) {
   dialog.info({
     title: '重置密码',
-    content: `确定要将用户「${u.username}」的密码重置为 123456 吗？`,
+    content: `确定要重置用户「${u.username}」的密码吗？系统将生成一个随机初始密码。`,
     positiveText: '确定重置',
     negativeText: '取消',
     onPositiveClick: async () => {
       try {
-        await request.put(`/api/admin/users/${u.id}/reset-password`)
-        message.success(`用户「${u.username}」密码已重置为 123456`)
+        const res = await request.put(`/api/admin/users/${u.id}/reset-password`)
+        const initial = (res as any).data?.initialPassword
+        if (initial) {
+          dialog.success({
+            title: '密码已重置',
+            content: `用户「${u.username}」的新密码：${initial}（请妥善转交，关闭后无法再次查看）`,
+            positiveText: '我已记录'
+          })
+        } else {
+          message.success(`用户「${u.username}」密码已重置`)
+        }
       } catch { message.error('操作失败') }
     }
   })

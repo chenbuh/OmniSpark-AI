@@ -7,6 +7,7 @@ import com.example.aihub.infrastructure.entity.Asset;
 import com.example.aihub.infrastructure.mapper.AssetMapper;
 import com.example.aihub.infrastructure.vo.AssetVO;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -19,6 +20,7 @@ import java.util.List;
 import java.util.UUID;
 
 @Service
+@Slf4j
 @RequiredArgsConstructor
 public class AssetService {
     private static final long MAX_UPLOAD_SIZE = 50L * 1024 * 1024; // 50MB
@@ -155,6 +157,35 @@ public class AssetService {
         }
         projectAccessGuard.assertAccess(asset.getProjectId());
         assetMapper.deleteById(id);
+        deleteAssetFile(asset.getFileUrl());
+    }
+
+    /**
+     * 删除资产对应的物理文件,仅允许删除 uploads 目录内的文件,避免误删/越权删除。
+     * 文件删除失败只记日志、不影响 DB 删除事务(孤儿文件可由文件清理任务兜底)。
+     */
+    public void deleteAssetFile(String fileUrl) {
+        if (fileUrl == null || fileUrl.isBlank()) {
+            return;
+        }
+        try {
+            Path base = Paths.get("uploads").toAbsolutePath().normalize();
+            // 仅处理本地 /uploads/ 资源,外链(http)不动
+            String relative = fileUrl.startsWith("/uploads/")
+                    ? fileUrl.substring("/uploads/".length())
+                    : (fileUrl.startsWith("uploads/") ? fileUrl.substring("uploads/".length()) : null);
+            if (relative == null) {
+                return;
+            }
+            Path target = base.resolve(relative).normalize();
+            if (!target.startsWith(base)) {
+                log.warn("跳过删除越界文件: {}", fileUrl);
+                return;
+            }
+            Files.deleteIfExists(target);
+        } catch (Exception ex) {
+            log.warn("删除资产物理文件失败: {} - {}", fileUrl, ex.getMessage());
+        }
     }
 
     @Transactional(rollbackFor = Exception.class)
@@ -167,5 +198,27 @@ public class AssetService {
         asset.setFavorite(asset.getFavorite() != null && asset.getFavorite() == 1 ? 0 : 1);
         assetMapper.updateById(asset);
         return VoMapper.copy(asset, AssetVO.class);
+    }
+
+    /** 管理员删除资产:删 DB 记录并联动删物理文件,不做项目归属校验(由 admin 角色保证)。 */
+    @Transactional(rollbackFor = Exception.class)
+    public void adminDelete(Long id) {
+        Asset asset = assetMapper.selectById(id);
+        if (asset == null) {
+            return;
+        }
+        assetMapper.deleteById(id);
+        deleteAssetFile(asset.getFileUrl());
+    }
+
+    /** 删除某任务关联的全部资产(DB 记录 + 物理文件),用于任务删除时清理产物。 */
+    @Transactional(rollbackFor = Exception.class)
+    public void deleteByTaskId(Long taskId) {
+        List<Asset> assets = assetMapper.selectList(
+                new LambdaQueryWrapper<Asset>().eq(Asset::getTaskId, taskId));
+        for (Asset asset : assets) {
+            assetMapper.deleteById(asset.getId());
+            deleteAssetFile(asset.getFileUrl());
+        }
     }
 }

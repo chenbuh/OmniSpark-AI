@@ -4,6 +4,7 @@ import cn.dev33.satoken.annotation.SaCheckLogin;
 import cn.dev33.satoken.annotation.SaCheckRole;
 import com.example.aihub.common.result.ApiResult;
 import com.example.aihub.infrastructure.mapper.AssetMapper;
+import com.example.aihub.infrastructure.service.AssetService;
 import com.example.aihub.infrastructure.vo.AssetVO;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.*;
@@ -17,6 +18,7 @@ import java.util.List;
 @SaCheckRole("admin")
 public class AdminAssetsController {
     private final AssetMapper assetMapper;
+    private final AssetService assetService;
 
     @GetMapping
     public ApiResult<List<AssetVO>> list(@RequestParam(required = false) String assetType,
@@ -32,7 +34,7 @@ public class AdminAssetsController {
 
     @DeleteMapping("/{id}")
     public ApiResult<Void> delete(@PathVariable Long id) {
-        assetMapper.deleteById(id);
+        assetService.adminDelete(id);
         return ApiResult.ok();
     }
 }
