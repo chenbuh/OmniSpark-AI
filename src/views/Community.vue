@@ -117,8 +117,11 @@
               </div>
             </div>
             <div class="upload-actions">
+              <n-button size="small" secondary @click="openAssetPicker">
+                <template #icon><FolderOpen /></template>从资产库选择
+              </n-button>
               <n-button size="small" secondary :loading="uploadingImage" @click="triggerImageUpload">
-                {{ form.imageUrl ? '重新上传' : '选择图片' }}
+                {{ form.imageUrl ? '重新上传' : '上传本地' }}
               </n-button>
               <n-button v-if="form.imageUrl" size="small" quaternary @click="clearUploadedImage">
                 移除
@@ -133,6 +136,31 @@
       <template #footer>
         <n-button type="primary" @click="handlePublish" :loading="publishing">发布到社区</n-button>
       </template>
+    </n-modal>
+
+    <!-- 从共享资产库选择效果图 -->
+    <n-modal
+      v-model:show="showAssetPicker"
+      preset="card"
+      title="从共享资产库选择效果图"
+      style="width: 60vw; max-width: 800px;"
+    >
+      <div class="assets-picker-grid">
+        <div
+          v-for="asset in imageAssets"
+          :key="asset.id"
+          class="picker-item"
+          @click="handleSelectAsset(asset)"
+        >
+          <img :src="asset.thumbUrl" :alt="asset.fileName || '可选资产缩略图'" class="picker-thumb" />
+          <div class="picker-info">
+            <span class="picker-name">{{ asset.fileName }}</span>
+          </div>
+        </div>
+        <div v-if="imageAssets.length === 0" class="picker-empty">
+          资产库中尚无图片，可先上传本地图片或前往生图页生成。
+        </div>
+      </div>
     </n-modal>
 
     <!-- 详情抽屉 -->
@@ -173,17 +201,18 @@
 import { ref, computed, reactive, onMounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useMessage } from 'naive-ui'
-import { Search, Upload, ThumbsUp, Zap, Image, Trash2, Edit3 } from 'lucide-vue-next'
+import { Search, Upload, ThumbsUp, Zap, Image, Trash2, Edit3, FolderOpen } from 'lucide-vue-next'
 import SkeletonCard from '@/components/SkeletonCard.vue'
 import request from '@/api/request'
 import { assetApi } from '@/api/assets'
 import { useProjectStore } from '@/store/project'
-import { resolveAssetUrl } from '@/store/asset'
+import { useAssetStore, resolveAssetUrl, type Asset } from '@/store/asset'
 
 const router = useRouter()
 const route = useRoute()
 const message = useMessage()
 const projectStore = useProjectStore()
+const assetStore = useAssetStore()
 
 const loading = ref(true)
 const publishing = ref(false)
@@ -197,10 +226,18 @@ const showDetailDrawer = ref(false)
 const detailPost = ref<any>(null)
 const imageUploadInput = ref<HTMLInputElement | null>(null)
 const editingPostId = ref<number | null>(null)
+const showAssetPicker = ref(false)
 const page = ref(1)
 const hasMore = ref(true)
 
 const currentUserId = ref<number | null>(null)
+
+// 共享资产库中的图片资产
+const imageAssets = computed(() => {
+  return assetStore
+    .getAssetsByProject(projectStore.activeProjectId)
+    .filter(a => a.assetType === 'image' || a.assetType === 'reference')
+})
 
 const sortOptions = [
   { label: '最新发布', value: 'newest' },
@@ -295,6 +332,37 @@ onMounted(() => {
 
 function triggerImageUpload() {
   imageUploadInput.value?.click()
+}
+
+// 打开共享资产库选择器
+async function openAssetPicker() {
+  if (!projectStore.activeProjectId) {
+    message.error('请先选择一个项目空间')
+    return
+  }
+  showAssetPicker.value = true
+  try {
+    await assetStore.refresh({ projectId: projectStore.activeProjectId })
+  } catch { /* 忽略，选择器会显示空态 */ }
+}
+
+// 选中资产库图片作为效果图（保存相对路径，避免写死后端 origin）
+function handleSelectAsset(asset: Asset) {
+  form.imageUrl = toRelativeUrl(asset.fileUrl)
+  showAssetPicker.value = false
+}
+
+// 把可能为绝对地址的资源 URL 转成相对路径（/uploads/...），跨源部署仍可用
+function toRelativeUrl(url: string): string {
+  if (!url) return ''
+  if (/^https?:\/\//i.test(url)) {
+    try {
+      return new URL(url).pathname
+    } catch {
+      return url
+    }
+  }
+  return url
 }
 
 function clearUploadedImage() {
@@ -484,4 +552,46 @@ function showDetail(post: any) {
 .upload-preview:hover .preview-mask { opacity: 1; }
 .upload-actions { display: flex; gap: 8px; }
 .load-more-wrap { display: flex; justify-content: center; padding: 24px 0; }
+
+/* 资产选择网格 */
+.assets-picker-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+  gap: 12px;
+  max-height: 60vh;
+  overflow-y: auto;
+}
+.picker-item {
+  border-radius: 10px;
+  overflow: hidden;
+  cursor: pointer;
+  border: 1px solid var(--border-color);
+  transition: transform .15s, border-color .15s;
+}
+.picker-item:hover {
+  transform: translateY(-2px);
+  border-color: rgba(16, 185, 129, 0.6);
+}
+.picker-thumb {
+  width: 100%;
+  height: 100px;
+  object-fit: cover;
+  display: block;
+}
+.picker-info { padding: 6px 8px; }
+.picker-name {
+  font-size: 11px;
+  color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  display: block;
+}
+.picker-empty {
+  grid-column: 1 / -1;
+  text-align: center;
+  padding: 40px 20px;
+  color: var(--text-muted);
+  font-size: 13px;
+}
 </style>
