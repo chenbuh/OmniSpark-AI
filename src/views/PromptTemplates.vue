@@ -29,7 +29,7 @@
 
     <!-- 网格模板列表 -->
     <div class="templates-grid" v-if="filteredTemplates.length > 0">
-      <div v-for="tpl in filteredTemplates" :key="tpl.id" class="tpl-card glass-card">
+      <div v-for="tpl in pagedTemplates" :key="tpl.id" class="tpl-card glass-card">
         <div class="tpl-header">
           <span class="tpl-name">{{ tpl.name }}</span>
           <n-tag type="warning" size="mini" round>{{ tpl.tag }}</n-tag>
@@ -68,6 +68,10 @@
         <BookOpen style="width:48px;height:48px;opacity:0.3;margin-bottom:8px;" />
       </template>
     </n-empty>
+
+    <div class="pager" v-if="filteredTemplates.length > pageSize">
+      <n-pagination v-model:page="page" :page-size="pageSize" :item-count="filteredTemplates.length" />
+    </div>
 
     <!-- 新增/编辑弹窗 -->
     <n-modal v-model:show="showAddModal" preset="card" :title="editingId ? '编辑提示词模板' : '新建提示词模板'" style="width: 560px;" closable>
@@ -170,6 +174,15 @@ const filteredTemplates = computed(() => {
   return list
 })
 
+// 前端分页
+const page = ref(1)
+const pageSize = 12
+const pagedTemplates = computed(() => {
+  const start = (page.value - 1) * pageSize
+  return filteredTemplates.value.slice(start, start + pageSize)
+})
+watch([activeTag, searchQuery, () => projectStore.activeProjectId], () => { page.value = 1 })
+
 function handleApplyTemplate(tpl: PromptTemplate) {
   const query: Record<string, string> = { prompt: tpl.content }
   if (tpl.negativePrompt) query.negPrompt = tpl.negativePrompt
@@ -240,6 +253,7 @@ const handleDelete = async (id: number) => {
 .s-icon { width: 14px; height: 14px; color: var(--text-muted); }
 
 .templates-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 16px; margin-top: 24px; }
+.pager { display: flex; justify-content: flex-end; margin-top: 20px; }
 .tpl-card { display: flex; flex-direction: column; padding: 16px; cursor: pointer; transition: all .25s; }
 .tpl-card:hover { transform: translateY(-3px); border-color: #10b981 !important; box-shadow: 0 8px 24px rgba(0,0,0,0.25); }
 .tpl-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; gap: 8px; }

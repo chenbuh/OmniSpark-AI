@@ -59,7 +59,7 @@
     </n-card>
 
     <div v-if="filteredAssets.length > 0" class="assets-grid">
-      <div v-for="asset in filteredAssets" :key="asset.id" class="asset-card" @click="handleOpenDetail(asset)">
+      <div v-for="asset in pagedAssets" :key="asset.id" class="asset-card" @click="handleOpenDetail(asset)">
         <div class="media-container">
           <video
             v-if="asset.assetType === 'video'"
@@ -131,6 +131,10 @@
         </n-button>
         <n-button secondary @click="resetFilters">重置筛选</n-button>
       </n-space>
+    </div>
+
+    <div class="pager" v-if="filteredAssets.length > pageSize">
+      <n-pagination v-model:page="page" :page-size="pageSize" :item-count="filteredAssets.length" />
     </div>
 
     <n-drawer v-model:show="showDetailDrawer" :width="560" placement="right" class="glass-drawer">
@@ -441,6 +445,16 @@ const filteredAssets = computed(() => {
 
   return list
 })
+
+// 前端分页(assetStore 全量不动,仅渲染层切片)
+const page = ref(1)
+const pageSize = 24
+const pagedAssets = computed(() => {
+  const start = (page.value - 1) * pageSize
+  return filteredAssets.value.slice(start, start + pageSize)
+})
+// 切换 tab / 过滤 / 排序 / 项目时回到第 1 页
+watch([activeTab, assetTab, searchKeyword, sortBy, () => projectStore.activeProjectId], () => { page.value = 1 })
 
 const versionHistory = computed(() => {
   const current = selectedAsset.value
@@ -863,6 +877,8 @@ onUnmounted(() => {
   grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
   gap: 18px;
 }
+
+.pager { display: flex; justify-content: flex-end; margin-top: 20px; }
 
 .asset-card {
   overflow: hidden;

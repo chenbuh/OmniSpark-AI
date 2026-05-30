@@ -20,7 +20,7 @@
 
           <div class="team-list" v-if="teamStore.teams.length > 0">
             <div
-              v-for="team in teamStore.teams"
+              v-for="team in pagedTeams"
               :key="team.id"
               class="team-card"
               :class="{ 'active-team': selectedTeam?.id === team.id }"
@@ -41,6 +41,9 @@
             </div>
           </div>
           <n-empty v-else description="暂无团队，点击右上角创建" />
+          <div class="pager" v-if="teamStore.teams.length > pageSize">
+            <n-pagination v-model:page="page" :page-size="pageSize" :item-count="teamStore.teams.length" simple />
+          </div>
         </n-card>
       </n-col>
 
@@ -162,6 +165,14 @@ const createForm = ref({ name: '', description: '' })
 const editForm = ref({ id: 0, name: '', description: '' })
 const inviteForm = ref({ username: '', role: 'member' })
 
+// 前端分页(teamStore 全量不动)
+const page = ref(1)
+const pageSize = 10
+const pagedTeams = computed(() => {
+  const start = (page.value - 1) * pageSize
+  return teamStore.teams.slice(start, start + pageSize)
+})
+
 const teamActions = [
   { label: '编辑团队', key: 'edit', icon: () => Edit3 },
   { label: '解散团队', key: 'delete', icon: () => Trash2 }
@@ -274,6 +285,7 @@ const handleRemoveMember = async (member: any) => {
 .s-icon { width: 14px; height: 14px; color: var(--text-muted); }
 
 .team-list { display: flex; flex-direction: column; gap: 8px; }
+.pager { display: flex; justify-content: center; margin-top: 14px; }
 .team-card { display: flex; align-items: center; gap: 12px; padding: 12px; border-radius: 12px; cursor: pointer; transition: all .2s; border: 1px solid transparent; }
 .team-card:hover { background: rgba(128,128,128,0.03); border-color: var(--border-color); }
 .team-card.active-team { background: rgba(16,185,129,0.06); border-color: rgba(16,185,129,0.25); }

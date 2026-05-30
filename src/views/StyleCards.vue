@@ -26,7 +26,7 @@
 
     <!-- 卡片网格 -->
     <div class="cards-grid" v-if="filteredCards.length > 0">
-      <div v-for="card in filteredCards" :key="card.id" class="card-item glass-card">
+      <div v-for="card in pagedCards" :key="card.id" class="card-item glass-card">
         <div class="card-preview" v-if="card.previewUrl">
           <img :src="resolveAssetUrl(card.previewUrl)" :alt="card.name || '卡片预览图'" class="preview-img" />
         </div>
@@ -67,8 +67,12 @@
       </div>
     </div>
 
+    <div class="pager" v-if="filteredCards.length > pageSize">
+      <n-pagination v-model:page="page" :page-size="pageSize" :item-count="filteredCards.length" />
+    </div>
+
     <!-- 空状态 -->
-    <div class="empty-box" v-else>
+    <div class="empty-box" v-if="filteredCards.length === 0">
       <Palette class="empty-icon" />
       <h3>暂无角色卡或风格卡</h3>
       <p>创建一个预设卡片，保存完整的提示词、模型和参数配置，下次一键复用。</p>
@@ -189,7 +193,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, reactive, onMounted } from 'vue'
+import { ref, computed, reactive, onMounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useMessage } from 'naive-ui'
 import { useProjectStore } from '@/store/project'
@@ -243,6 +247,16 @@ const filteredCards = computed(() => {
   }
   return list
 })
+
+// 前端分页(store/全量数据保持不动,仅渲染层切片)
+const page = ref(1)
+const pageSize = 12
+const pagedCards = computed(() => {
+  const start = (page.value - 1) * pageSize
+  return filteredCards.value.slice(start, start + pageSize)
+})
+// 过滤条件变化时回到第 1 页
+watch([activeType, searchQuery, () => projectStore.activeProjectId], () => { page.value = 1 })
 
 async function loadCards() {
   try {
@@ -467,6 +481,8 @@ function handleApply(card: StyleCard) {
   grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
   gap: 16px;
 }
+
+.pager { display: flex; justify-content: flex-end; margin-top: 20px; }
 
 .card-item {
   display: flex;

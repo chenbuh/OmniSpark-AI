@@ -15,10 +15,11 @@
             placeholder="操作类型"
             style="width: 160px;"
             clearable
+            @update:value="onFilter"
           />
           <n-button type="primary" size="small" @click="loadLogs">刷新</n-button>
         </n-space>
-        <span class="count-lbl">共 {{ logs.length }} 条记录</span>
+        <span class="count-lbl">共 {{ total }} 条记录</span>
       </div>
     </n-card>
 
@@ -36,7 +37,7 @@
           </tr>
         </thead>
         <tbody>
-          <tr v-for="log in filteredLogs" :key="log.id">
+          <tr v-for="log in logs" :key="log.id">
             <td><code>#{{ log.id }}</code></td>
             <td>{{ log.username || '未知' }}</td>
             <td><n-tag size="small" :type="actionColor(log.action)">{{ formatAction(log.action) }}</n-tag></td>
@@ -44,23 +45,29 @@
             <td><code>{{ log.ip || '-' }}</code></td>
             <td>{{ log.createdAt?.substring(0, 19)?.replace('T', ' ') }}</td>
           </tr>
-          <tr v-if="filteredLogs.length === 0">
+          <tr v-if="logs.length === 0">
             <td colspan="6" class="empty-cell">暂无审计日志</td>
           </tr>
         </tbody>
       </n-table>
+      <div class="pager" v-if="total > pageSize">
+        <n-pagination v-model:page="page" :page-size="pageSize" :item-count="total" @update:page="loadLogs" />
+      </div>
     </n-card>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import { ref, onMounted } from 'vue'
 import { useMessage } from 'naive-ui'
 import request from '@/api/request'
 
 const message = useMessage()
 const logs = ref<any[]>([])
 const actionFilter = ref<string | null>(null)
+const page = ref(1)
+const pageSize = 20
+const total = ref(0)
 
 const actionOptions = [
   { label: '全部', value: '' },
@@ -79,11 +86,6 @@ const actionOptions = [
   { label: '测试连接', value: 'ModelProvider_test' }
 ]
 
-const filteredLogs = computed(() => {
-  if (!actionFilter.value) return logs.value
-  return logs.value.filter(l => l.action === actionFilter.value)
-})
-
 const actionColor = (action: string) => {
   if (!action) return 'default'
   if (action.includes('delete') || action.includes('remove')) return 'error'
@@ -101,12 +103,22 @@ const formatAction = (action: string) => {
 async function loadLogs() {
   try {
     // 普通用户仅查看本人审计日志，走统一 request 封装
-    const res = await request.get('/api/audit-logs/my', { params: { page: 0, size: 200 } })
-    logs.value = (res as any).data || []
-  } catch {
+    const params: Record<string, any> = { page: page.value, size: pageSize }
+    if (actionFilter.value) params.action = actionFilter.value
+    const res = await request.get('/api/audit-logs/my', { params })
+    const data = (res as any).data || {}
+    logs.value = data.records || []
+    total.value = data.total || 0
+  } catch (err: any) {
     logs.value = []
-    message.error('加载审计日志失败')
+    message.error(err.message || '加载审计日志失败')
   }
+}
+
+// 切换操作类型过滤时回到第 1 页
+function onFilter() {
+  page.value = 1
+  loadLogs()
 }
 
 onMounted(loadLogs)
@@ -140,4 +152,5 @@ onMounted(loadLogs)
   font-size: 12px;
 }
 .empty-cell { text-align: center !important; padding: 40px !important; color: #6b7280; }
+.pager { display: flex; justify-content: flex-end; margin-top: 16px; }
 </style>

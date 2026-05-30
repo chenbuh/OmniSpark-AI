@@ -25,6 +25,7 @@ public class CommunityService {
     private final CommunityLikeMapper likeMapper;
 
     public List<CommunityPostVO> list(String category, String search, Long currentUserId) {
+        // 兼容保留:当前由 page() 提供分页查询,此方法暂未被控制器调用
         LambdaQueryWrapper<CommunityPost> wrapper = new LambdaQueryWrapper<>();
         wrapper.eq(CommunityPost::getStatus, 1);
         if (category != null && !category.isBlank() && !"all".equals(category)) {
@@ -53,6 +54,43 @@ public class CommunityService {
             vo.setLiked(finalLikedIds.contains(p.getId()) ? 1 : 0);
             return vo;
         }).toList();
+    }
+
+    /** 分页查询社区帖子,支持按最新/最热排序。 */
+    public com.example.aihub.common.result.PageResult<CommunityPostVO> page(
+            String category, String search, String sort, Long currentUserId, long page, long size) {
+        LambdaQueryWrapper<CommunityPost> wrapper = new LambdaQueryWrapper<>();
+        wrapper.eq(CommunityPost::getStatus, 1);
+        if (category != null && !category.isBlank() && !"all".equals(category)) {
+            wrapper.eq(CommunityPost::getCategory, category);
+        }
+        if (search != null && !search.isBlank()) {
+            wrapper.and(w -> w.like(CommunityPost::getTitle, search)
+                    .or().like(CommunityPost::getPrompt, search)
+                    .or().like(CommunityPost::getTags, search));
+        }
+        if ("likes".equals(sort)) {
+            wrapper.orderByDesc(CommunityPost::getLikesCount).orderByDesc(CommunityPost::getId);
+        } else {
+            wrapper.orderByDesc(CommunityPost::getId);
+        }
+
+        var p = postMapper.selectPage(
+                new com.baomidou.mybatisplus.extension.plugins.pagination.Page<>(page, size), wrapper);
+
+        Set<Long> likedIds = Set.of();
+        if (currentUserId != null) {
+            likedIds = likeMapper.selectList(
+                    new LambdaQueryWrapper<CommunityLike>().eq(CommunityLike::getUserId, currentUserId))
+                    .stream().map(CommunityLike::getPostId).collect(Collectors.toSet());
+        }
+        Set<Long> finalLikedIds = likedIds;
+        List<CommunityPostVO> records = p.getRecords().stream().map(post -> {
+            CommunityPostVO vo = VoMapper.copy(post, CommunityPostVO.class);
+            vo.setLiked(finalLikedIds.contains(post.getId()) ? 1 : 0);
+            return vo;
+        }).toList();
+        return new com.example.aihub.common.result.PageResult<>(p.getTotal(), p.getPages(), records);
     }
 
     public CommunityPostVO get(Long id, Long currentUserId) {

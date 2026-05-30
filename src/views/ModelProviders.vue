@@ -27,7 +27,7 @@
           </tr>
         </thead>
         <tbody>
-          <tr v-for="provider in currentProviders" :key="provider.id">
+          <tr v-for="provider in pagedProviders" :key="provider.id">
             <!-- 名称 -->
             <td>
               <div class="name-cell">
@@ -99,6 +99,9 @@
           </tr>
         </tbody>
       </n-table>
+      <div class="pager" v-if="currentProviders.length > pageSize">
+        <n-pagination v-model:page="page" :page-size="pageSize" :item-count="currentProviders.length" />
+      </div>
     </n-card>
 
     <!-- 添加 / 编辑弹窗 -->
@@ -156,7 +159,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, computed } from 'vue'
+import { ref, reactive, computed, watch } from 'vue'
 import { useMessage } from 'naive-ui'
 import { useProjectStore } from '@/store/project'
 import { useModelProviderStore, type ModelProvider } from '@/store/provider'
@@ -193,6 +196,15 @@ const typeOptions = [
 const currentProviders = computed(() => {
   return providerStore.getProvidersByProject(projectStore.activeProjectId)
 })
+
+// 前端分页(providerStore 全量不动,仅渲染层切片)
+const page = ref(1)
+const pageSize = 10
+const pagedProviders = computed(() => {
+  const start = (page.value - 1) * pageSize
+  return currentProviders.value.slice(start, start + pageSize)
+})
+watch(() => projectStore.activeProjectId, () => { page.value = 1 })
 
 const getTypeTag = (type: string) => {
   if (type === 'image') return 'success'
@@ -336,6 +348,8 @@ const handleDelete = async (id: number) => {
   font-size: 13px;
   color: #9ca3af;
 }
+
+.pager { display: flex; justify-content: flex-end; margin-top: 16px; }
 
 .field-hint {
   margin-top: 8px;

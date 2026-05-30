@@ -37,7 +37,7 @@
 
           <div v-if="filteredWorkflows.length > 0" class="wf-list">
             <div
-              v-for="wf in filteredWorkflows"
+              v-for="wf in pagedWorkflows"
               :key="wf.id"
               class="wf-card"
               :class="{ 'active-wf': selectedWorkflow?.id === wf.id }"
@@ -57,6 +57,9 @@
             </div>
           </div>
           <n-empty v-else description="当前项目还没有工作流" />
+          <div class="pager" v-if="filteredWorkflows.length > wfPageSize">
+            <n-pagination v-model:page="wfPage" :page-size="wfPageSize" :item-count="filteredWorkflows.length" simple />
+          </div>
         </n-card>
       </n-col>
 
@@ -418,6 +421,15 @@ const filteredWorkflows = computed(() => {
       .some(value => String(value || '').toLowerCase().includes(query))
   })
 })
+
+// 前端分页(workflows 全量不动)
+const wfPage = ref(1)
+const wfPageSize = 10
+const pagedWorkflows = computed(() => {
+  const start = (wfPage.value - 1) * wfPageSize
+  return filteredWorkflows.value.slice(start, start + wfPageSize)
+})
+watch([searchQuery, () => projectStore.activeProjectId], () => { wfPage.value = 1 })
 
 const imageAssetOptions = computed(() => {
   return assetStore
@@ -871,6 +883,8 @@ onMounted(async () => {
   flex-direction: column;
   gap: 8px;
 }
+
+.pager { display: flex; justify-content: center; margin-top: 14px; }
 
 .wf-card {
   display: flex;

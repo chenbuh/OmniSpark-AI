@@ -8,7 +8,7 @@
     <!-- 分类 + 搜索 + 发布 -->
     <n-card class="glass-card filter-card" :bordered="false">
       <div class="filter-bar">
-        <n-tabs v-model:value="activeCategory" type="segment" class="category-tabs">
+        <n-tabs v-model:value="activeCategory" type="segment" class="category-tabs" @update:value="onCategoryChange">
           <n-tab name="all">全部</n-tab>
           <n-tab name="写实">写实</n-tab>
           <n-tab name="动漫">动漫</n-tab>
@@ -19,7 +19,7 @@
           <n-tab name="uncategorized">其他</n-tab>
         </n-tabs>
         <n-space>
-          <n-select v-model:value="sortBy" :options="sortOptions" style="width:130px;" size="small" @update:value="loadPosts" />
+          <n-select v-model:value="sortBy" :options="sortOptions" style="width:130px;" size="small" @update:value="onCategoryChange" />
           <n-input v-model:value="searchQuery" placeholder="搜索提示词..." style="width:200px;" clearable @update:value="debounceSearch">
             <template #prefix><Search class="s-icon" /></template>
           </n-input>
@@ -34,8 +34,8 @@
     <SkeletonCard v-if="loading" type="grid" :count="8" />
 
     <!-- 瀑布流 -->
-    <div class="posts-grid" v-else-if="filteredPosts.length > 0">
-      <div v-for="post in filteredPosts" :key="post.id" class="post-card glass-card">
+    <div class="posts-grid" v-else-if="posts.length > 0">
+      <div v-for="post in posts" :key="post.id" class="post-card glass-card">
         <div class="post-image" v-if="post.imageUrl" @click="showDetail(post)">
           <img :src="post.imageUrl" class="post-img" loading="lazy" />
         </div>
@@ -70,11 +70,11 @@
       </div>
     </div>
 
-    <div class="load-more-wrap" v-if="filteredPosts.length > 0 && hasMore">
-      <n-button size="small" secondary @click="loadMorePosts" :loading="loading">加载更多</n-button>
-    </div>
-
     <n-empty v-else description="暂无社区内容，成为第一个分享者！" style="padding: 60px 0;" />
+
+    <div class="pager" v-if="total > pageSize">
+      <n-pagination v-model:page="page" :page-size="pageSize" :item-count="total" @update:page="loadPosts" />
+    </div>
 
     <!-- 发布弹窗 -->
     <n-modal v-model:show="showUploadModal" preset="card" title="分享到社区" style="width: 540px;" closable>
@@ -228,7 +228,8 @@ const imageUploadInput = ref<HTMLInputElement | null>(null)
 const editingPostId = ref<number | null>(null)
 const showAssetPicker = ref(false)
 const page = ref(1)
-const hasMore = ref(true)
+const pageSize = 20
+const total = ref(0)
 
 const currentUserId = ref<number | null>(null)
 
@@ -264,18 +265,6 @@ const categoryOptions = [
   { label: '其他', value: 'uncategorized' }
 ]
 
-const filteredPosts = computed(() => {
-  let list = posts.value
-  if (activeCategory.value !== 'all') {
-    list = list.filter((p: any) => p.category === activeCategory.value)
-  }
-  if (searchQuery.value) {
-    const q = searchQuery.value.toLowerCase()
-    list = list.filter((p: any) => p.title?.toLowerCase().includes(q) || p.prompt?.toLowerCase().includes(q))
-  }
-  return list
-})
-
 function canDelete(post: any) {
   return post.userId && currentUserId.value && post.userId === currentUserId.value
 }
@@ -283,35 +272,38 @@ function canDelete(post: any) {
 let searchTimer: any = null
 function debounceSearch() {
   clearTimeout(searchTimer)
-  searchTimer = setTimeout(loadPosts, 300)
+  searchTimer = setTimeout(() => { page.value = 1; loadPosts() }, 300)
 }
 
-async function loadPosts(loadMore = false) {
-  if (!loadMore) { loading.value = true; page.value = 1; hasMore.value = true }
+// 分类切换时回到第 1 页并重新请求
+function onCategoryChange() {
+  page.value = 1
+  loadPosts()
+}
+
+async function loadPosts() {
+  loading.value = true
   try {
-    const params: Record<string, string> = {
-      page: String(page.value),
+    const params: Record<string, any> = {
+      page: page.value,
+      pageSize,
       sort: sortBy.value
     }
+    if (activeCategory.value !== 'all') params.category = activeCategory.value
     if (searchQuery.value) params.search = searchQuery.value
     const res = await request.get('/api/community/posts', { params })
-    const newPosts = ((res as any).data?.list || (res as any).data || []).map((post: any) => ({
+    const data = (res as any).data || {}
+    posts.value = (data.records || []).map((post: any) => ({
       ...post,
       imageUrl: resolveAssetUrl(post.imageUrl)
     }))
-    if (loadMore) {
-      posts.value = [...posts.value, ...newPosts]
-    } else {
-      posts.value = newPosts
-    }
-    hasMore.value = newPosts.length >= 20
-  } catch { if (!loadMore) posts.value = [] }
-  finally { if (!loadMore) loading.value = false }
-}
-
-function loadMorePosts() {
-  page.value++
-  loadPosts(true)
+    total.value = data.total || 0
+  } catch (err: any) {
+    posts.value = []
+    message.error(err.message || '加载社区内容失败')
+  } finally {
+    loading.value = false
+  }
 }
 
 onMounted(() => {
@@ -552,6 +544,7 @@ function showDetail(post: any) {
 .upload-preview:hover .preview-mask { opacity: 1; }
 .upload-actions { display: flex; gap: 8px; }
 .load-more-wrap { display: flex; justify-content: center; padding: 24px 0; }
+.pager { display: flex; justify-content: center; margin-top: 20px; }
 
 /* 资产选择网格 */
 .assets-picker-grid {

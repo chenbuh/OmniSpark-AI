@@ -36,7 +36,8 @@ public class AuditLogService {
         log(userId, username, action, null, null, detail, ip);
     }
 
-    public List<AuditLogVO> list(String action, Long userId, int page, int size) {
+    /** 分页查询审计日志,返回 PageResult。 */
+    public com.example.aihub.common.result.PageResult<AuditLogVO> page(String action, Long userId, long page, long size) {
         LambdaQueryWrapper<AuditLog> wrapper = new LambdaQueryWrapper<>();
         if (action != null && !action.isBlank()) {
             wrapper.eq(AuditLog::getAction, action);
@@ -45,8 +46,11 @@ public class AuditLogService {
             wrapper.eq(AuditLog::getUserId, userId);
         }
         wrapper.orderByDesc(AuditLog::getId);
-        return auditLogMapper.selectList(wrapper).stream()
+        var p = auditLogMapper.selectPage(
+                new com.baomidou.mybatisplus.extension.plugins.pagination.Page<>(page, size), wrapper);
+        List<AuditLogVO> records = p.getRecords().stream()
                 .map(item -> VoMapper.copy(item, AuditLogVO.class))
                 .toList();
+        return new com.example.aihub.common.result.PageResult<>(p.getTotal(), p.getPages(), records);
     }
 }

@@ -19,11 +19,14 @@ public class CommunityController {
     private final CommunityService communityService;
 
     @GetMapping("/posts")
-    public ApiResult<List<CommunityPostVO>> list(
+    public ApiResult<com.example.aihub.common.result.PageResult<CommunityPostVO>> list(
             @RequestParam(required = false) String category,
-            @RequestParam(required = false) String search) {
+            @RequestParam(required = false) String search,
+            @RequestParam(required = false, defaultValue = "newest") String sort,
+            @RequestParam(defaultValue = "1") long page,
+            @RequestParam(defaultValue = "20") long pageSize) {
         Long userId = StpUtil.isLogin() ? StpUtil.getLoginIdAsLong() : null;
-        return ApiResult.ok(communityService.list(category, search, userId));
+        return ApiResult.ok(communityService.page(category, search, sort, userId, page, pageSize));
     }
 
     @GetMapping("/posts/{id}")
