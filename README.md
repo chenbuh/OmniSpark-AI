@@ -133,12 +133,32 @@
 - Node.js 20+
 
 ### 后端
+
+数据库账号密码通过环境变量注入，不写入仓库。`application.yml` 中已配置占位：
+`username: ${DB_USERNAME:root}`、`password: ${DB_PASSWORD:}`。
+
+启动前先设置环境变量（任选一种方式）：
+
+```bash
+# macOS / Linux
+export DB_USERNAME=root
+export DB_PASSWORD=你的数据库密码
+
+# Windows PowerShell
+$env:DB_USERNAME="root"; $env:DB_PASSWORD="你的数据库密码"
+```
+
+IntelliJ IDEA 用户：在 `Run/Debug Configurations → Environment variables` 里添加
+`DB_USERNAME` 与 `DB_PASSWORD`，无需修改 `application.yml`。
+
 ```bash
 cd backend
-# 修改 application.yml 中的数据库连接信息
 mvn spring-boot:run
 # 启动后自动建表 + 初始化管理员账号 admin / admin123
 ```
+
+> 默认连接 `jdbc:mysql://127.0.0.1:3306/aihub`，Redis 连接 `127.0.0.1:6379`。
+> 如需调整主机/端口/库名，改 `application.yml` 对应项即可。
 
 ### 前端
 ```bash
