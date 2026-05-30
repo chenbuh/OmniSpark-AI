@@ -36,4 +36,14 @@ public class AuditController {
         Long userId = Long.valueOf(String.valueOf(StpUtil.getLoginId()));
         return ApiResult.ok(auditLogService.page(action, userId, page, size));
     }
+
+    /** 清理 N 天前的审计日志,仅管理员可用。下限 7 天,防止误删近期合规记录。 */
+    @DeleteMapping
+    @SaCheckRole("admin")
+    public ApiResult<Long> cleanup(@RequestParam(defaultValue = "30") int daysOld) {
+        if (daysOld < 7) {
+            return ApiResult.fail("保留天数不能小于 7 天，以防误删近期审计记录");
+        }
+        return ApiResult.ok(auditLogService.deleteOlderThan(daysOld));
+    }
 }

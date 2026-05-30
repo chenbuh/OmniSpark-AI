@@ -53,4 +53,12 @@ public class AuditLogService {
                 .toList();
         return new com.example.aihub.common.result.PageResult<>(p.getTotal(), p.getPages(), records);
     }
+
+    /** 删除 N 天前的审计日志,返回删除条数(由控制器做权限与下限校验)。 */
+    @org.springframework.transaction.annotation.Transactional(rollbackFor = Exception.class)
+    public long deleteOlderThan(int daysOld) {
+        LocalDateTime cutoff = LocalDateTime.now().minusDays(daysOld);
+        return auditLogMapper.delete(new LambdaQueryWrapper<AuditLog>()
+                .lt(AuditLog::getCreatedAt, cutoff));
+    }
 }

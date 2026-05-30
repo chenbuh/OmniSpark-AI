@@ -18,6 +18,15 @@
             @update:value="onFilter"
           />
           <n-button type="primary" size="small" @click="loadLogs">刷新</n-button>
+          <!-- 仅管理员可清理 N 天前日志 -->
+          <template v-if="isAdmin">
+            <n-divider vertical />
+            <span class="cleanup-lbl">清理</span>
+            <n-input-number v-model:value="cleanupDays" :min="7" :max="3650" size="small" style="width: 110px;">
+              <template #suffix>天前</template>
+            </n-input-number>
+            <n-button type="error" size="small" tertiary :loading="cleaning" @click="handleCleanup">清理日志</n-button>
+          </template>
         </n-space>
         <span class="count-lbl">共 {{ total }} 条记录</span>
       </div>
@@ -50,24 +59,40 @@
           </tr>
         </tbody>
       </n-table>
-      <div class="pager" v-if="total > pageSize">
-        <n-pagination v-model:page="page" :page-size="pageSize" :item-count="total" @update:page="loadLogs" />
+      <div class="pager" v-if="total > 0">
+        <n-pagination
+          v-model:page="page"
+          :page-size="pageSize"
+          :item-count="total"
+          show-size-picker
+          :page-sizes="pageSizeOptions"
+          @update:page="loadLogs"
+          @update:page-size="handlePageSizeChange"
+        />
       </div>
     </n-card>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
-import { useMessage } from 'naive-ui'
+import { ref, computed, onMounted } from 'vue'
+import { useMessage, useDialog } from 'naive-ui'
 import request from '@/api/request'
+import { useUserStore } from '@/store/user'
 
 const message = useMessage()
+const dialog = useDialog()
+const userStore = useUserStore()
+const isAdmin = computed(() => userStore.userInfo?.role === 'admin')
+
 const logs = ref<any[]>([])
 const actionFilter = ref<string | null>(null)
 const page = ref(1)
-const pageSize = 20
+const pageSize = ref(20)
+const pageSizeOptions = [20, 50, 100]
 const total = ref(0)
+const cleanupDays = ref(30)
+const cleaning = ref(false)
 
 const actionOptions = [
   { label: '全部', value: '' },
@@ -103,7 +128,7 @@ const formatAction = (action: string) => {
 async function loadLogs() {
   try {
     // 普通用户仅查看本人审计日志，走统一 request 封装
-    const params: Record<string, any> = { page: page.value, size: pageSize }
+    const params: Record<string, any> = { page: page.value, size: pageSize.value }
     if (actionFilter.value) params.action = actionFilter.value
     const res = await request.get('/api/audit-logs/my', { params })
     const data = (res as any).data || {}
@@ -119,6 +144,36 @@ async function loadLogs() {
 function onFilter() {
   page.value = 1
   loadLogs()
+}
+
+// 切换每页条数时回到第 1 页
+function handlePageSizeChange(size: number) {
+  pageSize.value = size
+  page.value = 1
+  loadLogs()
+}
+
+// 管理员清理 N 天前的审计日志
+function handleCleanup() {
+  dialog.warning({
+    title: '清理审计日志',
+    content: `确定删除 ${cleanupDays.value} 天前的所有审计日志吗？此操作不可恢复。`,
+    positiveText: '确定删除',
+    negativeText: '取消',
+    onPositiveClick: async () => {
+      cleaning.value = true
+      try {
+        const res = await request.delete('/api/audit-logs', { params: { daysOld: cleanupDays.value } })
+        message.success(`已清理 ${(res as any).data ?? 0} 条审计日志`)
+        page.value = 1
+        await loadLogs()
+      } catch (err: any) {
+        message.error(err.message || '清理失败')
+      } finally {
+        cleaning.value = false
+      }
+    }
+  })
 }
 
 onMounted(loadLogs)
@@ -137,6 +192,7 @@ onMounted(loadLogs)
 }
 .filter-row { display: flex; justify-content: space-between; align-items: center; }
 .count-lbl { font-size: 12px; color: #9ca3af; }
+.cleanup-lbl { font-size: 12px; color: #9ca3af; }
 
 .audit-table { background-color: transparent !important; }
 .audit-table th {
