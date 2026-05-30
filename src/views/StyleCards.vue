@@ -67,8 +67,15 @@
       </div>
     </div>
 
-    <div class="pager" v-if="filteredCards.length > pageSize">
-      <n-pagination v-model:page="page" :page-size="pageSize" :item-count="filteredCards.length" />
+    <div class="pager" v-if="filteredCards.length > 0">
+      <n-pagination
+        v-model:page="page"
+        :page-size="pageSize"
+        :item-count="filteredCards.length"
+        show-size-picker
+        :page-sizes="pageSizeOptions"
+        @update:page-size="handlePageSizeChange"
+      />
     </div>
 
     <!-- 空状态 -->
@@ -250,11 +257,16 @@ const filteredCards = computed(() => {
 
 // 前端分页(store/全量数据保持不动,仅渲染层切片)
 const page = ref(1)
-const pageSize = 12
+const pageSize = ref(12)
+const pageSizeOptions = [12, 24, 48, 96]
 const pagedCards = computed(() => {
-  const start = (page.value - 1) * pageSize
-  return filteredCards.value.slice(start, start + pageSize)
+  const start = (page.value - 1) * pageSize.value
+  return filteredCards.value.slice(start, start + pageSize.value)
 })
+function handlePageSizeChange(size: number) {
+  pageSize.value = size
+  page.value = 1
+}
 // 过滤条件变化时回到第 1 页
 watch([activeType, searchQuery, () => projectStore.activeProjectId], () => { page.value = 1 })
 
