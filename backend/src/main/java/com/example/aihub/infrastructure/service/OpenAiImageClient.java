@@ -5,13 +5,16 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
 import java.awt.*;
 import java.awt.image.BufferedImage;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
+import java.io.InputStream;
 import java.net.URI;
+import java.net.HttpURLConnection;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
@@ -30,19 +33,19 @@ import java.util.UUID;
 import javax.imageio.ImageIO;
 
 @Component
+@Slf4j
 @RequiredArgsConstructor
 public class OpenAiImageClient {
     private static final Duration GENERATION_TIMEOUT = Duration.ofMinutes(10);
-    private static final Duration MEDIA_DOWNLOAD_TIMEOUT = Duration.ofMinutes(2);
+    /** 单次 HTTP 请求超时:网关无响应时尽快超时以触发换渠道重试,避免单次请求挂满 10 分钟。 */
+    private static final Duration SINGLE_REQUEST_TIMEOUT = Duration.ofSeconds(120);
+    private static final Duration MEDIA_DOWNLOAD_CONNECT_TIMEOUT = Duration.ofSeconds(45);
+    private static final Duration MEDIA_DOWNLOAD_READ_TIMEOUT = Duration.ofSeconds(120);
     private static final Duration REFERENCE_DOWNLOAD_TIMEOUT = Duration.ofMinutes(2);
-    private static final int MAX_SEND_ATTEMPTS = 3;
+    private static final int MAX_SEND_ATTEMPTS = 5;
     private static final int MAX_DOWNLOAD_ATTEMPTS = 3;
 
     private final ObjectMapper objectMapper;
-    private final HttpClient httpClient = HttpClient.newBuilder()
-            .connectTimeout(Duration.ofSeconds(60))
-            .version(HttpClient.Version.HTTP_1_1)
-            .build();
 
     public List<RenderedMedia> generateImage(String baseUrl,
                                              String apiKey,
@@ -111,10 +114,16 @@ public class OpenAiImageClient {
         try {
             return postJson(endpoint, apiKey, buildImagePayload(modelName, prompt, actualCount, requestSize, quality, true, false));
         } catch (IllegalStateException ex) {
+            if (shouldRetryWithMinimalPayload(ex)) {
+                return requestImageNodeWithMinimalPayload(endpoint, apiKey, modelName, prompt, actualCount, requestSize);
+            }
             if (shouldRetryWithoutUrlResponse(ex)) {
                 try {
                     return postJson(endpoint, apiKey, buildImagePayload(modelName, prompt, actualCount, requestSize, quality, false, false));
                 } catch (IllegalStateException legacyEx) {
+                    if (shouldRetryWithMinimalPayload(legacyEx)) {
+                        return requestImageNodeWithMinimalPayload(endpoint, apiKey, modelName, prompt, actualCount, requestSize);
+                    }
                     if (!shouldRetryWithCompatPayload(legacyEx)) {
                         throw legacyEx;
                     }
@@ -125,6 +134,33 @@ public class OpenAiImageClient {
                 throw ex;
             }
             return postJson(endpoint, apiKey, buildImagePayload(modelName, prompt, actualCount, requestSize, quality, false, true));
+        }
+    }
+
+    private JsonNode requestImageNodeWithMinimalPayload(String endpoint,
+                                                        String apiKey,
+                                                        String modelName,
+                                                        String prompt,
+                                                        int actualCount,
+                                                        String requestSize) {
+        log.warn("图片生成接口返回疑似供应商兼容错误,改用最小 JSON 请求体重试");
+        try {
+            return postJson(endpoint, apiKey, buildMinimalImagePayload(modelName, prompt, actualCount, requestSize, true, false));
+        } catch (IllegalStateException urlEx) {
+            if (shouldRetryWithoutUrlResponse(urlEx) || shouldRetryWithMinimalPayload(urlEx)) {
+                try {
+                    return postJson(endpoint, apiKey, buildMinimalImagePayload(modelName, prompt, actualCount, requestSize, false, false));
+                } catch (IllegalStateException plainEx) {
+                    if (!shouldRetryWithInlineImageData(plainEx) && !shouldRetryWithCompatPayload(plainEx)) {
+                        throw plainEx;
+                    }
+                    return postJson(endpoint, apiKey, buildMinimalImagePayload(modelName, prompt, actualCount, requestSize, false, true));
+                }
+            }
+            if (!shouldRetryWithInlineImageData(urlEx) && !shouldRetryWithCompatPayload(urlEx)) {
+                throw urlEx;
+            }
+            return postJson(endpoint, apiKey, buildMinimalImagePayload(modelName, prompt, actualCount, requestSize, false, true));
         }
     }
 
@@ -145,6 +181,25 @@ public class OpenAiImageClient {
         }
         payload.put("output_format", forceBase64Response ? "jpeg" : "png");
         payload.put("background", "auto");
+        if (forceBase64Response) {
+            payload.put("response_format", "b64_json");
+        } else if (preferUrlResponse) {
+            payload.put("response_format", "url");
+        }
+        return payload;
+    }
+
+    private Map<String, Object> buildMinimalImagePayload(String modelName,
+                                                         String prompt,
+                                                         int actualCount,
+                                                         String requestSize,
+                                                         boolean preferUrlResponse,
+                                                         boolean forceBase64Response) {
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("model", modelName);
+        payload.put("prompt", prompt);
+        payload.put("n", actualCount);
+        payload.put("size", requestSize);
         if (forceBase64Response) {
             payload.put("response_format", "b64_json");
         } else if (preferUrlResponse) {
@@ -183,7 +238,7 @@ public class OpenAiImageClient {
 
         try {
             HttpRequest request = HttpRequest.newBuilder(URI.create(resolveEndpoint(baseUrl, "/images/edits")))
-                    .timeout(GENERATION_TIMEOUT)
+                    .timeout(SINGLE_REQUEST_TIMEOUT)
                     .header("Authorization", "Bearer " + apiKey)
                     .header("Accept", "application/json")
                     .header("Content-Type", "multipart/form-data; boundary=" + boundary)
@@ -244,7 +299,7 @@ public class OpenAiImageClient {
 
         try {
             HttpRequest request = HttpRequest.newBuilder(URI.create(resolveEndpoint(baseUrl, "/images/edits")))
-                    .timeout(GENERATION_TIMEOUT)
+                    .timeout(SINGLE_REQUEST_TIMEOUT)
                     .header("Authorization", "Bearer " + apiKey)
                     .header("Accept", "application/json")
                     .header("Content-Type", "multipart/form-data; boundary=" + boundary)
@@ -292,7 +347,7 @@ public class OpenAiImageClient {
         body.add(("--" + boundary + "--\r\n").getBytes(StandardCharsets.UTF_8));
 
         HttpRequest request = HttpRequest.newBuilder(URI.create(resolveEndpoint(baseUrl, "/images/edits")))
-                .timeout(GENERATION_TIMEOUT)
+                .timeout(SINGLE_REQUEST_TIMEOUT)
                 .header("Authorization", "Bearer " + apiKey)
                 .header("Accept", "application/json")
                 .header("Content-Type", "multipart/form-data; boundary=" + boundary)
@@ -304,7 +359,7 @@ public class OpenAiImageClient {
     private JsonNode postJson(String url, String apiKey, Map<String, Object> payload) {
         try {
             HttpRequest request = HttpRequest.newBuilder(URI.create(url))
-                    .timeout(GENERATION_TIMEOUT)
+                    .timeout(SINGLE_REQUEST_TIMEOUT)
                     .header("Authorization", "Bearer " + apiKey)
                     .header("Accept", "application/json")
                     .header("Content-Type", "application/json")
@@ -322,7 +377,7 @@ public class OpenAiImageClient {
     private JsonNode send(HttpRequest request) {
         for (int attempt = 1; attempt <= MAX_SEND_ATTEMPTS; attempt++) {
             try {
-                HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+                HttpResponse<String> response = newHttpClient().send(request, HttpResponse.BodyHandlers.ofString());
                 String body = response.body();
                 String contentType = response.headers().firstValue("content-type").orElse("");
                 if (response.statusCode() < 200 || response.statusCode() >= 300) {
@@ -334,6 +389,9 @@ public class OpenAiImageClient {
                 if (looksLikeHtml(body, contentType)) {
                     throw new IllegalStateException(buildHtmlEndpointError(request.uri().toString(), response.statusCode(), body));
                 }
+                if (body == null || body.isBlank()) {
+                    throw new IllegalStateException("模型服务返回空响应");
+                }
                 try {
                     return objectMapper.readTree(body);
                 } catch (Exception parseEx) {
@@ -341,6 +399,10 @@ public class OpenAiImageClient {
                 }
             } catch (Exception ex) {
                 if (shouldRetryRequestException(ex, attempt)) {
+                    // 瞬时网关/网络错误,退避后重试。网关"可用渠道不存在"类错误需要更长等待,
+                    // 给网关切换到健康渠道的时间(实测该免费网关切换需数十秒)。
+                    log.warn("图片生成请求第 {}/{} 次失败,将退避重试: {}", attempt, MAX_SEND_ATTEMPTS, ex.getMessage());
+                    sleepBeforeRetry(attempt, ex);
                     continue;
                 }
                 if (ex instanceof IllegalStateException) {
@@ -359,6 +421,32 @@ public class OpenAiImageClient {
         return "调用图片生成接口失败: " + ex.getMessage();
     }
 
+    private HttpClient newHttpClient() {
+        return HttpClient.newBuilder()
+                .connectTimeout(Duration.ofSeconds(60))
+                .version(HttpClient.Version.HTTP_1_1)
+                .build();
+    }
+
+    /**
+     * 重试前的退避等待。网关"可用渠道不存在"类瞬时错误需要较长等待(8/16/24...秒,上限30秒),
+     * 给网关切换到健康渠道的时间;普通网络错误用较短等待(2/4/6...秒,上限10秒)。
+     */
+    private void sleepBeforeRetry(int attempt, Exception ex) {
+        String msg = ex.getMessage() == null ? "" : ex.getMessage().toLowerCase(Locale.ROOT);
+        long waitMs;
+        if (isRetryableGatewayError(msg)) {
+            waitMs = Math.min(attempt * 8L, 30L) * 1000L;
+        } else {
+            waitMs = Math.min(attempt * 2L, 10L) * 1000L;
+        }
+        try {
+            Thread.sleep(waitMs);
+        } catch (InterruptedException ie) {
+            Thread.currentThread().interrupt();
+        }
+    }
+
     private boolean shouldRetryRequestException(Exception ex, int attempt) {
         if (attempt >= MAX_SEND_ATTEMPTS) {
             return false;
@@ -375,7 +463,39 @@ public class OpenAiImageClient {
                 || normalized.contains("connection reset")
                 || normalized.contains("http connect timed out")
                 || normalized.contains("unexpected end of file")
-                || normalized.contains("prematurely reached end of stream");
+                || normalized.contains("prematurely reached end of stream")
+                || normalized.contains("返回空响应")
+                || normalized.contains("空响应体")
+                || normalized.contains("empty response")
+                || isRetryableGatewayError(normalized);
+    }
+
+    /**
+     * 识别 OpenAI 兼容网关(new-api / one-api 等)的瞬时渠道错误。
+     * 这类错误网关通常会带"（retry）"提示,重试时网关会切换到其它可用渠道,往往能成功,
+     * 因此不应在首次失败就直接判定任务失败。
+     */
+    private boolean isRetryableGatewayError(String normalizedMessage) {
+        return normalizedMessage.contains("（retry）")
+                || normalizedMessage.contains("(retry)")
+                || normalizedMessage.contains("可用渠道")
+                || normalizedMessage.contains("无可用渠道")
+                || normalizedMessage.contains("渠道不存在")
+                || normalizedMessage.contains("no available channel")
+                || normalizedMessage.contains("no channel")
+                || normalizedMessage.contains("upstream")
+                || normalizedMessage.contains("bad gateway")
+                || normalizedMessage.contains("502")
+                || normalizedMessage.contains("503")
+                || normalizedMessage.contains("temporarily unavailable")
+                || normalizedMessage.contains("input json is empty")
+                || normalizedMessage.contains("no sources available")
+                || normalizedMessage.contains("syntaxerror")
+                // 该免费网关在渠道异常时偶发把有效密钥误报为 invalid token,实测重试可成功
+                || normalizedMessage.contains("invalid token")
+                || normalizedMessage.contains("无可用")
+                || normalizedMessage.contains("当前分组")
+                || normalizedMessage.contains("分组");
     }
 
     private boolean shouldRetryWithCompatPayload(IllegalStateException ex) {
@@ -393,7 +513,23 @@ public class OpenAiImageClient {
                 || normalized.contains("not supported")
                 || normalized.contains("response_format")
                 || normalized.contains("upper limit")
-                || normalized.contains("6mb");
+                || normalized.contains("6mb")
+                || shouldRetryWithMinimalPayload(normalized);
+    }
+
+    private boolean shouldRetryWithMinimalPayload(IllegalStateException ex) {
+        String message = ex.getMessage();
+        return message != null && shouldRetryWithMinimalPayload(message.toLowerCase(Locale.ROOT));
+    }
+
+    private boolean shouldRetryWithMinimalPayload(String normalizedMessage) {
+        return normalizedMessage.contains("返回空响应")
+                || normalizedMessage.contains("空响应体")
+                || normalizedMessage.contains("empty response")
+                || normalizedMessage.contains("input json is empty")
+                || normalizedMessage.contains("no sources available")
+                || normalizedMessage.contains("syntaxerror")
+                || normalizedMessage.contains("syntax error");
     }
 
     private boolean shouldRetryWithoutUrlResponse(IllegalStateException ex) {
@@ -531,7 +667,13 @@ public class OpenAiImageClient {
                 }
             } else if (node.hasNonNull("url")) {
                 String sourceUrl = node.get("url").asText();
-                DownloadedMedia downloaded = downloadGeneratedImage(sourceUrl, mimeType);
+                DownloadedMedia downloaded;
+                try {
+                    downloaded = downloadGeneratedImage(sourceUrl, mimeType);
+                } catch (IllegalStateException ex) {
+                    log.warn("供应商已返回生成结果 URL，但服务端下载失败，将先保存外链资产: {}", ex.getMessage());
+                    return remoteGeneratedMedia(sourceUrl, fallbackRemoteMimeType(node, mimeType), index);
+                }
                 rawBytes = downloaded.bytes();
                 mimeType = downloaded.mimeType();
             } else {
@@ -550,7 +692,7 @@ public class OpenAiImageClient {
             return saveGeneratedMedia(pngBytes, "image/png", fileName);
         } catch (Exception ex) {
             if (ex instanceof java.net.http.HttpTimeoutException) {
-                throw new IllegalStateException("处理生成图片失败: 下载模型结果超时，已等待 " + MEDIA_DOWNLOAD_TIMEOUT.toMinutes() + " 分钟", ex);
+                throw new IllegalStateException("处理生成图片失败: 下载模型结果超时，已等待 " + MEDIA_DOWNLOAD_READ_TIMEOUT.toSeconds() + " 秒", ex);
             }
             if (ex instanceof java.net.ConnectException) {
                 throw new IllegalStateException("处理生成图片失败: 供应商结果文件地址当前无法连通", ex);
@@ -559,36 +701,129 @@ public class OpenAiImageClient {
         }
     }
 
+    private String fallbackRemoteMimeType(JsonNode node, String fallbackMimeType) {
+        if (node.hasNonNull("mime_type")) {
+            String value = node.get("mime_type").asText();
+            if (value != null && !value.isBlank()) {
+                return value;
+            }
+        }
+        return fallbackMimeType == null || fallbackMimeType.isBlank() ? "image/png" : fallbackMimeType;
+    }
+
+    private RenderedMedia remoteGeneratedMedia(String sourceUrl, String mimeType, int index) {
+        com.example.aihub.common.security.SsrfGuard.validate(sourceUrl);
+        String fileName = remoteFileName(sourceUrl, mimeType, index);
+        return new RenderedMedia(fileName, sourceUrl, sourceUrl, mimeType, 0L, null);
+    }
+
+    private String remoteFileName(String sourceUrl, String mimeType, int index) {
+        String extension = extensionFromMimeType(mimeType);
+        try {
+            String path = URI.create(sourceUrl).getPath();
+            if (path != null && !path.isBlank()) {
+                String name = Paths.get(path).getFileName().toString();
+                if (!name.isBlank() && name.contains(".")) {
+                    return name.replaceAll("[^a-zA-Z0-9._-]+", "_");
+                }
+            }
+        } catch (Exception ignored) {
+        }
+        return "remote_generated_" + System.currentTimeMillis() + "_" + index + "." + extension;
+    }
+
+    private String extensionFromMimeType(String mimeType) {
+        String lower = mimeType == null ? "" : mimeType.toLowerCase(Locale.ROOT);
+        if (lower.contains("jpeg")) return "jpg";
+        if (lower.contains("webp")) return "webp";
+        if (lower.contains("gif")) return "gif";
+        if (lower.contains("png")) return "png";
+        return "png";
+    }
+
     private DownloadedMedia downloadGeneratedImage(String sourceUrl, String fallbackMimeType) {
         com.example.aihub.common.security.SsrfGuard.validate(sourceUrl);
         IllegalStateException lastError = null;
         for (int attempt = 1; attempt <= MAX_DOWNLOAD_ATTEMPTS; attempt++) {
             try {
-                HttpRequest request = HttpRequest.newBuilder(URI.create(sourceUrl))
-                        .timeout(MEDIA_DOWNLOAD_TIMEOUT)
-                        .GET()
-                        .build();
-                HttpResponse<byte[]> response = httpClient.send(request, HttpResponse.BodyHandlers.ofByteArray());
-                if (response.statusCode() < 200 || response.statusCode() >= 300) {
-                    throw new IllegalStateException("下载生成图片失败: HTTP " + response.statusCode());
-                }
-                byte[] body = response.body();
-                if (body == null || body.length == 0) {
-                    throw new IllegalStateException("下载生成图片失败: 供应商返回空文件");
-                }
-                String mimeType = response.headers().firstValue("content-type").orElse(fallbackMimeType);
-                return new DownloadedMedia(body, mimeType);
+                return downloadGeneratedImageOnce(sourceUrl, fallbackMimeType);
             } catch (Exception ex) {
                 lastError = ex instanceof IllegalStateException stateEx
                         ? stateEx
                         : new IllegalStateException("下载生成图片失败: " + ex.getMessage(), ex);
-                if (attempt < MAX_DOWNLOAD_ATTEMPTS && shouldRetryRequestException(ex, attempt)) {
+                if (attempt < MAX_DOWNLOAD_ATTEMPTS && shouldRetryDownloadException(ex)) {
+                    log.warn("生成图片下载第 {}/{} 次失败,将重试: {}", attempt, MAX_DOWNLOAD_ATTEMPTS, ex.getMessage());
+                    sleepBeforeRetry(attempt, ex);
                     continue;
                 }
                 throw lastError;
             }
         }
         throw lastError != null ? lastError : new IllegalStateException("下载生成图片失败: 已重试多次仍未成功");
+    }
+
+    private DownloadedMedia downloadGeneratedImageOnce(String sourceUrl, String fallbackMimeType) throws Exception {
+        HttpURLConnection connection = null;
+        try {
+            URI uri = URI.create(sourceUrl);
+            connection = (HttpURLConnection) uri.toURL().openConnection();
+            connection.setInstanceFollowRedirects(true);
+            connection.setConnectTimeout((int) MEDIA_DOWNLOAD_CONNECT_TIMEOUT.toMillis());
+            connection.setReadTimeout((int) MEDIA_DOWNLOAD_READ_TIMEOUT.toMillis());
+            connection.setRequestMethod("GET");
+            connection.setRequestProperty("Accept", "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8");
+            connection.setRequestProperty("Accept-Language", "zh-CN,zh;q=0.9,en;q=0.8");
+            connection.setRequestProperty("Cache-Control", "no-cache");
+            connection.setRequestProperty("Pragma", "no-cache");
+            connection.setRequestProperty("Connection", "close");
+            connection.setRequestProperty("User-Agent", "Mozilla/5.0 OmniSpark-AI/1.0");
+            if (uri.getScheme() != null && uri.getHost() != null) {
+                connection.setRequestProperty("Referer", uri.getScheme() + "://" + uri.getHost() + "/");
+            }
+
+            int statusCode = connection.getResponseCode();
+            if (statusCode < 200 || statusCode >= 300) {
+                throw new IllegalStateException("下载生成图片失败: HTTP " + statusCode);
+            }
+
+            byte[] body;
+            try (InputStream input = connection.getInputStream();
+                 ByteArrayOutputStream output = new ByteArrayOutputStream()) {
+                byte[] buffer = new byte[64 * 1024];
+                int read;
+                while ((read = input.read(buffer)) != -1) {
+                    output.write(buffer, 0, read);
+                }
+                body = output.toByteArray();
+            }
+            if (body.length == 0) {
+                throw new IllegalStateException("下载生成图片失败: 供应商返回空文件");
+            }
+            String mimeType = connection.getContentType() == null ? fallbackMimeType : connection.getContentType();
+            return new DownloadedMedia(body, mimeType);
+        } finally {
+            if (connection != null) {
+                connection.disconnect();
+            }
+        }
+    }
+
+    private boolean shouldRetryDownloadException(Exception ex) {
+        String message = ex.getMessage();
+        if (message == null || message.isBlank()) {
+            return false;
+        }
+        String normalized = message.toLowerCase(Locale.ROOT);
+        return normalized.contains("read timed out")
+                || normalized.contains("connect timed out")
+                || normalized.contains("connection reset")
+                || normalized.contains("unexpected end of file")
+                || normalized.contains("prematurely reached end of stream")
+                || normalized.contains("header parser received no bytes")
+                || normalized.contains("502")
+                || normalized.contains("503")
+                || normalized.contains("504")
+                || normalized.contains("temporarily unavailable");
     }
 
     private int[] resolveTargetSize(String requestedSize, int fallbackWidth, int fallbackHeight) {
@@ -686,7 +921,7 @@ public class OpenAiImageClient {
                         .timeout(REFERENCE_DOWNLOAD_TIMEOUT)
                         .GET()
                         .build();
-                HttpResponse<byte[]> response = httpClient.send(request, HttpResponse.BodyHandlers.ofByteArray());
+                HttpResponse<byte[]> response = newHttpClient().send(request, HttpResponse.BodyHandlers.ofByteArray());
                 if (response.statusCode() < 200 || response.statusCode() >= 300) {
                     throw new IllegalStateException("下载参考图失败");
                 }

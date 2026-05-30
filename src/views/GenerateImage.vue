@@ -936,13 +936,15 @@ const syncTaskStatus = async (taskId: number) => {
   const task = taskStore.upsertTask(detail.data)
   activeTaskId.value = task.id
   if (task.status === 'success') {
-    taskCompleted.value = true
-    await assetStore.refresh({ projectId: projectStore.activeProjectId })
+    // 先精准加载本任务的结果资产(按 taskId,数据量小、快),保证图能立刻显示;
+    // 全量资产刷新放后台进行,不阻塞结果展示(4k 大图时全量刷新较慢)。
     await ensureTaskAssetsLoaded(task)
     selectedBatchIndex.value = 0
     resultVersion.value++
+    taskCompleted.value = true
     finishGeneratingState()
     message.success('图片生成完成')
+    assetStore.refresh({ projectId: projectStore.activeProjectId }).catch(() => {})
     return task
   }
   if (task.status === 'failed') {
@@ -958,7 +960,9 @@ const startTaskPolling = (taskId: number) => {
   stopTaskPolling()
   taskPollingTimer = window.setInterval(async () => {
     // 页面隐藏时暂停；上一次同步未完成时跳过，避免请求重叠
-    if (document.visibilityState !== 'visible' || taskSyncing) return
+    if (document.visibilityState !== 'visible' || taskSyncing) {
+      return
+    }
     taskSyncing = true
     try {
       await syncTaskStatus(taskId)
@@ -1034,7 +1038,6 @@ const currentAsset = computed(() => {
     const idx = Math.min(selectedBatchIndex.value, batchAssets.length - 1)
     return batchAssets[idx]
   }
-
   return null
 })
 
@@ -1226,12 +1229,13 @@ const handleStartGenerate = async () => {
     selectedBatchIndex.value = 0
 
     if (task.status === 'success') {
-      taskCompleted.value = true
+      // 同步轮询:优先精准加载本任务资产,全量刷新放后台,避免 4k 大图时阻塞出图
       stopElapsedTimer()
-      await assetStore.refresh({ projectId: projectStore.activeProjectId })
       await ensureTaskAssetsLoaded(task)
       resultVersion.value++
+      taskCompleted.value = true
       message.success('图片生成完成')
+      assetStore.refresh({ projectId: projectStore.activeProjectId }).catch(() => {})
     } else if (task.status === 'failed') {
       taskCompleted.value = true
       message.error(task.errorMessage || '图片生成失败')
