@@ -1,7 +1,7 @@
 import axios from 'axios'
 import type { AxiosInstance, InternalAxiosRequestConfig, AxiosResponse } from 'axios'
 
-// 统一的接口返回结构，契合 docs/init-skeletons-dto-vo.md 的 ApiResult
+// 统一的接口返回结构，契合 docs/初始化骨架与DTO-VO设计.md 的 ApiResult
 export interface ApiResult<T> {
   code: number
   message: string
