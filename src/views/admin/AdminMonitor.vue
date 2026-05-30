@@ -94,22 +94,34 @@
 
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted } from 'vue'
+import { useMessage } from 'naive-ui'
 import request, { clearCache } from '@/api/request'
+
+const message = useMessage()
 
 const loading = ref(false)
 const data = ref<any>({})
 const circum = 2 * Math.PI * 50 // 314.16
 
 let autoTimer: any = null
+let errorNotified = false
 onMounted(() => { loadData(); autoTimer = setInterval(loadData, 5000) })
 onUnmounted(() => { if (autoTimer) clearInterval(autoTimer) })
 
 async function loadData() {
   loading.value = true
   clearCache('monitor')
-  try { const res = await request.get('/api/admin/monitor', { headers: { 'x-no-cache': '1' } }); data.value = (res as any).data || {} }
-  catch {}
-  finally { loading.value = false }
+  try {
+    const res = await request.get('/api/admin/monitor', { headers: { 'x-no-cache': '1' } })
+    data.value = (res as any).data || {}
+    errorNotified = false
+  } catch (err: any) {
+    // 5 秒轮询,仅首次失败提示,避免重复弹窗刷屏
+    if (!errorNotified) {
+      message.error(err.message || '加载监控数据失败')
+      errorNotified = true
+    }
+  } finally { loading.value = false }
 }
 
 const gaugeOffset = (pct: number) => circum - (circum * Math.min(pct, 100) / 100)

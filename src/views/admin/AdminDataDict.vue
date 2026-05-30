@@ -119,7 +119,8 @@ const itemForm = reactive({ code: '', name: '', sortOrder: 0 })
 onMounted(loadDicts)
 
 async function loadDicts() {
-  try { const res = await request.get('/api/admin/dict'); dicts.value = (res as any).data || [] } catch {}
+  try { const res = await request.get('/api/admin/dict'); dicts.value = (res as any).data || [] }
+  catch (err: any) { message.error(err.message || '加载数据字典失败') }
 }
 
 async function selectDict(d: any) {
@@ -127,7 +128,7 @@ async function selectDict(d: any) {
   try {
     const res = await request.get(`/api/admin/dict/${d.id}/items`)
     items.value = (res as any).data || []
-  } catch { items.value = [] }
+  } catch (err: any) { items.value = []; message.error(err.message || '加载字典项失败') }
 }
 
 async function handleSaveDict() {

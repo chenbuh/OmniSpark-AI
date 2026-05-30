@@ -79,7 +79,8 @@ const eventOptions = [
 onMounted(load)
 
 async function load() {
-  try { const res = await request.get('/api/admin/webhooks'); list.value = (res as any).data || [] } catch {}
+  try { const res = await request.get('/api/admin/webhooks'); list.value = (res as any).data || [] }
+  catch (err: any) { message.error(err.message || '加载 Webhook 列表失败') }
 }
 
 function resetForm() { Object.assign(form, { name: '', url: '', events: 'task.completed', secret: '' }) }

@@ -35,6 +35,13 @@ public class VersionController {
             .connectTimeout(Duration.ofSeconds(5))
             .build();
 
+    private static final com.fasterxml.jackson.databind.ObjectMapper MAPPER =
+            new com.fasterxml.jackson.databind.ObjectMapper();
+    /** checkUpdate 结果缓存有效期,避免每次请求都阻塞外呼 GitHub。 */
+    private static final long CHECK_CACHE_TTL_MS = 60 * 60 * 1000L;
+    private volatile Map<String, Object> cachedCheckResult;
+    private volatile long cachedCheckAt = 0L;
+
     @GetMapping
     public ApiResult<Map<String, Object>> version() {
         Map<String, Object> info = new LinkedHashMap<>();
@@ -49,6 +56,11 @@ public class VersionController {
 
     @GetMapping("/check")
     public ApiResult<Map<String, Object>> checkUpdate() {
+        // 命中缓存直接返回,减少对 GitHub 的阻塞调用
+        if (cachedCheckResult != null && System.currentTimeMillis() - cachedCheckAt < CHECK_CACHE_TTL_MS) {
+            return ApiResult.ok(cachedCheckResult);
+        }
+
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("currentVersion", currentVersion);
         result.put("checkTime", LocalDateTime.now().toString());
@@ -63,13 +75,14 @@ public class VersionController {
                     .build();
             HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
             if (response.statusCode() == 200) {
-                var mapper = new com.fasterxml.jackson.databind.ObjectMapper();
-                var node = mapper.readTree(response.body());
-                String latest = node.get("tag_name").asText().replace("v", "");
-                result.put("latestVersion", latest);
-                result.put("hasUpdate", !currentVersion.equals(latest));
-                result.put("releaseUrl", node.get("html_url").asText());
-                result.put("releaseNotes", node.get("body").asText().substring(0, Math.min(500, node.get("body").asText().length())));
+                var node = MAPPER.readTree(response.body());
+                // 用 path() + asText(默认值) 做判空,避免字段缺失时 NPE
+                String latest = node.path("tag_name").asText("").replace("v", "");
+                String body = node.path("body").asText("");
+                result.put("latestVersion", latest.isBlank() ? "未知" : latest);
+                result.put("hasUpdate", !latest.isBlank() && !currentVersion.equals(latest));
+                result.put("releaseUrl", node.path("html_url").asText(""));
+                result.put("releaseNotes", body.substring(0, Math.min(500, body.length())));
             } else {
                 result.put("latestVersion", "查询失败");
                 result.put("hasUpdate", false);
@@ -78,9 +91,11 @@ public class VersionController {
         } catch (Exception e) {
             result.put("latestVersion", "查询失败");
             result.put("hasUpdate", false);
-            result.put("error", "无法连接更新服务器: " + e.getMessage());
+            result.put("error", "无法连接更新服务器");
         }
 
+        cachedCheckResult = result;
+        cachedCheckAt = System.currentTimeMillis();
         return ApiResult.ok(result);
     }
 }
