@@ -260,7 +260,6 @@ const activeKey = computed(() => {
   if (path.startsWith('/admin/tasks')) return 'admin-tasks'
   if (path.startsWith('/admin/assets')) return 'admin-assets'
   if (path.startsWith('/admin/users')) return 'admin-users'
-  if (path.startsWith('/admin/api-keys')) return 'admin-api-keys'
   if (path.startsWith('/admin/monitor')) return 'admin-monitor'
   if (path.startsWith('/admin/update')) return 'admin-update'
   if (path.startsWith('/admin/dict')) return 'admin-dict'
@@ -329,7 +328,6 @@ const routeMap: Record<string, string> = {
   'admin-tasks': '/admin/tasks',
   'admin-assets': '/admin/assets',
   'admin-users': '/admin/users',
-  'admin-api-keys': '/admin/api-keys',
   'admin-monitor': '/admin/monitor',
   'admin-update': '/admin/update',
   'admin-dict': '/admin/dict',

@@ -128,10 +128,10 @@ public class AdminStatsController {
         List<User> users = users().getData();
         if (users != null) {
             for (User u : users) {
-                csv.append(u.getId()).append(",")
-                   .append(u.getUsername()).append(",")
-                   .append(u.getRole()).append(",")
-                   .append(u.getStatus()).append("\n");
+                csv.append(com.example.aihub.common.util.CsvUtil.escape(u.getId())).append(",")
+                   .append(com.example.aihub.common.util.CsvUtil.escape(u.getUsername())).append(",")
+                   .append(com.example.aihub.common.util.CsvUtil.escape(u.getRole())).append(",")
+                   .append(com.example.aihub.common.util.CsvUtil.escape(u.getStatus())).append("\n");
             }
         }
 

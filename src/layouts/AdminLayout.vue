@@ -41,7 +41,7 @@ import { NLayout, NLayoutSider, NLayoutHeader, NLayoutContent, NMenu, NButton, N
 import { useUserStore } from '@/store/user'
 import {
   BarChart3, ClipboardList, Library, Shield, Settings,
-  Activity, Megaphone, Trash2, BookOpen, FolderOpen, Globe
+  Activity, Megaphone, Trash2, BookOpen, FolderOpen
 } from 'lucide-vue-next'
 
 const router = useRouter()
@@ -60,7 +60,6 @@ const menuOptions = [
   { label: '任务监管', key: 'admin-tasks', icon: renderIcon(ClipboardList) },
   { label: '资产监管', key: 'admin-assets', icon: renderIcon(Library) },
   { label: '用户管理', key: 'admin-users', icon: renderIcon(Shield) },
-  { label: 'API 密钥', key: 'admin-api-keys', icon: renderIcon(Globe) },
   { label: '性能监控', key: 'admin-monitor', icon: renderIcon(Activity) },
   { label: '系统更新', key: 'admin-update', icon: renderIcon(Activity) },
   { label: '数据字典', key: 'admin-dict', icon: renderIcon(BookOpen) },
@@ -81,7 +80,6 @@ const activeKey = computed(() => {
   if (p.startsWith('/admin/tasks')) return 'admin-tasks'
   if (p.startsWith('/admin/assets')) return 'admin-assets'
   if (p.startsWith('/admin/users')) return 'admin-users'
-  if (p.startsWith('/admin/api-keys')) return 'admin-api-keys'
   if (p.startsWith('/admin/monitor')) return 'admin-monitor'
   if (p.startsWith('/admin/update')) return 'admin-update'
   if (p.startsWith('/admin/dict')) return 'admin-dict'
@@ -102,7 +100,7 @@ const pageTitle = computed(() => (route.meta?.title as string) || '管理系统'
 const routeMap: Record<string, string> = {
   'admin-dashboard': '/admin/dashboard', 'admin-tasks': '/admin/tasks',
   'admin-assets': '/admin/assets', 'admin-users': '/admin/users',
-  'admin-api-keys': '/admin/api-keys', 'admin-monitor': '/admin/monitor',
+  'admin-monitor': '/admin/monitor',
   'admin-update': '/admin/update', 'admin-dict': '/admin/dict',
   'admin-files': '/admin/files', 'admin-scheduled-tasks': '/admin/scheduled-tasks',
   'admin-webhooks': '/admin/webhooks', 'admin-logs': '/admin/logs',
