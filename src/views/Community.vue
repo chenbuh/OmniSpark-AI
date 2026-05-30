@@ -72,8 +72,16 @@
 
     <n-empty v-else description="暂无社区内容，成为第一个分享者！" style="padding: 60px 0;" />
 
-    <div class="pager" v-if="total > pageSize">
-      <n-pagination v-model:page="page" :page-size="pageSize" :item-count="total" @update:page="loadPosts" />
+    <div class="pager" v-if="total > 0">
+      <n-pagination
+        v-model:page="page"
+        :page-size="pageSize"
+        :item-count="total"
+        show-size-picker
+        :page-sizes="pageSizeOptions"
+        @update:page="loadPosts"
+        @update:page-size="handlePageSizeChange"
+      />
     </div>
 
     <!-- 发布弹窗 -->
@@ -228,7 +236,8 @@ const imageUploadInput = ref<HTMLInputElement | null>(null)
 const editingPostId = ref<number | null>(null)
 const showAssetPicker = ref(false)
 const page = ref(1)
-const pageSize = 20
+const pageSize = ref(20)
+const pageSizeOptions = [12, 20, 40, 80]
 const total = ref(0)
 
 const currentUserId = ref<number | null>(null)
@@ -281,12 +290,19 @@ function onCategoryChange() {
   loadPosts()
 }
 
+// 切换每页条数时回到第 1 页并重新请求
+function handlePageSizeChange(size: number) {
+  pageSize.value = size
+  page.value = 1
+  loadPosts()
+}
+
 async function loadPosts() {
   loading.value = true
   try {
     const params: Record<string, any> = {
       page: page.value,
-      pageSize,
+      pageSize: pageSize.value,
       sort: sortBy.value
     }
     if (activeCategory.value !== 'all') params.category = activeCategory.value
