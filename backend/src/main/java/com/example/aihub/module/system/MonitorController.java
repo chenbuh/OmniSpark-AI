@@ -15,6 +15,7 @@ import java.lang.management.OperatingSystemMXBean;
 import java.lang.management.RuntimeMXBean;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.concurrent.TimeUnit;
 
 @RestController
 @RequiredArgsConstructor
@@ -22,9 +23,17 @@ import java.util.Map;
 @SaCheckLogin
 @SaCheckRole("admin")
 public class MonitorController {
+    private static final long CACHE_TTL_MS = TimeUnit.SECONDS.toMillis(5);
+    private volatile Map<String, Object> cachedMonitor;
+    private volatile long cachedAt;
 
     @GetMapping
     public ApiResult<Map<String, Object>> monitor() {
+        long now = System.currentTimeMillis();
+        if (cachedMonitor != null && now - cachedAt < CACHE_TTL_MS) {
+            return ApiResult.ok(cachedMonitor);
+        }
+
         Map<String, Object> result = new LinkedHashMap<>();
 
         // CPU
@@ -92,6 +101,8 @@ public class MonitorController {
         result.put("diskUsed", totalDisk - freeDisk);
         result.put("diskUsagePercent", totalDisk > 0 ? Math.round((double)(totalDisk - freeDisk) / totalDisk * 10000) / 100.0 : 0);
 
+        cachedMonitor = result;
+        cachedAt = now;
         return ApiResult.ok(result);
     }
 

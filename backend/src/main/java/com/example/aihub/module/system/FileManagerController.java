@@ -11,13 +11,11 @@ import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
-import java.io.File;
-import java.net.URLEncoder;
-import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.*;
+import java.util.concurrent.TimeUnit;
 
 @RestController
 @RequiredArgsConstructor
@@ -25,9 +23,12 @@ import java.util.*;
 @SaCheckLogin
 @SaCheckRole("admin")
 public class FileManagerController {
+    private static final long STATS_CACHE_TTL_MS = TimeUnit.SECONDS.toMillis(10);
 
     @Value("${file.upload-dir:uploads}")
     private String uploadDir;
+    private volatile Map<String, Object> cachedStats;
+    private volatile long cachedStatsAt;
 
     @GetMapping
     public ApiResult<Map<String, Object>> list(@RequestParam(defaultValue = "") String path) {
@@ -106,6 +107,8 @@ public class FileManagerController {
                 return ApiResult.fail("路径不合法");
             }
             Files.deleteIfExists(target);
+            cachedStats = null;
+            cachedStatsAt = 0;
             return ApiResult.ok();
         } catch (Exception e) {
             return ApiResult.fail("删除失败: " + e.getMessage());
@@ -133,16 +136,28 @@ public class FileManagerController {
 
     @GetMapping("/stats")
     public ApiResult<Map<String, Object>> stats() {
+        long now = System.currentTimeMillis();
+        if (cachedStats != null && now - cachedStatsAt < STATS_CACHE_TTL_MS) {
+            return ApiResult.ok(cachedStats);
+        }
+
         Map<String, Object> stats = new LinkedHashMap<>();
         try {
             Path baseDir = Paths.get(uploadDir).normalize();
-            long totalSize = Files.walk(baseDir)
-                    .filter(p -> p.toFile().isFile())
-                    .mapToLong(p -> p.toFile().length())
-                    .sum();
-            long fileCount = Files.walk(baseDir)
-                    .filter(p -> p.toFile().isFile())
-                    .count();
+            long totalSize = 0L;
+            long fileCount = 0L;
+            if (Files.exists(baseDir)) {
+                try (var stream = Files.walk(baseDir)) {
+                    var iterator = stream.iterator();
+                    while (iterator.hasNext()) {
+                        Path current = iterator.next();
+                        if (Files.isRegularFile(current)) {
+                            totalSize += Files.size(current);
+                            fileCount++;
+                        }
+                    }
+                }
+            }
             stats.put("totalSize", totalSize);
             stats.put("fileCount", fileCount);
             stats.put("uploadDir", uploadDir);
@@ -150,6 +165,8 @@ public class FileManagerController {
         } catch (Exception e) {
             stats.put("error", e.getMessage());
         }
+        cachedStats = stats;
+        cachedStatsAt = now;
         return ApiResult.ok(stats);
     }
 

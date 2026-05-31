@@ -3,15 +3,15 @@ package com.example.aihub.module.system;
 import cn.dev33.satoken.annotation.SaCheckLogin;
 import cn.dev33.satoken.annotation.SaCheckRole;
 import com.example.aihub.common.result.ApiResult;
-import com.example.aihub.infrastructure.entity.Asset;
+import com.example.aihub.common.result.PageResult;
 import com.example.aihub.infrastructure.entity.GenerationTask;
-import com.example.aihub.infrastructure.entity.Project;
 import com.example.aihub.infrastructure.entity.User;
 import com.example.aihub.infrastructure.mapper.*;
 import lombok.RequiredArgsConstructor;
 import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.time.LocalDate;
@@ -50,10 +50,13 @@ public class AdminStatsController {
     }
 
     @GetMapping("/users")
-    public ApiResult<List<User>> users() {
-        return ApiResult.ok(userMapper.selectList(
+    public ApiResult<PageResult<User>> users(@RequestParam(defaultValue = "1") long page,
+                                             @RequestParam(defaultValue = "10") long pageSize) {
+        var result = userMapper.selectPage(
+                new com.baomidou.mybatisplus.extension.plugins.pagination.Page<>(page, pageSize),
                 new com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper<User>()
-                        .orderByDesc(User::getId)));
+                        .orderByDesc(User::getId));
+        return ApiResult.ok(new PageResult<>(result.getTotal(), result.getPages(), result.getRecords()));
     }
 
     @GetMapping("/trends")
@@ -153,7 +156,9 @@ public class AdminStatsController {
         }
 
         csv.append("\n用户ID,用户名,角色,状态\n");
-        List<User> users = users().getData();
+        List<User> users = userMapper.selectList(
+                new com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper<User>()
+                        .orderByDesc(User::getId));
         if (users != null) {
             for (User u : users) {
                 csv.append(com.example.aihub.common.util.CsvUtil.escape(u.getId())).append(",")

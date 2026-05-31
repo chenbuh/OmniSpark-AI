@@ -95,7 +95,7 @@
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted } from 'vue'
 import { useMessage } from 'naive-ui'
-import request, { clearCache } from '@/api/request'
+import request from '@/api/request'
 
 const message = useMessage()
 
@@ -104,15 +104,27 @@ const data = ref<any>({})
 const circum = 2 * Math.PI * 50 // 314.16
 
 let autoTimer: any = null
+let inFlight = false
 let errorNotified = false
-onMounted(() => { loadData(); autoTimer = setInterval(loadData, 5000) })
+const POLL_INTERVAL_MS = 5000
+
+onMounted(() => {
+  loadData()
+  autoTimer = setInterval(() => {
+    if (document.visibilityState === 'visible') {
+      loadData()
+    }
+  }, POLL_INTERVAL_MS)
+})
+
 onUnmounted(() => { if (autoTimer) clearInterval(autoTimer) })
 
 async function loadData() {
+  if (inFlight) return
+  inFlight = true
   loading.value = true
-  clearCache('monitor')
   try {
-    const res = await request.get('/api/admin/monitor', { headers: { 'x-no-cache': '1' } })
+    const res = await request.get('/api/admin/monitor')
     data.value = (res as any).data || {}
     errorNotified = false
   } catch (err: any) {
@@ -121,7 +133,10 @@ async function loadData() {
       message.error(err.message || '加载监控数据失败')
       errorNotified = true
     }
-  } finally { loading.value = false }
+  } finally {
+    inFlight = false
+    loading.value = false
+  }
 }
 
 const gaugeOffset = (pct: number) => circum - (circum * Math.min(pct, 100) / 100)

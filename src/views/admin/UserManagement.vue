@@ -165,7 +165,7 @@
 import { ref, onMounted } from 'vue'
 import { useMessage, useDialog } from 'naive-ui'
 import { Search, Download, Upload, Plus, RefreshCw } from 'lucide-vue-next'
-import request from '@/api/request'
+import request, { API_BASE_URL } from '@/api/request'
 
 const message = useMessage()
 const dialog = useDialog()
@@ -347,7 +347,7 @@ async function handleDeleteUser(u: any) {
 async function handleExport() {
   const token = localStorage.getItem('satoken')
   try {
-    const r = await fetch('http://localhost:8080/api/admin/users/export', {
+    const r = await fetch(`${API_BASE_URL}/api/admin/users/export`, {
       headers: { 'satoken': token || '' }
     })
     const blob = await r.blob()
@@ -372,7 +372,7 @@ function triggerImport() {
     try {
       const text = await file.text()
       const token = localStorage.getItem('satoken')
-      const res = await fetch('http://localhost:8080/api/admin/users/import', {
+      const res = await fetch(`${API_BASE_URL}/api/admin/users/import`, {
         method: 'POST',
         headers: { 'Content-Type': 'text/plain;charset=UTF-8', 'satoken': token || '' },
         body: text

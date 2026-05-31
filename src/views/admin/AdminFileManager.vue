@@ -44,7 +44,7 @@
       <div v-if="viewMode === 'grid'" class="grid-view">
         <div v-for="item in items" :key="item.relativePath" class="grid-item" @dblclick="openItem(item)">
           <div v-if="isImage(item)" class="grid-thumb" @click="previewFile(item)">
-            <img :src="`http://localhost:8080/api/admin/files/preview?path=${encodeURIComponent(item.relativePath)}`" class="thumb-img" loading="lazy" />
+            <img :src="previewPath(item.relativePath)" class="thumb-img" loading="lazy" />
           </div>
           <div v-else class="grid-icon-box">
             <span class="grid-icon">{{ item.isDir ? '📁' : getIcon(item.mimeType) }}</span>
@@ -98,10 +98,9 @@
 import { ref, computed, onMounted } from 'vue'
 import { useMessage } from 'naive-ui'
 import { CornerUpLeft } from 'lucide-vue-next'
-import request from '@/api/request'
+import request, { API_BASE_URL } from '@/api/request'
 
 const message = useMessage()
-const BASE = 'http://localhost:8080'
 
 const items = ref<any[]>([])
 const currentPath = ref('')
@@ -139,7 +138,7 @@ function openItem(item: any) {
 }
 
 function previewFile(item: any) {
-  previewUrl.value = `${BASE}/api/admin/files/preview?path=${encodeURIComponent(item.relativePath)}`
+  previewUrl.value = previewPath(item.relativePath)
   showPreview.value = true
 }
 
@@ -152,6 +151,10 @@ async function handleDelete(item: any) {
 }
 
 function switchView() { viewMode.value = viewMode.value === 'grid' ? 'list' : 'grid' }
+
+function previewPath(relativePath: string) {
+  return `${API_BASE_URL}/api/admin/files/preview?path=${encodeURIComponent(relativePath)}`
+}
 
 function isImage(item: any) {
   const mime = item.mimeType || ''

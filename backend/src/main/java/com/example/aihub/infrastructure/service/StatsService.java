@@ -3,7 +3,6 @@ package com.example.aihub.infrastructure.service;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.example.aihub.common.exception.BusinessException;
 import com.example.aihub.common.util.SecurityUtil;
-import com.example.aihub.infrastructure.entity.Asset;
 import com.example.aihub.infrastructure.entity.GenerationTask;
 import com.example.aihub.infrastructure.entity.Project;
 import com.example.aihub.infrastructure.entity.QuotaRecord;
@@ -25,10 +24,10 @@ import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Objects;
 
 @Service
 @RequiredArgsConstructor
@@ -41,47 +40,47 @@ public class StatsService {
 
     public StatsOverviewVO overview(Long projectId) {
         StatsScope scope = loadScope(projectId);
-        return buildOverview(scope);
+        return buildOverview(scope, loadProjectMetrics(scope.projectIds(), scope.userId()));
     }
 
     public StatsDashboardVO dashboard(Long projectId) {
         StatsScope scope = loadScope(projectId);
+        ProjectMetrics metrics = loadProjectMetrics(scope.projectIds(), scope.userId());
+
         StatsDashboardVO vo = new StatsDashboardVO();
-        vo.setOverview(buildOverview(scope));
-        vo.setDistribution(buildDistribution(scope.tasks));
-        vo.setTrends(buildTrends(scope.tasks, scope.quotaRecords));
-        vo.setProjectRankings(buildProjectRankings(scope.projects, scope.tasks, scope.assets, scope.quotaRecords));
-        vo.setRecentActivities(buildActivities(scope.projects, scope.tasks, scope.quotaRecords));
+        vo.setOverview(buildOverview(scope, metrics));
+        vo.setDistribution(buildDistribution(metrics));
+        vo.setTrends(buildTrends(metrics));
+        vo.setProjectRankings(buildProjectRankings(scope.projects(), metrics));
+        vo.setRecentActivities(buildActivities(scope));
         return vo;
     }
 
-    private StatsOverviewVO buildOverview(StatsScope scope) {
+    private StatsOverviewVO buildOverview(StatsScope scope, ProjectMetrics metrics) {
         StatsOverviewVO vo = new StatsOverviewVO();
-        long successTaskCount = scope.tasks.stream().filter(task -> "success".equals(task.getStatus())).count();
-        int quotaUsed = scope.quotaRecords.stream().mapToInt(item -> item.getAmount() == null ? 0 : item.getAmount()).sum();
         var quotaSummary = quotaService.summary();
 
-        vo.setProjectCount((long) scope.projects.size());
-        vo.setTaskCount((long) scope.tasks.size());
-        vo.setSuccessTaskCount(successTaskCount);
-        vo.setAssetCount((long) scope.assets.size());
-        vo.setFavoriteAssetCount(scope.assets.stream().filter(asset -> Integer.valueOf(1).equals(asset.getFavorite())).count());
-        vo.setQuotaUsed(quotaUsed);
+        vo.setProjectCount((long) scope.projects().size());
+        vo.setTaskCount(metrics.taskCount());
+        vo.setSuccessTaskCount(metrics.successTaskCount());
+        vo.setAssetCount(metrics.assetCount());
+        vo.setFavoriteAssetCount(metrics.favoriteAssetCount());
+        vo.setQuotaUsed(metrics.quotaUsed());
         vo.setQuotaLimit(quotaSummary.getQuotaLimit());
         return vo;
     }
 
-    private StatsDistributionVO buildDistribution(List<GenerationTask> tasks) {
+    private StatsDistributionVO buildDistribution(ProjectMetrics metrics) {
         StatsDistributionVO vo = new StatsDistributionVO();
-        vo.setImageTaskCount(tasks.stream().filter(task -> "image".equals(task.getTaskType())).count());
-        vo.setVideoTaskCount(tasks.stream().filter(task -> "video".equals(task.getTaskType())).count());
-        vo.setSuccessTaskCount(tasks.stream().filter(task -> "success".equals(task.getStatus())).count());
-        vo.setRunningTaskCount(tasks.stream().filter(task -> "running".equals(task.getStatus()) || "pending".equals(task.getStatus())).count());
-        vo.setFailedTaskCount(tasks.stream().filter(task -> "failed".equals(task.getStatus())).count());
+        vo.setImageTaskCount(metrics.imageTaskCount());
+        vo.setVideoTaskCount(metrics.videoTaskCount());
+        vo.setSuccessTaskCount(metrics.successTaskCount());
+        vo.setRunningTaskCount(metrics.runningTaskCount());
+        vo.setFailedTaskCount(metrics.failedTaskCount());
         return vo;
     }
 
-    private List<StatsTrendPointVO> buildTrends(List<GenerationTask> tasks, List<QuotaRecord> quotaRecords) {
+    private List<StatsTrendPointVO> buildTrends(ProjectMetrics metrics) {
         DateTimeFormatter formatter = DateTimeFormatter.ofPattern("MM-dd");
         Map<LocalDate, Long> taskCountMap = new LinkedHashMap<>();
         Map<LocalDate, Integer> quotaMap = new LinkedHashMap<>();
@@ -89,24 +88,8 @@ public class StatsService {
 
         for (int i = 13; i >= 0; i--) {
             LocalDate day = today.minusDays(i);
-            taskCountMap.put(day, 0L);
-            quotaMap.put(day, 0);
-        }
-
-        for (GenerationTask task : tasks) {
-            if (task.getCreatedAt() == null) continue;
-            LocalDate day = task.getCreatedAt().toLocalDate();
-            if (taskCountMap.containsKey(day)) {
-                taskCountMap.put(day, taskCountMap.get(day) + 1);
-            }
-        }
-
-        for (QuotaRecord record : quotaRecords) {
-            if (record.getCreatedAt() == null) continue;
-            LocalDate day = record.getCreatedAt().toLocalDate();
-            if (quotaMap.containsKey(day)) {
-                quotaMap.put(day, quotaMap.get(day) + (record.getAmount() == null ? 0 : record.getAmount()));
-            }
+            taskCountMap.put(day, metrics.dailyTaskCount().getOrDefault(day, 0L));
+            quotaMap.put(day, metrics.dailyQuotaUsed().getOrDefault(day, 0));
         }
 
         List<StatsTrendPointVO> result = new ArrayList<>();
@@ -120,43 +103,28 @@ public class StatsService {
         return result;
     }
 
-    private List<StatsProjectRankingVO> buildProjectRankings(List<Project> projects,
-                                                             List<GenerationTask> tasks,
-                                                             List<Asset> assets,
-                                                             List<QuotaRecord> quotaRecords) {
+    private List<StatsProjectRankingVO> buildProjectRankings(List<Project> projects, ProjectMetrics metrics) {
         List<StatsProjectRankingVO> rankings = new ArrayList<>();
         int maxScore = 1;
 
         for (Project project : projects) {
-            List<GenerationTask> projectTasks = tasks.stream()
-                    .filter(task -> Objects.equals(task.getProjectId(), project.getId()))
-                    .toList();
-            List<Asset> projectAssets = assets.stream()
-                    .filter(asset -> Objects.equals(asset.getProjectId(), project.getId()))
-                    .toList();
-            List<QuotaRecord> projectQuota = quotaRecords.stream()
-                    .filter(record -> Objects.equals(record.getProjectId(), project.getId()))
-                    .toList();
-
-            long successCount = projectTasks.stream().filter(task -> "success".equals(task.getStatus())).count();
-            int quotaUsed = projectQuota.stream().mapToInt(item -> item.getAmount() == null ? 0 : item.getAmount()).sum();
-            int score = projectTasks.size() * 10 + (int) successCount * 6 + quotaUsed;
+            long taskCount = metrics.taskCountByProject().getOrDefault(project.getId(), 0L);
+            long successCount = metrics.successTaskCountByProject().getOrDefault(project.getId(), 0L);
+            long assetCount = metrics.assetCountByProject().getOrDefault(project.getId(), 0L);
+            int quotaUsed = metrics.quotaUsedByProject().getOrDefault(project.getId(), 0);
+            int score = (int) taskCount * 10 + (int) successCount * 6 + quotaUsed;
             maxScore = Math.max(maxScore, score);
 
             StatsProjectRankingVO item = new StatsProjectRankingVO();
             item.setProjectId(project.getId());
             item.setName(project.getName());
             item.setDescription(project.getDescription());
-            item.setTaskCount((long) projectTasks.size());
+            item.setTaskCount(taskCount);
             item.setSuccessTaskCount(successCount);
-            item.setSuccessRate(projectTasks.isEmpty() ? 0D : (successCount * 100D) / projectTasks.size());
-            item.setAssetCount((long) projectAssets.size());
+            item.setSuccessRate(taskCount == 0 ? 0D : (successCount * 100D) / taskCount);
+            item.setAssetCount(assetCount);
             item.setQuotaUsed(quotaUsed);
-            item.setLastActiveAt(projectTasks.stream()
-                    .map(GenerationTask::getCreatedAt)
-                    .filter(Objects::nonNull)
-                    .max(LocalDateTime::compareTo)
-                    .orElse(null));
+            item.setLastActiveAt(metrics.lastActiveAtByProject().get(project.getId()));
             item.setWeightPercent((double) score);
             rankings.add(item);
         }
@@ -170,11 +138,21 @@ public class StatsService {
         return rankings;
     }
 
-    private List<StatsActivityVO> buildActivities(List<Project> projects, List<GenerationTask> tasks, List<QuotaRecord> quotaRecords) {
+    private List<StatsActivityVO> buildActivities(StatsScope scope) {
         Map<Long, String> projectNameMap = new LinkedHashMap<>();
-        for (Project project : projects) {
+        for (Project project : scope.projects()) {
             projectNameMap.put(project.getId(), project.getName());
         }
+
+        List<GenerationTask> tasks = taskMapper.selectList(new LambdaQueryWrapper<GenerationTask>()
+                .in(GenerationTask::getProjectId, scope.projectIds())
+                .orderByDesc(GenerationTask::getCreatedAt)
+                .last("LIMIT 8"));
+        List<QuotaRecord> quotaRecords = quotaRecordMapper.selectList(new LambdaQueryWrapper<QuotaRecord>()
+                .eq(QuotaRecord::getUserId, scope.userId())
+                .in(QuotaRecord::getProjectId, scope.projectIds())
+                .orderByDesc(QuotaRecord::getCreatedAt)
+                .last("LIMIT 8"));
 
         List<StatsActivityVO> items = new ArrayList<>();
         for (GenerationTask task : tasks) {
@@ -222,26 +200,205 @@ public class StatsService {
         }
 
         List<Long> projectIds = new ArrayList<>(projects.stream().map(Project::getId).toList());
-        // 始终包含 projectId=0（无项目的默认空间）
         if (!projectIds.contains(0L)) {
             projectIds.add(0L);
         }
+        return new StatsScope(userId, projects, projectIds);
+    }
+
+    private ProjectMetrics loadProjectMetrics(List<Long> projectIds, Long userId) {
         if (projectIds.isEmpty()) {
-            return new StatsScope(projects, List.of(), List.of(), List.of());
+            return ProjectMetrics.empty();
         }
 
-        List<GenerationTask> tasks = taskMapper.selectList(new LambdaQueryWrapper<GenerationTask>()
+        long taskCount = defaultLong(taskMapper.selectCount(new LambdaQueryWrapper<GenerationTask>()
+                .in(GenerationTask::getProjectId, projectIds)));
+        long successTaskCount = defaultLong(taskMapper.selectCount(new LambdaQueryWrapper<GenerationTask>()
                 .in(GenerationTask::getProjectId, projectIds)
-                .orderByDesc(GenerationTask::getCreatedAt));
-        List<Asset> assets = assetMapper.selectList(new LambdaQueryWrapper<Asset>()
-                .in(Asset::getProjectId, projectIds)
-                .orderByDesc(Asset::getCreatedAt));
-        List<QuotaRecord> quotaRecords = quotaRecordMapper.selectList(new LambdaQueryWrapper<QuotaRecord>()
-                .eq(QuotaRecord::getUserId, userId)
-                .in(QuotaRecord::getProjectId, projectIds)
-                .orderByDesc(QuotaRecord::getCreatedAt));
+                .eq(GenerationTask::getStatus, "success")));
+        long failedTaskCount = defaultLong(taskMapper.selectCount(new LambdaQueryWrapper<GenerationTask>()
+                .in(GenerationTask::getProjectId, projectIds)
+                .eq(GenerationTask::getStatus, "failed")));
+        long runningTaskCount = defaultLong(taskMapper.selectCount(new LambdaQueryWrapper<GenerationTask>()
+                .in(GenerationTask::getProjectId, projectIds)
+                .and(w -> w.eq(GenerationTask::getStatus, "running").or().eq(GenerationTask::getStatus, "pending"))));
+        long assetCount = defaultLong(assetMapper.selectCount(new LambdaQueryWrapper<com.example.aihub.infrastructure.entity.Asset>()
+                .in(com.example.aihub.infrastructure.entity.Asset::getProjectId, projectIds)));
+        long favoriteAssetCount = defaultLong(assetMapper.selectCount(new LambdaQueryWrapper<com.example.aihub.infrastructure.entity.Asset>()
+                .in(com.example.aihub.infrastructure.entity.Asset::getProjectId, projectIds)
+                .eq(com.example.aihub.infrastructure.entity.Asset::getFavorite, 1)));
+        int quotaUsed = sumQuota(projectIds, userId);
 
-        return new StatsScope(projects, tasks, assets, quotaRecords);
+        Map<String, Long> taskTypeCount = mapLongByKey(taskMapper.selectMaps(
+                new com.baomidou.mybatisplus.core.conditions.query.QueryWrapper<GenerationTask>()
+                        .select("task_type AS metricKey", "COUNT(*) AS metricValue")
+                        .in("project_id", projectIds)
+                        .groupBy("task_type")), "metricKey", "metricValue");
+        Map<Long, Long> taskCountByProject = mapLongByLongKey(taskMapper.selectMaps(
+                new com.baomidou.mybatisplus.core.conditions.query.QueryWrapper<GenerationTask>()
+                        .select("project_id AS metricKey", "COUNT(*) AS metricValue")
+                        .in("project_id", projectIds)
+                        .groupBy("project_id")), "metricKey", "metricValue");
+        Map<Long, Long> successTaskCountByProject = mapLongByLongKey(taskMapper.selectMaps(
+                new com.baomidou.mybatisplus.core.conditions.query.QueryWrapper<GenerationTask>()
+                        .select("project_id AS metricKey", "COUNT(*) AS metricValue")
+                        .in("project_id", projectIds)
+                        .eq("status", "success")
+                        .groupBy("project_id")), "metricKey", "metricValue");
+        Map<Long, LocalDateTime> lastActiveAtByProject = mapDateTimeByLongKey(taskMapper.selectMaps(
+                new com.baomidou.mybatisplus.core.conditions.query.QueryWrapper<GenerationTask>()
+                        .select("project_id AS metricKey", "MAX(created_at) AS metricValue")
+                        .in("project_id", projectIds)
+                        .groupBy("project_id")), "metricKey", "metricValue");
+        Map<Long, Long> assetCountByProject = mapLongByLongKey(assetMapper.selectMaps(
+                new com.baomidou.mybatisplus.core.conditions.query.QueryWrapper<com.example.aihub.infrastructure.entity.Asset>()
+                        .select("project_id AS metricKey", "COUNT(*) AS metricValue")
+                        .in("project_id", projectIds)
+                        .groupBy("project_id")), "metricKey", "metricValue");
+        Map<Long, Integer> quotaUsedByProject = mapIntByLongKey(quotaRecordMapper.selectMaps(
+                new com.baomidou.mybatisplus.core.conditions.query.QueryWrapper<QuotaRecord>()
+                        .select("project_id AS metricKey", "COALESCE(SUM(amount), 0) AS metricValue")
+                        .eq("user_id", userId)
+                        .in("project_id", projectIds)
+                        .groupBy("project_id")), "metricKey", "metricValue");
+
+        LocalDate startDay = LocalDate.now().minusDays(13);
+        String startTime = startDay.atStartOfDay().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"));
+        Map<LocalDate, Long> dailyTaskCount = mapLongByDateKey(taskMapper.selectMaps(
+                new com.baomidou.mybatisplus.core.conditions.query.QueryWrapper<GenerationTask>()
+                        .select("DATE(created_at) AS metricKey", "COUNT(*) AS metricValue")
+                        .in("project_id", projectIds)
+                        .ge("created_at", startTime)
+                        .groupBy("DATE(created_at)")), "metricKey", "metricValue");
+        Map<LocalDate, Integer> dailyQuotaUsed = mapIntByDateKey(quotaRecordMapper.selectMaps(
+                new com.baomidou.mybatisplus.core.conditions.query.QueryWrapper<QuotaRecord>()
+                        .select("DATE(created_at) AS metricKey", "COALESCE(SUM(amount), 0) AS metricValue")
+                        .eq("user_id", userId)
+                        .in("project_id", projectIds)
+                        .ge("created_at", startTime)
+                        .groupBy("DATE(created_at)")), "metricKey", "metricValue");
+
+        return new ProjectMetrics(
+                taskCount,
+                successTaskCount,
+                failedTaskCount,
+                runningTaskCount,
+                assetCount,
+                favoriteAssetCount,
+                quotaUsed,
+                taskTypeCount.getOrDefault("image", 0L),
+                taskTypeCount.getOrDefault("video", 0L),
+                dailyTaskCount,
+                dailyQuotaUsed,
+                taskCountByProject,
+                successTaskCountByProject,
+                assetCountByProject,
+                quotaUsedByProject,
+                lastActiveAtByProject
+        );
+    }
+
+    private int sumQuota(List<Long> projectIds, Long userId) {
+        List<Map<String, Object>> rows = quotaRecordMapper.selectMaps(
+                new com.baomidou.mybatisplus.core.conditions.query.QueryWrapper<QuotaRecord>()
+                        .select("COALESCE(SUM(amount), 0) AS metricValue")
+                        .eq("user_id", userId)
+                        .in("project_id", projectIds));
+        if (rows.isEmpty()) {
+            return 0;
+        }
+        return asInt(rows.get(0).get("metricValue"));
+    }
+
+    private long defaultLong(Long value) {
+        return value == null ? 0L : value;
+    }
+
+    private Map<String, Long> mapLongByKey(List<Map<String, Object>> rows, String keyField, String valueField) {
+        Map<String, Long> result = new HashMap<>();
+        for (Map<String, Object> row : rows) {
+            Object key = row.get(keyField);
+            if (key != null) {
+                result.put(String.valueOf(key), asLong(row.get(valueField)));
+            }
+        }
+        return result;
+    }
+
+    private Map<Long, Long> mapLongByLongKey(List<Map<String, Object>> rows, String keyField, String valueField) {
+        Map<Long, Long> result = new HashMap<>();
+        for (Map<String, Object> row : rows) {
+            Object key = row.get(keyField);
+            if (key != null) {
+                result.put(asLong(key), asLong(row.get(valueField)));
+            }
+        }
+        return result;
+    }
+
+    private Map<Long, Integer> mapIntByLongKey(List<Map<String, Object>> rows, String keyField, String valueField) {
+        Map<Long, Integer> result = new HashMap<>();
+        for (Map<String, Object> row : rows) {
+            Object key = row.get(keyField);
+            if (key != null) {
+                result.put(asLong(key), asInt(row.get(valueField)));
+            }
+        }
+        return result;
+    }
+
+    private Map<Long, LocalDateTime> mapDateTimeByLongKey(List<Map<String, Object>> rows, String keyField, String valueField) {
+        Map<Long, LocalDateTime> result = new HashMap<>();
+        for (Map<String, Object> row : rows) {
+            Object key = row.get(keyField);
+            if (key != null) {
+                LocalDateTime value = asLocalDateTime(row.get(valueField));
+                if (value != null) {
+                    result.put(asLong(key), value);
+                }
+            }
+        }
+        return result;
+    }
+
+    private Map<LocalDate, Long> mapLongByDateKey(List<Map<String, Object>> rows, String keyField, String valueField) {
+        Map<LocalDate, Long> result = new HashMap<>();
+        for (Map<String, Object> row : rows) {
+            Object key = row.get(keyField);
+            if (key != null) {
+                result.put(LocalDate.parse(String.valueOf(key)), asLong(row.get(valueField)));
+            }
+        }
+        return result;
+    }
+
+    private Map<LocalDate, Integer> mapIntByDateKey(List<Map<String, Object>> rows, String keyField, String valueField) {
+        Map<LocalDate, Integer> result = new HashMap<>();
+        for (Map<String, Object> row : rows) {
+            Object key = row.get(keyField);
+            if (key != null) {
+                result.put(LocalDate.parse(String.valueOf(key)), asInt(row.get(valueField)));
+            }
+        }
+        return result;
+    }
+
+    private long asLong(Object value) {
+        return value instanceof Number number ? number.longValue() : Long.parseLong(String.valueOf(value));
+    }
+
+    private int asInt(Object value) {
+        return value instanceof Number number ? number.intValue() : Integer.parseInt(String.valueOf(value));
+    }
+
+    private LocalDateTime asLocalDateTime(Object value) {
+        if (value instanceof LocalDateTime dateTime) {
+            return dateTime;
+        }
+        if (value instanceof java.sql.Timestamp timestamp) {
+            return timestamp.toLocalDateTime();
+        }
+        return null;
     }
 
     private String statusLabel(String status) {
@@ -258,10 +415,36 @@ public class StatsService {
     }
 
     private record StatsScope(
+            Long userId,
             List<Project> projects,
-            List<GenerationTask> tasks,
-            List<Asset> assets,
-            List<QuotaRecord> quotaRecords
+            List<Long> projectIds
     ) {
+    }
+
+    private record ProjectMetrics(
+            long taskCount,
+            long successTaskCount,
+            long failedTaskCount,
+            long runningTaskCount,
+            long assetCount,
+            long favoriteAssetCount,
+            int quotaUsed,
+            long imageTaskCount,
+            long videoTaskCount,
+            Map<LocalDate, Long> dailyTaskCount,
+            Map<LocalDate, Integer> dailyQuotaUsed,
+            Map<Long, Long> taskCountByProject,
+            Map<Long, Long> successTaskCountByProject,
+            Map<Long, Long> assetCountByProject,
+            Map<Long, Integer> quotaUsedByProject,
+            Map<Long, LocalDateTime> lastActiveAtByProject
+    ) {
+        private static ProjectMetrics empty() {
+            return new ProjectMetrics(
+                    0L, 0L, 0L, 0L, 0L, 0L, 0,
+                    0L, 0L,
+                    Map.of(), Map.of(), Map.of(), Map.of(), Map.of(), Map.of(), Map.of()
+            );
+        }
     }
 }

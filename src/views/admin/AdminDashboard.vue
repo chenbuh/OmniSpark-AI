@@ -128,7 +128,7 @@
 import { ref, computed, onMounted } from 'vue'
 import { useMessage } from 'naive-ui'
 import { Download } from 'lucide-vue-next'
-import request from '@/api/request'
+import request, { API_BASE_URL } from '@/api/request'
 
 const message = useMessage()
 const stats = ref<Record<string, number>>({})
@@ -196,7 +196,7 @@ const areaPath = computed(() => {
 const handleExportCsv = () => {
   const token = localStorage.getItem('satoken')
   const a = document.createElement('a')
-  a.href = `http://localhost:8080/api/admin/stats/export/csv`
+  a.href = `${API_BASE_URL}/api/admin/stats/export/csv`
   a.download = `stats_${new Date().toISOString().slice(0, 10)}.csv`
   // Use fetch with auth to trigger download
   fetch(a.href, { headers: { 'satoken': token || '' } })
@@ -218,20 +218,22 @@ onMounted(async () => {
     const [overviewRes, trendsRes, usersRes] = await Promise.all([
       request.get('/api/admin/stats/overview'),
       request.get('/api/admin/stats/trends'),
-      request.get('/api/admin/stats/users')
+      request.get('/api/admin/stats/users', { params: { page: 1, pageSize: 10 } })
     ])
     stats.value = (overviewRes as any).data || {}
     const trends = (trendsRes as any).data || {}
     dailyTasks.value = trends.dailyTasks || []
     dailyUsers.value = trends.dailyUsers || []
-    recentUsers.value = ((usersRes as any).data || []).slice(0, 10)
+    recentUsers.value = (usersRes as any).data?.records || []
 
     // 计算 running 数量
     const total = (stats.value.totalTasks || 0)
     const success = (stats.value.successTasks || 0)
     const failed = (stats.value.failedTasks || 0)
     stats.value.runningTasks = Math.max(0, total - success - failed)
-  } catch {}
+  } catch (err: any) {
+    message.error(err.message || '加载仪表盘数据失败')
+  }
 })
 </script>
 

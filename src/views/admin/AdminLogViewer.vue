@@ -34,15 +34,20 @@
 
 <script setup lang="ts">
 import { ref, watch, onMounted, onUnmounted } from 'vue'
+import { useMessage } from 'naive-ui'
 import { Search } from 'lucide-vue-next'
 import request from '@/api/request'
 
+const message = useMessage()
 const logs = ref<string[]>([])
 const search = ref('')
 const lineCount = ref(100)
 const autoRefresh = ref(false)
 const logContainer = ref<HTMLElement | null>(null)
 let timer: any = null
+let inFlight = false
+let errorNotified = false
+const POLL_INTERVAL_MS = 5000
 
 const lineOptions = [
   { label: '50 行', value: 50 },
@@ -59,18 +64,29 @@ const logLevelClass = (line: string) => {
 }
 
 async function loadLogs() {
+  if (inFlight) return
+  inFlight = true
   try {
     const params: Record<string, any> = { lines: lineCount.value }
     if (search.value) params.search = search.value
     const res = await request.get('/api/admin/logs', { params })
     logs.value = ((res as any).data?.lines) || []
+    errorNotified = false
     // 滚动到底部
     setTimeout(() => {
       if (logContainer.value) {
         logContainer.value.scrollTop = logContainer.value.scrollHeight
       }
     }, 50)
-  } catch { logs.value = ['无法加载日志'] }
+  } catch (err: any) {
+    logs.value = ['无法加载日志']
+    if (!errorNotified) {
+      message.error(err.message || '日志加载失败')
+      errorNotified = true
+    }
+  } finally {
+    inFlight = false
+  }
 }
 
 onMounted(() => { loadLogs() })
@@ -85,7 +101,11 @@ function watchAutoRefresh() {
 watch(() => autoRefresh.value, (val) => {
   if (timer) { clearInterval(timer); timer = null }
   if (val) {
-    timer = setInterval(loadLogs, 5000)
+    timer = setInterval(() => {
+      if (document.visibilityState === 'visible') {
+        loadLogs()
+      }
+    }, POLL_INTERVAL_MS)
   }
 })
 </script>
