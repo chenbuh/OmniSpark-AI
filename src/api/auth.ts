@@ -4,6 +4,7 @@ import { useTaskStore } from '@/store/task'
 import { useProjectStore } from '@/store/project'
 import { useModelProviderStore } from '@/store/provider'
 import { useAssetStore } from '@/store/asset'
+import { encryptPassword } from '@/utils/passwordEncryption'
 
 async function hydrateWorkspace() {
   await Promise.allSettled([
@@ -17,15 +18,22 @@ async function hydrateWorkspace() {
 export const authApi = {
   // 登录
   async login(params: { username: string; password?: string }) {
-    const res = await request.post('/api/auth/login', params)
+    const res = await request.post('/api/auth/login', {
+      username: params.username,
+      encryptedPassword: await encryptPassword(params.password || '')
+    })
     useUserStore().setSession(res.data.userInfo, res.data.token)
     await hydrateWorkspace()
     return res
   },
 
   // 注册
-  async register(params: { username: string; passwordHash: string; nickname: string }) {
-    return request.post('/api/auth/register', params)
+  async register(params: { username: string; password: string; nickname: string }) {
+    return request.post('/api/auth/register', {
+      username: params.username,
+      nickname: params.nickname,
+      encryptedPassword: await encryptPassword(params.password)
+    })
   },
 
   // 退出

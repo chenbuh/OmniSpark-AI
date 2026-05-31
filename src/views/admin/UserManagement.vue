@@ -144,7 +144,7 @@
           <n-input v-model:value="createForm.username" placeholder="登录用账号" :maxlength="30" />
         </n-form-item>
         <n-form-item label="密码">
-          <n-input v-model:value="createForm.password" placeholder="留空则自动生成随机初始密码" :maxlength="60" />
+          <n-input v-model:value="createForm.password" :placeholder="`留空则自动生成随机初始密码；手动设置时${PASSWORD_REQUIREMENT_TEXT}`" :maxlength="60" />
         </n-form-item>
         <n-form-item label="昵称">
           <n-input v-model:value="createForm.nickname" placeholder="留空则同用户名" :maxlength="30" />
@@ -166,6 +166,8 @@ import { ref, onMounted } from 'vue'
 import { useMessage, useDialog } from 'naive-ui'
 import { Search, Download, Upload, Plus, RefreshCw } from 'lucide-vue-next'
 import request, { API_BASE_URL } from '@/api/request'
+import { PASSWORD_REQUIREMENT_TEXT, validatePasswordStrength } from '@/utils/password'
+import { encryptPassword } from '@/utils/passwordEncryption'
 
 const message = useMessage()
 const dialog = useDialog()
@@ -222,10 +224,16 @@ function onSearch() {
 // --- 创建 ---
 async function handleCreate() {
   if (!createForm.value.username) { message.error('请输入用户名'); return }
+  if (createForm.value.password) {
+    const passwordError = validatePasswordStrength(createForm.value.password, createForm.value.username)
+    if (passwordError) { message.error(passwordError); return }
+  }
   creating.value = true
   try {
     const params = new URLSearchParams({ username: createForm.value.username })
-    if (createForm.value.password) params.set('password', createForm.value.password)
+    if (createForm.value.password) {
+      params.set('encryptedPassword', await encryptPassword(createForm.value.password))
+    }
     if (createForm.value.nickname) params.set('nickname', createForm.value.nickname)
     params.set('role', createForm.value.role)
     const res = await request.post('/api/admin/users', params.toString(), {
@@ -371,16 +379,12 @@ function triggerImport() {
     if (!file) return
     try {
       const text = await file.text()
-      const token = localStorage.getItem('satoken')
-      const res = await fetch(`${API_BASE_URL}/api/admin/users/import`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'text/plain;charset=UTF-8', 'satoken': token || '' },
-        body: text
+      const res = await request.post('/api/admin/users/import', text, {
+        headers: { 'Content-Type': 'text/plain;charset=UTF-8' }
       })
-      const json = await res.json()
-      if (json.code === 200) {
-        message.success(`导入完成：成功 ${json.data?.success} 条，失败 ${json.data?.failed} 条`)
-        const generatedCredentials = Array.isArray(json.data?.generatedCredentials) ? json.data.generatedCredentials : []
+      if ((res as any).code === 200) {
+        message.success(`导入完成：成功 ${(res as any).data?.success} 条，失败 ${(res as any).data?.failed} 条`)
+        const generatedCredentials = Array.isArray((res as any).data?.generatedCredentials) ? (res as any).data.generatedCredentials : []
         if (generatedCredentials.length > 0) {
           dialog.success({
             title: '导入成功',
@@ -389,7 +393,7 @@ function triggerImport() {
           })
         }
         await loadUsers()
-      } else message.error(json.message || '导入失败')
+      } else message.error((res as any).message || '导入失败')
     } catch (err: any) { message.error('导入失败: ' + (err.message || '文件格式错误')) }
   }
   input.click()

@@ -108,7 +108,7 @@
             v-model:value="registerForm.password"
             type="password"
             show-password-on="mousedown"
-            placeholder="设置 5 位及以上的密码"
+            :placeholder="PASSWORD_REQUIREMENT_TEXT"
             size="large"
           >
             <template #prefix>
@@ -159,6 +159,7 @@ import { useMessage } from 'naive-ui'
 import type { FormInst } from 'naive-ui'
 import { authApi } from '@/api/auth'
 import { User, Lock, Zap, Smile, ShieldCheck } from 'lucide-vue-next'
+import { PASSWORD_REQUIREMENT_TEXT, validatePasswordStrength } from '@/utils/password'
 
 const router = useRouter()
 const message = useMessage()
@@ -203,8 +204,14 @@ const registerRules = {
     { required: true, message: '设置您的个性显示昵称', trigger: 'blur' }
   ],
   password: [
-    { required: true, message: '设置您的安全密码', trigger: 'blur' },
-    { min: 5, message: '密码长度不能少于 5 个字符', trigger: 'blur' }
+    { required: true, message: '设置您的安全密码', trigger: ['blur', 'input'] },
+    {
+      validator: (_rule: any, value: string) => {
+        const error = validatePasswordStrength(value, registerForm.username)
+        return error ? new Error(error) : true
+      },
+      trigger: ['blur', 'input']
+    }
   ],
   confirmPassword: [
     { required: true, message: '请重复输入密码以确认', trigger: 'blur' },
@@ -258,7 +265,7 @@ const handleRegister = () => {
     try {
       await authApi.register({
         username: registerForm.username,
-        passwordHash: registerForm.password,
+        password: registerForm.password,
         nickname: registerForm.nickname
       })
       

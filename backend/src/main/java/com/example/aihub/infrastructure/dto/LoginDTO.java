@@ -8,6 +8,7 @@ public class LoginDTO {
     @NotBlank
     private String username;
 
-    @NotBlank
     private String password;
+
+    private String encryptedPassword;
 }

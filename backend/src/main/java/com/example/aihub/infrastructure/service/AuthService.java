@@ -38,8 +38,8 @@ public class AuthService {
             throw new BusinessException("账号已被禁用，请联系管理员");
         }
 
-        // 历史无盐 SHA-256 哈希在校验通过后平滑升级为 BCrypt
-        if (PasswordUtil.isLegacyHash(user.getPassword())) {
+        // 登录成功后平滑升级历史 SHA-256 和低 cost 的 BCrypt 哈希
+        if (PasswordUtil.needsRehash(user.getPassword())) {
             user.setPassword(PasswordUtil.encode(dto.getPassword()));
             userMapper.updateById(user);
         }
@@ -69,10 +69,11 @@ public class AuthService {
         if (count != null && count > 0) {
             throw new BusinessException("该账号已存在");
         }
+        validatePassword(dto.getPassword(), dto.getUsername());
 
         User user = new User();
         user.setUsername(dto.getUsername());
-        user.setPassword(PasswordUtil.encode(dto.getPasswordHash()));
+        user.setPassword(PasswordUtil.encode(dto.getPassword()));
         user.setNickname(dto.getNickname());
         user.setAvatar("https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?q=80&w=200");
         user.setRole("user");
@@ -116,6 +117,7 @@ public class AuthService {
         if (!PasswordUtil.matches(oldPassword, user.getPassword())) {
             throw new BusinessException("当前密码错误");
         }
+        validatePassword(newPassword, user.getUsername());
         user.setPassword(PasswordUtil.encode(newPassword));
         userMapper.updateById(user);
     }
@@ -138,5 +140,12 @@ public class AuthService {
                 .map(item -> item.getAmount() == null ? 0 : item.getAmount())
                 .toList();
         return values.stream().mapToInt(Integer::intValue).sum();
+    }
+
+    private void validatePassword(String rawPassword, String username) {
+        String error = PasswordUtil.getPasswordValidationError(rawPassword, username);
+        if (error != null) {
+            throw new BusinessException(error);
+        }
     }
 }

@@ -11,9 +11,12 @@ import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
 @RequiredArgsConstructor
 public class WebConfig implements WebMvcConfigurer {
     private final MaintenanceInterceptor maintenanceInterceptor;
+    private final ApiSignInterceptor apiSignInterceptor;
 
     @Override
     public void addInterceptors(InterceptorRegistry registry) {
+        registry.addInterceptor(maintenanceInterceptor).addPathPatterns("/api/**");
+        registry.addInterceptor(apiSignInterceptor).addPathPatterns("/api/**");
         // 注册 Sa-Token 注解拦截器，使 @SaCheckLogin / @SaCheckRole 等注解生效。
         // Spring Boot 3 的 sa-token starter 不会自动注册该拦截器，必须手动注册。
         registry.addInterceptor(new SaInterceptor())
@@ -22,7 +25,6 @@ public class WebConfig implements WebMvcConfigurer {
                         "/api/auth/login",
                         "/api/auth/register"
                 );
-        registry.addInterceptor(maintenanceInterceptor).addPathPatterns("/api/**");
     }
 
     @Override

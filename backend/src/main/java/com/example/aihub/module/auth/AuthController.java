@@ -9,7 +9,9 @@ import com.example.aihub.infrastructure.entity.LoginLog;
 import com.example.aihub.infrastructure.mapper.LoginLogMapper;
 import com.example.aihub.infrastructure.dto.RegisterDTO;
 import com.example.aihub.infrastructure.service.AuthService;
+import com.example.aihub.infrastructure.service.PasswordEncryptionService;
 import com.example.aihub.infrastructure.vo.LoginVO;
+import com.example.aihub.infrastructure.vo.PasswordPublicKeyVO;
 import com.example.aihub.infrastructure.vo.UserVO;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -27,16 +29,24 @@ import org.springframework.web.bind.annotation.RestController;
 public class AuthController {
     private final AuthService authService;
     private final LoginLogMapper loginLogMapper;
+    private final PasswordEncryptionService passwordEncryptionService;
+
+    @GetMapping("/public-key")
+    public ApiResult<PasswordPublicKeyVO> publicKey() {
+        return ApiResult.ok(passwordEncryptionService.getPublicKey());
+    }
 
     @PostMapping("/login")
     public ApiResult<LoginVO> login(@Valid @RequestBody LoginDTO dto, HttpServletRequest request) {
         String ip = request.getRemoteAddr();
         String ua = request.getHeader("User-Agent");
+        dto.setPassword(passwordEncryptionService.resolvePassword(dto.getPassword(), dto.getEncryptedPassword()));
         return ApiResult.ok(authService.login(dto, ip, ua));
     }
 
     @PostMapping("/register")
     public ApiResult<UserVO> register(@Valid @RequestBody RegisterDTO dto) {
+        dto.setPassword(passwordEncryptionService.resolvePassword(dto.getPassword(), dto.getEncryptedPassword()));
         return ApiResult.ok(authService.register(dto));
     }
 
@@ -67,10 +77,14 @@ public class AuthController {
 
     @PutMapping("/password")
     @SaCheckLogin
-    public ApiResult<Void> changePassword(@RequestParam String oldPassword,
-                                           @RequestParam String newPassword) {
+    public ApiResult<Void> changePassword(@RequestParam(required = false) String oldPassword,
+                                           @RequestParam(required = false) String newPassword,
+                                           @RequestParam(required = false) String encryptedOldPassword,
+                                           @RequestParam(required = false) String encryptedNewPassword) {
         Long userId = Long.valueOf(String.valueOf(cn.dev33.satoken.stp.StpUtil.getLoginId()));
-        authService.changePassword(userId, oldPassword, newPassword);
+        String resolvedOldPassword = passwordEncryptionService.resolvePassword(oldPassword, encryptedOldPassword);
+        String resolvedNewPassword = passwordEncryptionService.resolvePassword(newPassword, encryptedNewPassword);
+        authService.changePassword(userId, resolvedOldPassword, resolvedNewPassword);
         return ApiResult.ok();
     }
 

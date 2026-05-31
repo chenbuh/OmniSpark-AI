@@ -75,7 +75,7 @@
               <n-input v-model:value="passwordForm.oldPassword" type="password" show-password-on="click" placeholder="输入当前密码" />
             </n-form-item>
             <n-form-item label="新密码" required>
-              <n-input v-model:value="passwordForm.newPassword" type="password" show-password-on="click" placeholder="输入新密码（至少6位）" :maxlength="60" />
+              <n-input v-model:value="passwordForm.newPassword" type="password" show-password-on="click" :placeholder="PASSWORD_REQUIREMENT_TEXT" :maxlength="60" />
             </n-form-item>
             <n-form-item label="确认新密码" required>
               <n-input v-model:value="passwordForm.confirmPassword" type="password" show-password-on="click" placeholder="再次输入新密码" :maxlength="60" />
@@ -131,6 +131,8 @@ import { useMessage, useDialog } from 'naive-ui'
 import { Pencil } from 'lucide-vue-next'
 import { useUserStore } from '@/store/user'
 import request from '@/api/request'
+import { PASSWORD_REQUIREMENT_TEXT, validatePasswordStrength } from '@/utils/password'
+import { encryptPassword } from '@/utils/passwordEncryption'
 
 const message = useMessage()
 const dialog = useDialog()
@@ -184,7 +186,8 @@ const passwordForm = reactive({
 async function handleChangePassword() {
   if (!passwordForm.oldPassword) { message.error('请输入当前密码'); return }
   if (!passwordForm.newPassword) { message.error('请输入新密码'); return }
-  if (passwordForm.newPassword.length < 6) { message.error('新密码至少 6 位'); return }
+  const passwordError = validatePasswordStrength(passwordForm.newPassword, userStore.userInfo?.username)
+  if (passwordError) { message.error(passwordError); return }
   if (passwordForm.newPassword !== passwordForm.confirmPassword) { message.error('两次输入的新密码不一致'); return }
 
   dialog.warning({
@@ -196,8 +199,8 @@ async function handleChangePassword() {
       changingPassword.value = true
       try {
         const params = new URLSearchParams({
-          oldPassword: passwordForm.oldPassword,
-          newPassword: passwordForm.newPassword
+          encryptedOldPassword: await encryptPassword(passwordForm.oldPassword),
+          encryptedNewPassword: await encryptPassword(passwordForm.newPassword)
         })
         await request.put('/api/auth/password', params.toString(), {
           headers: { 'Content-Type': 'application/x-www-form-urlencoded' }

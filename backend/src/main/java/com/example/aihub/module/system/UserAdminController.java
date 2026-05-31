@@ -10,6 +10,7 @@ import com.example.aihub.common.util.PasswordUtil;
 import com.example.aihub.common.util.SecurityUtil;
 import com.example.aihub.infrastructure.entity.User;
 import com.example.aihub.infrastructure.mapper.UserMapper;
+import com.example.aihub.infrastructure.service.PasswordEncryptionService;
 import com.example.aihub.infrastructure.vo.UserVO;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
@@ -31,6 +32,7 @@ public class UserAdminController {
     private static final Set<String> ALLOWED_ROLES = Set.of("admin", "user");
 
     private final UserMapper userMapper;
+    private final PasswordEncryptionService passwordEncryptionService;
 
     @GetMapping
     public ApiResult<PageResult<UserVO>> list(
@@ -90,6 +92,7 @@ public class UserAdminController {
     @PostMapping
     public ApiResult<UserVO> create(@RequestParam String username,
                                      @RequestParam(required = false) String password,
+                                     @RequestParam(required = false) String encryptedPassword,
                                      @RequestParam(required = false, defaultValue = "") String nickname,
                                      @RequestParam(required = false, defaultValue = "user") String role) {
         if (!ALLOWED_ROLES.contains(role)) {
@@ -102,8 +105,17 @@ public class UserAdminController {
             return ApiResult.fail("用户名已存在");
         }
         // 未指定密码时随机生成，并在响应中返回供管理员转交，避免硬编码弱口令
-        boolean generated = password == null || password.isBlank();
-        String rawPassword = generated ? generateRandomPassword() : password;
+        boolean generated = (password == null || password.isBlank())
+                && (encryptedPassword == null || encryptedPassword.isBlank());
+        String rawPassword = generated
+                ? generateRandomPassword()
+                : passwordEncryptionService.resolvePassword(password, encryptedPassword);
+        if (!generated) {
+            String passwordError = PasswordUtil.getPasswordValidationError(rawPassword, username);
+            if (passwordError != null) {
+                return ApiResult.fail(passwordError);
+            }
+        }
         User user = new User();
         user.setUsername(username);
         user.setPassword(PasswordUtil.encode(rawPassword));
@@ -140,12 +152,22 @@ public class UserAdminController {
 
     @PutMapping("/{id}/reset-password")
     public ApiResult<Map<String, Object>> resetPassword(@PathVariable Long id,
-                                          @RequestParam(required = false) String password) {
+                                          @RequestParam(required = false) String password,
+                                          @RequestParam(required = false) String encryptedPassword) {
         User user = userMapper.selectById(id);
         if (user == null) return ApiResult.fail("用户不存在");
         // 未指定密码时随机生成，并返回供管理员转交
-        boolean generated = password == null || password.isBlank();
-        String rawPassword = generated ? generateRandomPassword() : password;
+        boolean generated = (password == null || password.isBlank())
+                && (encryptedPassword == null || encryptedPassword.isBlank());
+        String rawPassword = generated
+                ? generateRandomPassword()
+                : passwordEncryptionService.resolvePassword(password, encryptedPassword);
+        if (!generated) {
+            String passwordError = PasswordUtil.getPasswordValidationError(rawPassword, user.getUsername());
+            if (passwordError != null) {
+                return ApiResult.fail(passwordError);
+            }
+        }
         user.setPassword(PasswordUtil.encode(rawPassword));
         userMapper.updateById(user);
         Map<String, Object> result = new LinkedHashMap<>();
@@ -227,6 +249,14 @@ public class UserAdminController {
                     String importedPassword = exportedRow ? "" : safePart(parts, 1);
                     boolean generatedPassword = importedPassword.isBlank();
                     String password = generatedPassword ? generateRandomPassword() : importedPassword;
+                    if (!generatedPassword) {
+                        String passwordError = PasswordUtil.getPasswordValidationError(password, username);
+                        if (passwordError != null) {
+                            errors.add("用户 " + username + " 密码不符合要求: " + passwordError);
+                            failed++;
+                            continue;
+                        }
+                    }
                     String nickname = exportedRow
                             ? defaultIfBlank(safePart(parts, 2), username)
                             : defaultIfBlank(safePart(parts, 2), username);

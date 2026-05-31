@@ -8,8 +8,11 @@ public class RegisterDTO {
     @NotBlank
     private String username;
 
-    @NotBlank
-    private String passwordHash;
+    /** 解密后的明文密码载体（由 Controller 通过 encryptedPassword 解密回写）。 */
+    private String password;
+
+    /** 传输加密后的密码字段，前端实际提交的字段。 */
+    private String encryptedPassword;
 
     @NotBlank
     private String nickname;

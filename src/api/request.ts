@@ -2,6 +2,7 @@ import axios from 'axios'
 import type { AxiosInstance, InternalAxiosRequestConfig, AxiosResponse } from 'axios'
 
 export const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || 'http://localhost:8080').replace(/\/$/, '')
+const REQUEST_SIGNING_SECRET = import.meta.env.VITE_REQUEST_SIGNING_SECRET || 'omnispark-dev-signing-secret-2026'
 
 // 统一的接口返回结构，契合 docs/初始化骨架与DTO-VO设计.md 的 ApiResult
 export interface ApiResult<T> {
@@ -89,6 +90,164 @@ function extractErrorMessage(error: any): string {
   return '请求失败，请稍后重试'
 }
 
+function shouldSignRequest(config: InternalAxiosRequestConfig): boolean {
+  const method = (config.method || 'get').toLowerCase()
+  if (method === 'get' || method === 'head' || method === 'options') {
+    return false
+  }
+  const url = config.url || ''
+  return url.startsWith('/api/auth/')
+    || url.startsWith('/api/admin/users')
+}
+
+function isPlainObject(value: unknown): value is Record<string, any> {
+  return Object.prototype.toString.call(value) === '[object Object]'
+}
+
+function getHeaderValue(headers: InternalAxiosRequestConfig['headers'], name: string): string {
+  if (!headers) {
+    return ''
+  }
+  const direct = headers[name]
+  if (typeof direct === 'string') {
+    return direct
+  }
+  const lower = headers[name.toLowerCase()]
+  if (typeof lower === 'string') {
+    return lower
+  }
+  return ''
+}
+
+function isFormUrlEncodedRequest(config: InternalAxiosRequestConfig): boolean {
+  return getHeaderValue(config.headers, 'Content-Type').toLowerCase().startsWith('application/x-www-form-urlencoded')
+}
+
+function stableStringify(value: unknown): string {
+  if (value === null || value === undefined) {
+    return 'null'
+  }
+  if (Array.isArray(value)) {
+    return `[${value.map(item => stableStringify(item)).join(',')}]`
+  }
+  if (isPlainObject(value)) {
+    const keys = Object.keys(value).sort()
+    return `{${keys.map(key => `${JSON.stringify(key)}:${stableStringify(value[key])}`).join(',')}}`
+  }
+  return JSON.stringify(value)
+}
+
+function normalizeFormUrlEncoded(value: string | URLSearchParams): string {
+  const params = value instanceof URLSearchParams ? value : new URLSearchParams(value)
+  const normalized = new URLSearchParams()
+  const keys = Array.from(new Set(Array.from(params.keys()))).sort()
+  keys.forEach((key) => {
+    params.getAll(key).forEach((item) => {
+      normalized.append(key, item)
+    })
+  })
+  return normalized.toString()
+}
+
+function serializeRequestBody(config: InternalAxiosRequestConfig): string {
+  const data = config.data
+  if (data == null || data === '') {
+    return ''
+  }
+  if (typeof data === 'string') {
+    if (isFormUrlEncodedRequest(config)) {
+      const serialized = normalizeFormUrlEncoded(data)
+      config.data = serialized
+      return serialized
+    }
+    return data
+  }
+  if (data instanceof URLSearchParams) {
+    const serialized = normalizeFormUrlEncoded(data)
+    config.data = serialized
+    return serialized
+  }
+  if (typeof FormData !== 'undefined' && data instanceof FormData) {
+    throw new Error('当前敏感请求暂不支持 FormData 签名')
+  }
+  if (isPlainObject(data) || Array.isArray(data)) {
+    const serialized = stableStringify(data)
+    config.data = serialized
+    return serialized
+  }
+  return String(data)
+}
+
+function appendParams(url: URL, params: any) {
+  if (!params) {
+    return
+  }
+  if (params instanceof URLSearchParams) {
+    params.forEach((value, key) => url.searchParams.append(key, value))
+    return
+  }
+  if (isPlainObject(params)) {
+    Object.keys(params).sort().forEach((key) => {
+      const value = params[key]
+      if (value === undefined || value === null) {
+        return
+      }
+      if (Array.isArray(value)) {
+        value.forEach(item => url.searchParams.append(key, String(item)))
+        return
+      }
+      url.searchParams.append(key, String(value))
+    })
+  }
+}
+
+function buildPathWithQuery(config: InternalAxiosRequestConfig): string {
+  const target = new URL(config.url || '/', API_BASE_URL)
+  appendParams(target, config.params)
+  return `${target.pathname}${target.search}`
+}
+
+function arrayBufferToBase64(buffer: ArrayBuffer): string {
+  const bytes = new Uint8Array(buffer)
+  let binary = ''
+  for (const byte of bytes) {
+    binary += String.fromCharCode(byte)
+  }
+  return btoa(binary)
+}
+
+function arrayBufferToHex(buffer: ArrayBuffer): string {
+  return Array.from(new Uint8Array(buffer))
+    .map(byte => byte.toString(16).padStart(2, '0'))
+    .join('')
+}
+
+async function sha256Hex(value: string): Promise<string> {
+  const digest = await window.crypto.subtle.digest('SHA-256', new TextEncoder().encode(value))
+  return arrayBufferToHex(digest)
+}
+
+async function hmacSha256Base64(value: string): Promise<string> {
+  const key = await window.crypto.subtle.importKey(
+    'raw',
+    new TextEncoder().encode(REQUEST_SIGNING_SECRET),
+    { name: 'HMAC', hash: 'SHA-256' },
+    false,
+    ['sign']
+  )
+  const signature = await window.crypto.subtle.sign('HMAC', key, new TextEncoder().encode(value))
+  return arrayBufferToBase64(signature)
+}
+
+function generateNonce() {
+  if (window.crypto?.randomUUID) {
+    return window.crypto.randomUUID()
+  }
+  const bytes = new Uint8Array(16)
+  window.crypto.getRandomValues(bytes)
+  return Array.from(bytes).map(byte => byte.toString(16).padStart(2, '0')).join('')
+}
+
 const request: AxiosInstance = axios.create({
   baseURL: API_BASE_URL,
   timeout: 15000,
@@ -99,7 +258,7 @@ const request: AxiosInstance = axios.create({
 
 // 请求拦截器
 request.interceptors.request.use(
-  (config: InternalAxiosRequestConfig) => {
+  async (config: InternalAxiosRequestConfig) => {
     const token = localStorage.getItem('satoken')
     if (token && config.headers) {
       config.headers['satoken'] = token
@@ -115,6 +274,25 @@ request.interceptors.request.use(
           data: cached.data,
           config
         })
+      }
+    }
+
+    if (shouldSignRequest(config)) {
+      if (!window.crypto?.subtle) {
+        throw new Error('当前浏览器不支持请求签名，请升级浏览器后重试')
+      }
+      const body = serializeRequestBody(config)
+      const bodyHash = await sha256Hex(body)
+      const timestamp = Date.now().toString()
+      const nonce = generateNonce()
+      const method = (config.method || 'post').toUpperCase()
+      const pathWithQuery = buildPathWithQuery(config)
+      const payload = `${method}\n${pathWithQuery}\n${bodyHash}\n${timestamp}\n${nonce}`
+      const signature = await hmacSha256Base64(payload)
+      if (config.headers) {
+        config.headers['X-Timestamp'] = timestamp
+        config.headers['X-Nonce'] = nonce
+        config.headers['X-Sign'] = signature
       }
     }
     return config
