@@ -14,6 +14,8 @@ public class CommunityPost {
     private Long id;
     private Long userId;
     private String username;
+    private String nickname;
+    private String avatar;
     private String title;
     private String prompt;
     private String negativePrompt;
@@ -22,6 +24,7 @@ public class CommunityPost {
     private String category;
     private String tags;
     private Integer likesCount;
+    private Integer commentsCount;
     private Integer status;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;

@@ -5,7 +5,6 @@
       <p class="subtitle">管理并收藏优秀的 AI 提示词指令。点击模板卡片一键应用至生图或视频面板。</p>
     </div>
 
-    <!-- 过滤器与新建按钮 -->
     <n-card class="glass-card filter-card" :bordered="false">
       <div class="filter-row">
         <n-tabs v-model:value="activeTag" type="segment" class="filter-tabs">
@@ -17,6 +16,7 @@
           <n-tab name="3D渲染">3D 渲染</n-tab>
         </n-tabs>
         <n-space>
+          <n-select v-model:value="sortBy" :options="sortOptions" style="width: 136px;" size="small" />
           <n-input v-model:value="searchQuery" placeholder="搜索模板..." style="width: 180px;" clearable>
             <template #prefix><Search class="s-icon" /></template>
           </n-input>
@@ -27,7 +27,6 @@
       </div>
     </n-card>
 
-    <!-- 网格模板列表 -->
     <div class="templates-grid" v-if="filteredTemplates.length > 0">
       <div v-for="tpl in pagedTemplates" :key="tpl.id" class="tpl-card glass-card">
         <div class="tpl-header">
@@ -35,19 +34,38 @@
           <n-tag type="warning" size="mini" round>{{ tpl.tag }}</n-tag>
         </div>
         <p class="tpl-content">{{ tpl.content }}</p>
-        <div class="tpl-meta" v-if="tpl.modelName">
-          <code>{{ tpl.modelName }}</code>
+        <div class="tpl-author">
+          <n-avatar round size="small" :src="tpl.avatar || undefined">
+            {{ authorInitial(tpl) }}
+          </n-avatar>
+          <div class="tpl-author-meta">
+            <span class="tpl-author-name">{{ authorName(tpl) }}</span>
+            <span class="tpl-author-time">{{ formatTime(tpl.createdAt) }}</span>
+          </div>
+        </div>
+        <div class="tpl-meta">
+          <n-space :size="8">
+            <code v-if="tpl.modelName">{{ tpl.modelName }}</code>
+            <span class="tpl-stat"><ThumbsUp class="tiny-icon" /> {{ tpl.likesCount || 0 }}</span>
+            <span class="tpl-stat"><MessageCircle class="tiny-icon" /> {{ tpl.commentsCount || 0 }}</span>
+          </n-space>
         </div>
         <div class="card-footer" @click.stop>
-          <n-space :size="6">
-            <n-button size="tiny" type="primary" secondary @click="handleApplyTemplate(tpl)" title="应用到生图">
+          <n-space :size="6" wrap>
+            <n-button size="tiny" type="primary" secondary @click="handleApplyTemplate(tpl)">
               <template #icon><Zap /></template>生图
             </n-button>
-            <n-button size="tiny" type="warning" secondary @click="handleApplyToVideo(tpl)" title="应用到视频">
+            <n-button size="tiny" type="warning" secondary @click="handleApplyToVideo(tpl)">
               <template #icon><Video /></template>视频
             </n-button>
+            <n-button size="tiny" quaternary @click="handleLike(tpl)" :type="tpl.liked ? 'primary' : 'default'">
+              <template #icon><ThumbsUp /></template>{{ tpl.likesCount || 0 }}
+            </n-button>
+            <n-button size="tiny" quaternary @click="openComments(tpl)">
+              <template #icon><MessageCircle /></template>{{ tpl.commentsCount || 0 }}
+            </n-button>
           </n-space>
-          <n-space :size="4">
+          <n-space :size="4" v-if="canManage(tpl)">
             <n-button size="tiny" quaternary @click="handleCopyPrompt(tpl)">
               <template #icon><Copy /></template>
             </n-button>
@@ -62,7 +80,6 @@
       </div>
     </div>
 
-    <!-- 空状态 -->
     <n-empty v-else description="暂无匹配的模板，点击「新建模板」创建第一个！" style="padding: 80px 0;">
       <template #extra>
         <BookOpen style="width:48px;height:48px;opacity:0.3;margin-bottom:8px;" />
@@ -80,7 +97,6 @@
       />
     </div>
 
-    <!-- 新增/编辑弹窗 -->
     <n-modal v-model:show="showAddModal" preset="card" :title="editingId ? '编辑提示词模板' : '新建提示词模板'" style="width: 560px;" closable>
       <n-form :model="form" label-placement="top" style="margin-top: 10px;">
         <n-form-item label="模板名称" required>
@@ -104,19 +120,6 @@
         <n-form-item label="负向提示词 (Negative Prompt)">
           <n-input v-model:value="form.negativePrompt" type="textarea" :autosize="{ minRows: 1, maxRows: 3 }" placeholder="可选，填写不想出现在画面中的元素" />
         </n-form-item>
-        <!-- 实时预览 -->
-        <n-collapse>
-          <n-collapse-item title="👁 预览效果" name="preview">
-            <div class="preview-box">
-              <div class="preview-line"><span class="pv-label">名称:</span><span>{{ form.name || '（未填写）' }}</span></div>
-              <div class="preview-line"><span class="pv-label">模型:</span><span>{{ form.modelName || '默认模型' }}</span></div>
-              <div class="preview-line"><span class="pv-label">Prompt:</span></div>
-              <div class="preview-content">{{ form.content || '（未填写）' }}</div>
-              <div class="preview-line" v-if="form.negativePrompt"><span class="pv-label">Negative:</span></div>
-              <div class="preview-content" v-if="form.negativePrompt">{{ form.negativePrompt }}</div>
-            </div>
-          </n-collapse-item>
-        </n-collapse>
       </n-form>
       <template #footer>
         <n-space justify="end">
@@ -125,6 +128,26 @@
         </n-space>
       </template>
     </n-modal>
+
+    <n-drawer v-model:show="showCommentDrawer" :width="460" placement="right">
+      <n-drawer-content :title="selectedTemplate?.name || '模板互动'" closable>
+        <div v-if="selectedTemplate" class="thread-header">
+          <div class="thread-author">
+            <n-avatar round size="small" :src="selectedTemplate.avatar || undefined">
+              {{ authorInitial(selectedTemplate) }}
+            </n-avatar>
+            <span>{{ authorName(selectedTemplate) }}</span>
+          </div>
+          <p class="thread-content">{{ selectedTemplate.content }}</p>
+        </div>
+        <PublicCommentThread
+          v-if="selectedTemplate"
+          resource-path="/api/prompt-templates"
+          :resource-id="selectedTemplate.id"
+          @count-change="handleCommentCountChange"
+        />
+      </n-drawer-content>
+    </n-drawer>
   </div>
 </template>
 
@@ -133,8 +156,10 @@ import { ref, reactive, computed, onMounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useMessage, useDialog } from 'naive-ui'
 import { useProjectStore } from '@/store/project'
+import request from '@/api/request'
+import PublicCommentThread from '@/components/PublicCommentThread.vue'
 import { templateApi, type PromptTemplate } from '@/api/templates'
-import { Plus, Trash2, BookOpen, Search, Edit3, Zap, Video, Copy } from 'lucide-vue-next'
+import { Plus, Trash2, BookOpen, Search, Edit3, Zap, Video, Copy, ThumbsUp, MessageCircle } from 'lucide-vue-next'
 
 const router = useRouter()
 const message = useMessage()
@@ -142,11 +167,15 @@ const dialog = useDialog()
 const projectStore = useProjectStore()
 
 const activeTag = ref('all')
+const sortBy = ref('newest')
 const searchQuery = ref('')
 const showAddModal = ref(false)
+const showCommentDrawer = ref(false)
 const editingId = ref<number | null>(null)
 const saving = ref(false)
 const templates = ref<PromptTemplate[]>([])
+const selectedTemplate = ref<PromptTemplate | null>(null)
+const currentUserId = ref<number | null>(null)
 
 const form = reactive({
   name: '', tag: '写实/人像', content: '', negativePrompt: '', modelName: ''
@@ -158,13 +187,31 @@ const tagOptions = [
   { label: '3D渲染', value: '3D渲染' }, { label: '奇幻', value: '奇幻' },
   { label: '插画', value: '插画' }, { label: '建筑设计', value: '建筑设计' }
 ]
+const sortOptions = [
+  { label: '最新发布', value: 'newest' },
+  { label: '最多点赞', value: 'likes' },
+  { label: '最多评论', value: 'comments' }
+]
 
 async function loadTemplates() {
-  try { const res = await templateApi.getTemplates(projectStore.activeProjectId); templates.value = res.data } catch {}
+  try {
+    const res = await templateApi.getTemplates(projectStore.activeProjectId, sortBy.value)
+    templates.value = res.data || []
+  } catch {
+    templates.value = []
+  }
 }
 
-onMounted(loadTemplates)
-watch(() => projectStore.activeProjectId, loadTemplates)
+onMounted(() => {
+  try {
+    const info = JSON.parse(localStorage.getItem('userInfo') || '{}')
+    currentUserId.value = info.id || null
+  } catch {}
+  loadTemplates()
+})
+watch([() => projectStore.activeProjectId, sortBy], () => {
+  loadTemplates()
+})
 
 const resetForm = () => {
   Object.assign(form, { name: '', tag: '写实/人像', content: '', negativePrompt: '', modelName: '' })
@@ -181,7 +228,6 @@ const filteredTemplates = computed(() => {
   return list
 })
 
-// 前端分页
 const page = ref(1)
 const pageSize = ref(12)
 const pageSizeOptions = [12, 24, 48, 96]
@@ -193,7 +239,23 @@ function handlePageSizeChange(size: number) {
   pageSize.value = size
   page.value = 1
 }
-watch([activeTag, searchQuery, () => projectStore.activeProjectId], () => { page.value = 1 })
+watch([activeTag, searchQuery, sortBy, () => projectStore.activeProjectId], () => { page.value = 1 })
+
+function authorName(tpl: PromptTemplate) {
+  return tpl.nickname || tpl.username || '匿名用户'
+}
+
+function authorInitial(tpl: PromptTemplate) {
+  return authorName(tpl).slice(0, 1).toUpperCase()
+}
+
+function formatTime(value?: string) {
+  return value ? String(value).replace('T', ' ').slice(0, 16) : ''
+}
+
+function canManage(tpl: PromptTemplate) {
+  return !!tpl.userId && !!currentUserId.value && tpl.userId === currentUserId.value
+}
 
 function handleApplyTemplate(tpl: PromptTemplate) {
   const query: Record<string, string> = { prompt: tpl.content }
@@ -211,12 +273,39 @@ function handleApplyToVideo(tpl: PromptTemplate) {
   message.success(`已应用「${tpl.name}」到视频面板`)
 }
 
+async function handleLike(tpl: PromptTemplate) {
+  try {
+    const res = await request.post(`/api/prompt-templates/${tpl.id}/like`)
+    const liked = (res as any).data
+    tpl.liked = liked
+    tpl.likesCount = Math.max(0, (tpl.likesCount || 0) + (liked ? 1 : -1))
+  } catch (err: any) {
+    message.error(err.message || '点赞失败')
+  }
+}
+
+function openComments(tpl: PromptTemplate) {
+  selectedTemplate.value = tpl
+  showCommentDrawer.value = true
+}
+
+function handleCommentCountChange(count: number) {
+  if (!selectedTemplate.value) return
+  selectedTemplate.value.commentsCount = count
+  const target = templates.value.find(item => item.id === selectedTemplate.value?.id)
+  if (target) {
+    target.commentsCount = count
+  }
+}
+
 async function handleCopyPrompt(tpl: PromptTemplate) {
   try {
     const text = `Prompt: ${tpl.content}${tpl.negativePrompt ? `\nNegative: ${tpl.negativePrompt}` : ''}${tpl.modelName ? `\nModel: ${tpl.modelName}` : ''}`
     await navigator.clipboard.writeText(text)
     message.success('已复制到剪贴板')
-  } catch { message.error('复制失败') }
+  } catch {
+    message.error('复制失败')
+  }
 }
 
 const handleEdit = (tpl: PromptTemplate) => {
@@ -230,27 +319,59 @@ const handleEdit = (tpl: PromptTemplate) => {
 }
 
 const handleSave = async () => {
-  if (!form.name || !form.content) { message.error('请填写完整名称与指令内容！'); return }
+  if (!form.name || !form.content) {
+    message.error('请填写完整名称与指令内容！')
+    return
+  }
   saving.value = true
   try {
     if (editingId.value) {
-      await templateApi.update(editingId.value, { projectId: projectStore.activeProjectId, name: form.name, tag: form.tag, content: form.content, negativePrompt: form.negativePrompt || undefined, modelName: form.modelName || undefined })
+      await templateApi.update(editingId.value, {
+        projectId: projectStore.activeProjectId,
+        name: form.name,
+        tag: form.tag,
+        content: form.content,
+        negativePrompt: form.negativePrompt || undefined,
+        modelName: form.modelName || undefined
+      })
       message.success('模板已更新！')
     } else {
-      await templateApi.createTemplate({ projectId: projectStore.activeProjectId, name: form.name, tag: form.tag, content: form.content, negativePrompt: form.negativePrompt || undefined, modelName: form.modelName || undefined })
+      await templateApi.createTemplate({
+        projectId: projectStore.activeProjectId,
+        name: form.name,
+        tag: form.tag,
+        content: form.content,
+        negativePrompt: form.negativePrompt || undefined,
+        modelName: form.modelName || undefined
+      })
       message.success('新提示词模板已收录！')
     }
     await loadTemplates()
     resetForm()
     showAddModal.value = false
-  } catch { message.error('保存失败') }
-  finally { saving.value = false }
+  } catch (err: any) {
+    message.error(err.message || '保存失败')
+  } finally {
+    saving.value = false
+  }
 }
 
 const handleDelete = async (id: number) => {
-  dialog.warning({ title: '确认删除', content: '删除后无法恢复，确定要删除该模板吗？', positiveText: '删除', negativeText: '取消', onPositiveClick: async () => {
-    try { await templateApi.deleteTemplate(id); templates.value = templates.value.filter(t => t.id !== id); message.success('已删除') } catch { message.error('删除失败') }
-  }})
+  dialog.warning({
+    title: '确认删除',
+    content: '删除后无法恢复，确定要删除该模板吗？',
+    positiveText: '删除',
+    negativeText: '取消',
+    onPositiveClick: async () => {
+      try {
+        await templateApi.deleteTemplate(id)
+        templates.value = templates.value.filter(t => t.id !== id)
+        message.success('已删除')
+      } catch (err: any) {
+        message.error(err.message || '删除失败')
+      }
+    }
+  })
 }
 </script>
 
@@ -266,17 +387,21 @@ const handleDelete = async (id: number) => {
 
 .templates-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 16px; margin-top: 24px; }
 .pager { display: flex; justify-content: flex-end; margin-top: 20px; }
-.tpl-card { display: flex; flex-direction: column; padding: 16px; cursor: pointer; transition: all .25s; }
+.tpl-card { display: flex; flex-direction: column; padding: 16px; transition: all .25s; }
 .tpl-card:hover { transform: translateY(-3px); border-color: #10b981 !important; box-shadow: 0 8px 24px rgba(0,0,0,0.25); }
 .tpl-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; gap: 8px; }
 .tpl-name { font-size: 14px; font-weight: 600; color: var(--text-primary); flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tpl-content { font-size: 12px; color: var(--text-muted); line-height: 1.5; flex: 1; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; margin: 0; }
+.tpl-author { margin-top: 10px; display: flex; align-items: center; gap: 10px; }
+.tpl-author-meta { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.tpl-author-name { font-size: 12px; color: var(--text-secondary); font-weight: 600; }
+.tpl-author-time { font-size: 11px; color: var(--text-muted); }
 .tpl-meta { margin-top: 8px; }
 .tpl-meta code { font-size: 10px; color: var(--text-muted); }
-.card-footer { margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--border-light); display: flex; justify-content: space-between; align-items: center; }
-
-.preview-box { display: flex; flex-direction: column; gap: 4px; padding: 10px; background: rgba(128,128,128,0.03); border-radius: 8px; font-size: 12px; }
-.preview-line { display: flex; gap: 6px; color: var(--text-secondary); }
-.pv-label { color: var(--text-muted); font-weight: 600; min-width: 70px; }
-.preview-content { padding: 6px 8px; background: rgba(128,128,128,0.05); border-radius: 4px; color: var(--text-primary); font-size: 11px; line-height: 1.5; word-break: break-all; }
+.tpl-stat { display: inline-flex; align-items: center; gap: 4px; font-size: 11px; color: var(--text-muted); }
+.tiny-icon { width: 12px; height: 12px; }
+.card-footer { margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--border-light); display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.thread-header { display: flex; flex-direction: column; gap: 10px; margin-bottom: 16px; }
+.thread-author { display: flex; align-items: center; gap: 10px; font-size: 13px; color: var(--text-secondary); }
+.thread-content { margin: 0; padding: 12px; border-radius: 12px; background: rgba(255,255,255,0.04); color: var(--text-secondary); font-size: 13px; line-height: 1.6; }
 </style>

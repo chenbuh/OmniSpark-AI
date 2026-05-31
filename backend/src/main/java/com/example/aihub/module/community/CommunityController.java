@@ -4,8 +4,11 @@ import cn.dev33.satoken.annotation.SaCheckLogin;
 import cn.dev33.satoken.stp.StpUtil;
 import com.example.aihub.common.result.ApiResult;
 import com.example.aihub.infrastructure.dto.CommunityPostDTO;
+import com.example.aihub.infrastructure.dto.PublicCommentSaveDTO;
 import com.example.aihub.infrastructure.service.CommunityService;
+import com.example.aihub.infrastructure.service.PublicContentInteractionService;
 import com.example.aihub.infrastructure.vo.CommunityPostVO;
+import com.example.aihub.infrastructure.vo.PublicCommentVO;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.*;
@@ -17,6 +20,7 @@ import java.util.List;
 @RequestMapping("/api/community")
 public class CommunityController {
     private final CommunityService communityService;
+    private final PublicContentInteractionService interactionService;
 
     @GetMapping("/posts")
     public ApiResult<com.example.aihub.common.result.PageResult<CommunityPostVO>> list(
@@ -43,6 +47,12 @@ public class CommunityController {
         return ApiResult.ok(communityService.create(dto, userId, username));
     }
 
+    @PutMapping("/posts/{id}")
+    @SaCheckLogin
+    public ApiResult<CommunityPostVO> update(@PathVariable Long id, @Valid @RequestBody CommunityPostDTO dto) {
+        return ApiResult.ok(communityService.update(id, dto, StpUtil.getLoginIdAsLong()));
+    }
+
     @DeleteMapping("/posts/{id}")
     @SaCheckLogin
     public ApiResult<Void> delete(@PathVariable Long id) {
@@ -53,7 +63,41 @@ public class CommunityController {
     @PostMapping("/posts/{id}/like")
     @SaCheckLogin
     public ApiResult<Integer> toggleLike(@PathVariable Long id) {
-        return ApiResult.ok(communityService.toggleLike(id, StpUtil.getLoginIdAsLong()));
+        return ApiResult.ok(interactionService.toggleLike(
+                PublicContentInteractionService.RESOURCE_COMMUNITY_POST,
+                id,
+                StpUtil.getLoginIdAsLong()
+        ));
+    }
+
+    @GetMapping("/posts/{id}/comments")
+    public ApiResult<List<PublicCommentVO>> listComments(@PathVariable Long id) {
+        return ApiResult.ok(interactionService.listComments(
+                PublicContentInteractionService.RESOURCE_COMMUNITY_POST,
+                id
+        ));
+    }
+
+    @PostMapping("/posts/{id}/comments")
+    @SaCheckLogin
+    public ApiResult<PublicCommentVO> createComment(@PathVariable Long id, @Valid @RequestBody PublicCommentSaveDTO dto) {
+        return ApiResult.ok(interactionService.createComment(
+                PublicContentInteractionService.RESOURCE_COMMUNITY_POST,
+                id,
+                StpUtil.getLoginIdAsLong(),
+                dto
+        ));
+    }
+
+    @DeleteMapping("/posts/{id}/comments/{commentId}")
+    @SaCheckLogin
+    public ApiResult<Integer> deleteComment(@PathVariable Long id, @PathVariable Long commentId) {
+        return ApiResult.ok(interactionService.deleteComment(
+                PublicContentInteractionService.RESOURCE_COMMUNITY_POST,
+                id,
+                commentId,
+                StpUtil.getLoginIdAsLong()
+        ));
     }
 
     @GetMapping("/categories")

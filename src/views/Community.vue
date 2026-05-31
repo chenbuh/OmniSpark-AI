@@ -49,12 +49,15 @@
           </div>
           <n-ellipsis :line-clamp="2" class="post-prompt" @click="showDetail(post)">{{ post.prompt }}</n-ellipsis>
           <div class="post-meta">
-            <span class="post-author">👤 {{ post.username || '匿名' }}</span>
+            <span class="post-author">👤 {{ authorLabel(post) }}</span>
             <span class="post-model" v-if="post.modelName"><code>{{ post.modelName }}</code></span>
           </div>
           <div class="post-actions">
             <n-button size="tiny" quaternary @click="handleLike(post)" :type="post.liked ? 'primary' : 'default'">
               <template #icon><ThumbsUp /></template>{{ post.likesCount || 0 }}
+            </n-button>
+            <n-button size="tiny" quaternary @click="showDetail(post)">
+              <template #icon><MessageCircle /></template>{{ post.commentsCount || 0 }}
             </n-button>
             <n-button size="tiny" secondary @click="handleApply(post)">
               <template #icon><Zap /></template>复用
@@ -185,12 +188,18 @@
             <p class="dl-text">{{ detailPost.negativePrompt }}</p>
           </div>
           <div class="detail-info">
-            <span><n-tag size="small">👤 {{ detailPost.username || '匿名' }}</n-tag></span>
+            <span><n-tag size="small">👤 {{ authorLabel(detailPost) }}</n-tag></span>
             <span><n-tag size="small">🏷 {{ detailPost.category || '未分类' }}</n-tag></span>
             <span v-if="detailPost.modelName"><n-tag size="small">🤖 {{ detailPost.modelName }}</n-tag></span>
             <span><n-tag size="small">❤️ {{ detailPost.likesCount || 0 }}</n-tag></span>
+            <span><n-tag size="small">💬 {{ detailPost.commentsCount || 0 }}</n-tag></span>
             <span><n-tag size="small">🕐 {{ String(detailPost.createdAt||'').replace('T',' ').substring(5,16) }}</n-tag></span>
           </div>
+          <PublicCommentThread
+            resource-path="/api/community/posts"
+            :resource-id="detailPost.id"
+            @count-change="handleCommunityCommentCountChange"
+          />
           <div class="detail-actions">
             <n-button type="primary" block @click="handleApply(detailPost)">
               <Zap class="btn-icon" /> 复用此提示词生图
@@ -209,8 +218,9 @@
 import { ref, computed, reactive, onMounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useMessage } from 'naive-ui'
-import { Search, Upload, ThumbsUp, Zap, Image, Trash2, Edit3, FolderOpen } from 'lucide-vue-next'
+import { Search, Upload, ThumbsUp, Zap, Image, Trash2, Edit3, FolderOpen, MessageCircle } from 'lucide-vue-next'
 import SkeletonCard from '@/components/SkeletonCard.vue'
+import PublicCommentThread from '@/components/PublicCommentThread.vue'
 import request from '@/api/request'
 import { assetApi } from '@/api/assets'
 import { useProjectStore } from '@/store/project'
@@ -251,7 +261,8 @@ const imageAssets = computed(() => {
 
 const sortOptions = [
   { label: '最新发布', value: 'newest' },
-  { label: '最多点赞', value: 'likes' }
+  { label: '最多点赞', value: 'likes' },
+  { label: '最多评论', value: 'comments' }
 ]
 
 const form = reactive({
@@ -276,6 +287,10 @@ const categoryOptions = [
 
 function canDelete(post: any) {
   return post.userId && currentUserId.value && post.userId === currentUserId.value
+}
+
+function authorLabel(post: any) {
+  return post?.nickname || post?.username || '匿名'
 }
 
 let searchTimer: any = null
@@ -430,7 +445,7 @@ function handleEditPost(post: any) {
   form.prompt = post.prompt
   form.negativePrompt = post.negativePrompt || ''
   form.modelName = post.modelName || ''
-  form.imageUrl = post.imageUrl || ''
+  form.imageUrl = toRelativeUrl(post.imageUrl || '')
   form.category = post.category || 'uncategorized'
   form.tags = post.tags || ''
   showUploadModal.value = true
@@ -464,6 +479,15 @@ function handleApply(post: any) {
 function showDetail(post: any) {
   detailPost.value = post
   showDetailDrawer.value = true
+}
+
+function handleCommunityCommentCountChange(count: number) {
+  if (!detailPost.value) return
+  detailPost.value.commentsCount = count
+  const target = posts.value.find((item: any) => item.id === detailPost.value?.id)
+  if (target) {
+    target.commentsCount = count
+  }
 }
 </script>
 

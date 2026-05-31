@@ -8,21 +8,20 @@ import lombok.EqualsAndHashCode;
 
 @Data
 @EqualsAndHashCode(callSuper = true)
-@TableName("prompt_template")
-public class PromptTemplate extends BaseEntity {
+@TableName("public_content_comment")
+public class PublicContentComment extends BaseEntity {
     @TableId(type = IdType.AUTO)
     private Long id;
-    private Long projectId;
+    private String resourceType;
+    private Long resourceId;
+    private Long parentId;
     private Long userId;
     private String username;
     private String nickname;
     private String avatar;
-    private String name;
+    private Long replyToUserId;
+    private String replyToUsername;
+    private String replyToNickname;
     private String content;
-    private String negativePrompt;
-    private String modelName;
-    private String tag;
-    private Integer likesCount;
-    private Integer commentsCount;
     private Integer status;
 }

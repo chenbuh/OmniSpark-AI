@@ -15,6 +15,8 @@ public class PromptTemplateSaveDTO {
     @NotBlank
     private String content;
 
+    private String negativePrompt;
+    private String modelName;
     private String tag;
     private Integer status;
 }

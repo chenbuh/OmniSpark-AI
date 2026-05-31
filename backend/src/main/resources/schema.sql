@@ -98,14 +98,23 @@ CREATE TABLE IF NOT EXISTS `asset` (
 CREATE TABLE IF NOT EXISTS `prompt_template` (
   `id` bigint NOT NULL AUTO_INCREMENT,
   `project_id` bigint NOT NULL,
+  `user_id` bigint DEFAULT NULL,
+  `username` varchar(64) DEFAULT NULL,
+  `nickname` varchar(64) DEFAULT NULL,
+  `avatar` varchar(512) DEFAULT NULL,
   `name` varchar(128) NOT NULL,
   `content` text NOT NULL,
+  `negative_prompt` text DEFAULT NULL,
+  `model_name` varchar(128) DEFAULT NULL,
   `tag` varchar(64) DEFAULT NULL,
+  `likes_count` int NOT NULL DEFAULT 0,
+  `comments_count` int NOT NULL DEFAULT 0,
   `status` tinyint NOT NULL DEFAULT 1,
   `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
   `updated_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   PRIMARY KEY (`id`),
-  KEY `idx_template_project_id` (`project_id`)
+  KEY `idx_template_project_id` (`project_id`),
+  KEY `idx_template_user_id` (`user_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 CREATE TABLE IF NOT EXISTS `quota_record` (
@@ -164,6 +173,10 @@ CREATE TABLE IF NOT EXISTS `team_member` (
 CREATE TABLE IF NOT EXISTS `style_card` (
   `id` bigint NOT NULL AUTO_INCREMENT,
   `project_id` bigint NOT NULL,
+  `user_id` bigint DEFAULT NULL,
+  `username` varchar(64) DEFAULT NULL,
+  `nickname` varchar(64) DEFAULT NULL,
+  `avatar` varchar(512) DEFAULT NULL,
   `name` varchar(128) NOT NULL,
   `type` varchar(32) NOT NULL COMMENT 'character / style',
   `content` text NOT NULL COMMENT '角色描述或风格提示词片段',
@@ -177,11 +190,14 @@ CREATE TABLE IF NOT EXISTS `style_card` (
   `params_json` json DEFAULT NULL,
   `preview_url` varchar(1024) DEFAULT NULL,
   `tag` varchar(64) DEFAULT NULL,
+  `likes_count` int NOT NULL DEFAULT 0,
+  `comments_count` int NOT NULL DEFAULT 0,
   `status` tinyint NOT NULL DEFAULT 1,
   `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
   `updated_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   PRIMARY KEY (`id`),
-  KEY `idx_sc_project_id` (`project_id`)
+  KEY `idx_sc_project_id` (`project_id`),
+  KEY `idx_sc_user_id` (`user_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 CREATE TABLE IF NOT EXISTS `project_share` (
@@ -274,6 +290,8 @@ CREATE TABLE IF NOT EXISTS `community_post` (
   `id` bigint NOT NULL AUTO_INCREMENT,
   `user_id` bigint NOT NULL,
   `username` varchar(64) DEFAULT NULL,
+  `nickname` varchar(64) DEFAULT NULL,
+  `avatar` varchar(512) DEFAULT NULL,
   `title` varchar(256) NOT NULL,
   `prompt` text NOT NULL,
   `negative_prompt` text DEFAULT NULL,
@@ -282,6 +300,7 @@ CREATE TABLE IF NOT EXISTS `community_post` (
   `category` varchar(64) DEFAULT 'uncategorized',
   `tags` varchar(512) DEFAULT NULL,
   `likes_count` int NOT NULL DEFAULT 0,
+  `comments_count` int NOT NULL DEFAULT 0,
   `status` tinyint NOT NULL DEFAULT 1,
   `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
   `updated_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
@@ -298,6 +317,39 @@ CREATE TABLE IF NOT EXISTS `community_like` (
   `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (`id`),
   UNIQUE KEY `uk_cl_post_user` (`post_id`,`user_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS `public_content_like` (
+  `id` bigint NOT NULL AUTO_INCREMENT,
+  `resource_type` varchar(32) NOT NULL,
+  `resource_id` bigint NOT NULL,
+  `user_id` bigint NOT NULL,
+  `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_pcl_resource_user` (`resource_type`,`resource_id`,`user_id`),
+  KEY `idx_pcl_resource` (`resource_type`,`resource_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS `public_content_comment` (
+  `id` bigint NOT NULL AUTO_INCREMENT,
+  `resource_type` varchar(32) NOT NULL,
+  `resource_id` bigint NOT NULL,
+  `parent_id` bigint DEFAULT NULL,
+  `user_id` bigint NOT NULL,
+  `username` varchar(64) DEFAULT NULL,
+  `nickname` varchar(64) DEFAULT NULL,
+  `avatar` varchar(512) DEFAULT NULL,
+  `reply_to_user_id` bigint DEFAULT NULL,
+  `reply_to_username` varchar(64) DEFAULT NULL,
+  `reply_to_nickname` varchar(64) DEFAULT NULL,
+  `content` text NOT NULL,
+  `status` tinyint NOT NULL DEFAULT 1,
+  `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  KEY `idx_pcc_resource` (`resource_type`,`resource_id`,`status`),
+  KEY `idx_pcc_parent` (`parent_id`),
+  KEY `idx_pcc_user` (`user_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 CREATE TABLE IF NOT EXISTS `login_log` (

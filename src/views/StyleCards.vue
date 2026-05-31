@@ -5,7 +5,6 @@
       <p class="subtitle">保存可复用的角色设定或风格预设，在生图与视频页一键应用。</p>
     </div>
 
-    <!-- 过滤工具栏 -->
     <n-card class="glass-card filter-card" :bordered="false">
       <div class="filter-row">
         <n-tabs v-model:value="activeType" type="segment" class="filter-tabs">
@@ -14,6 +13,7 @@
           <n-tab name="character">角色卡片</n-tab>
         </n-tabs>
         <n-space>
+          <n-select v-model:value="sortBy" :options="sortOptions" style="width:136px;" size="small" />
           <n-input v-model:value="searchQuery" clearable size="small" placeholder="搜索卡片..." style="width:160px;">
             <template #prefix><Search class="inline-icon" /></template>
           </n-input>
@@ -24,7 +24,6 @@
       </div>
     </n-card>
 
-    <!-- 卡片网格 -->
     <div class="cards-grid" v-if="filteredCards.length > 0">
       <div v-for="card in pagedCards" :key="card.id" class="card-item glass-card">
         <div class="card-preview" v-if="card.previewUrl">
@@ -45,11 +44,24 @@
             </n-tag>
           </div>
           <p class="card-desc">{{ card.content.substring(0, 80) }}{{ card.content.length > 80 ? '...' : '' }}</p>
+          <div class="card-author">
+            <n-avatar round size="small" :src="card.avatar || undefined">
+              {{ authorInitial(card) }}
+            </n-avatar>
+            <div class="card-author-meta">
+              <span class="card-author-name">{{ authorName(card) }}</span>
+              <span class="card-author-time">{{ formatTime(card.createdAt) }}</span>
+            </div>
+          </div>
           <div class="card-tags" v-if="card.tag">
             <n-tag size="mini" type="warning" round>{{ card.tag }}</n-tag>
           </div>
-          <div class="card-meta" v-if="card.modelName">
-            <code>{{ card.modelName }}</code>
+          <div class="card-meta">
+            <n-space :size="8">
+              <code v-if="card.modelName">{{ card.modelName }}</code>
+              <span class="card-stat"><ThumbsUp class="tiny-icon" /> {{ card.likesCount || 0 }}</span>
+              <span class="card-stat"><MessageCircle class="tiny-icon" /> {{ card.commentsCount || 0 }}</span>
+            </n-space>
           </div>
         </div>
 
@@ -57,10 +69,16 @@
           <n-button type="primary" size="tiny" secondary @click="handleApply(card)">
             <template #icon><Zap /></template>应用
           </n-button>
-          <n-button size="tiny" secondary @click="handleEdit(card)">
+          <n-button size="tiny" quaternary @click="handleLike(card)" :type="card.liked ? 'primary' : 'default'">
+            <template #icon><ThumbsUp /></template>{{ card.likesCount || 0 }}
+          </n-button>
+          <n-button size="tiny" quaternary @click="openComments(card)">
+            <template #icon><MessageCircle /></template>{{ card.commentsCount || 0 }}
+          </n-button>
+          <n-button v-if="canManage(card)" size="tiny" secondary @click="handleEdit(card)">
             <template #icon><Edit3 /></template>编辑
           </n-button>
-          <n-button type="error" size="tiny" tertiary @click="handleDelete(card.id)">
+          <n-button v-if="canManage(card)" type="error" size="tiny" tertiary @click="handleDelete(card.id)">
             <template #icon><Trash2 /></template>
           </n-button>
         </div>
@@ -78,14 +96,12 @@
       />
     </div>
 
-    <!-- 空状态 -->
     <div class="empty-box" v-if="filteredCards.length === 0">
       <Palette class="empty-icon" />
       <h3>暂无角色卡或风格卡</h3>
       <p>创建一个预设卡片，保存完整的提示词、模型和参数配置，下次一键复用。</p>
     </div>
 
-    <!-- 新建/编辑弹窗 -->
     <n-modal v-model:show="showAddModal" preset="card" title="新建卡片" style="width: 540px;" closable>
       <n-form :model="form" label-placement="top" style="margin-top: 10px;">
         <n-row :gutter="16">
@@ -172,7 +188,6 @@
       </template>
     </n-modal>
 
-    <!-- 从共享资产库选择预览图 -->
     <n-modal
       v-model:show="showAssetPicker"
       preset="card"
@@ -196,6 +211,26 @@
         </div>
       </div>
     </n-modal>
+
+    <n-drawer v-model:show="showCommentDrawer" :width="460" placement="right">
+      <n-drawer-content :title="selectedCard?.name || '卡片互动'" closable>
+        <div v-if="selectedCard" class="thread-header">
+          <div class="thread-author">
+            <n-avatar round size="small" :src="selectedCard.avatar || undefined">
+              {{ authorInitial(selectedCard) }}
+            </n-avatar>
+            <span>{{ authorName(selectedCard) }}</span>
+          </div>
+          <p class="thread-content">{{ selectedCard.content }}</p>
+        </div>
+        <PublicCommentThread
+          v-if="selectedCard"
+          resource-path="/api/style-cards"
+          :resource-id="selectedCard.id"
+          @count-change="handleCommentCountChange"
+        />
+      </n-drawer-content>
+    </n-drawer>
   </div>
 </template>
 
@@ -206,8 +241,10 @@ import { useMessage } from 'naive-ui'
 import { useProjectStore } from '@/store/project'
 import { useAssetStore, resolveAssetUrl, type Asset } from '@/store/asset'
 import { assetApi } from '@/api/assets'
+import request from '@/api/request'
+import PublicCommentThread from '@/components/PublicCommentThread.vue'
 import { styleCardApi, type StyleCard } from '@/api/styleCards'
-import { Plus, Zap, Edit3, Trash2, User, Palette, Search, Image as ImageIcon, FolderOpen, Upload } from 'lucide-vue-next'
+import { Plus, Zap, Edit3, Trash2, User, Palette, Search, Image as ImageIcon, FolderOpen, Upload, ThumbsUp, MessageCircle } from 'lucide-vue-next'
 
 const router = useRouter()
 const message = useMessage()
@@ -215,15 +252,18 @@ const projectStore = useProjectStore()
 const assetStore = useAssetStore()
 
 const activeType = ref('all')
+const sortBy = ref('newest')
 const searchQuery = ref('')
 const cards = ref<StyleCard[]>([])
 const showAddModal = ref(false)
 const editingCard = ref<StyleCard | null>(null)
 const showAssetPicker = ref(false)
+const showCommentDrawer = ref(false)
 const uploading = ref(false)
 const uploadInput = ref<HTMLInputElement | null>(null)
+const selectedCard = ref<StyleCard | null>(null)
+const currentUserId = ref<number | null>(null)
 
-// 共享资产库中的图片资产
 const imageAssets = computed(() => {
   return assetStore
     .getAssetsByProject(projectStore.activeProjectId)
@@ -242,12 +282,15 @@ const form = reactive({
   size: '',
   previewUrl: ''
 })
+const sortOptions = [
+  { label: '最新发布', value: 'newest' },
+  { label: '最多点赞', value: 'likes' },
+  { label: '最多评论', value: 'comments' }
+]
 
 const filteredCards = computed(() => {
   let list = cards.value
-  if (activeType.value !== 'all') {
-    list = list.filter(c => c.type === activeType.value)
-  }
+  if (activeType.value !== 'all') list = list.filter(c => c.type === activeType.value)
   if (searchQuery.value) {
     const q = searchQuery.value.toLowerCase()
     list = list.filter(c => c.name?.toLowerCase().includes(q) || c.content?.toLowerCase().includes(q))
@@ -255,7 +298,6 @@ const filteredCards = computed(() => {
   return list
 })
 
-// 前端分页(store/全量数据保持不动,仅渲染层切片)
 const page = ref(1)
 const pageSize = ref(12)
 const pageSizeOptions = [12, 24, 48, 96]
@@ -267,45 +309,59 @@ function handlePageSizeChange(size: number) {
   pageSize.value = size
   page.value = 1
 }
-// 过滤条件变化时回到第 1 页
-watch([activeType, searchQuery, () => projectStore.activeProjectId], () => { page.value = 1 })
+watch([activeType, searchQuery, sortBy], () => { page.value = 1 })
 
 async function loadCards() {
   try {
-    const res = await styleCardApi.list(projectStore.activeProjectId)
-    cards.value = (res.data || []).map((c: any) => ({
-      ...c,
-      id: Number(c.id),
-      projectId: Number(c.projectId)
-    }))
+    const res = await styleCardApi.list(projectStore.activeProjectId, undefined, sortBy.value)
+    cards.value = res.data || []
   } catch {
     cards.value = []
   }
 }
 
 onMounted(async () => {
+  try {
+    const info = JSON.parse(localStorage.getItem('userInfo') || '{}')
+    currentUserId.value = info.id || null
+  } catch {}
   await loadCards()
-  // 预加载资产库，供预览图选择器使用
   try {
     await assetStore.refresh({ projectId: projectStore.activeProjectId })
-  } catch { /* 忽略，选择器会显示空态 */ }
+  } catch {}
+})
+watch([() => projectStore.activeProjectId, sortBy], async () => {
+  await loadCards()
 })
 
-// 打开资产库选择器
+function authorName(card: StyleCard) {
+  return card.nickname || card.username || '匿名用户'
+}
+
+function authorInitial(card: StyleCard) {
+  return authorName(card).slice(0, 1).toUpperCase()
+}
+
+function formatTime(value?: string) {
+  return value ? String(value).replace('T', ' ').slice(0, 16) : ''
+}
+
+function canManage(card: StyleCard) {
+  return !!card.userId && !!currentUserId.value && card.userId === currentUserId.value
+}
+
 async function openAssetPicker() {
   showAssetPicker.value = true
   try {
     await assetStore.refresh({ projectId: projectStore.activeProjectId })
-  } catch { /* 忽略 */ }
+  } catch {}
 }
 
-// 选中资产库中的图片作为预览图（保存相对路径，避免把后端 origin 写死）
 function handleSelectAsset(asset: Asset) {
   form.previewUrl = toRelativeUrl(asset.fileUrl)
   showAssetPicker.value = false
 }
 
-// 把可能为绝对地址的资源 URL 转成相对路径（/uploads/...），跨源部署仍可用
 function toRelativeUrl(url: string): string {
   if (!url) return ''
   if (/^https?:\/\//i.test(url)) {
@@ -318,12 +374,10 @@ function toRelativeUrl(url: string): string {
   return url
 }
 
-// 触发本地文件选择
 function triggerUpload() {
   uploadInput.value?.click()
 }
 
-// 上传本地图片到共享资产库，并设为预览图
 async function handleUploadFile(e: Event) {
   const input = e.target as HTMLInputElement
   const file = input.files?.[0]
@@ -339,7 +393,6 @@ async function handleUploadFile(e: Event) {
     formData.append('projectId', String(projectStore.activeProjectId))
     formData.append('file', file)
     const res = await assetApi.uploadAsset(formData)
-    // 后端返回的 fileUrl 为相对路径，直接保存
     form.previewUrl = res.data?.fileUrl || ''
     await assetStore.refresh({ projectId: projectStore.activeProjectId })
     message.success('预览图已上传')
@@ -385,7 +438,6 @@ async function handleSave() {
     message.error('名称和提示词不能为空')
     return
   }
-
   const payload = {
     projectId: projectStore.activeProjectId,
     name: form.name,
@@ -399,7 +451,6 @@ async function handleSave() {
     tag: form.tag || undefined,
     previewUrl: form.previewUrl || undefined
   }
-
   try {
     if (editingCard.value) {
       await styleCardApi.update(editingCard.value.id, payload)
@@ -413,6 +464,31 @@ async function handleSave() {
     await loadCards()
   } catch (err: any) {
     message.error(err.message || '操作失败')
+  }
+}
+
+async function handleLike(card: StyleCard) {
+  try {
+    const res = await request.post(`/api/style-cards/${card.id}/like`)
+    const liked = (res as any).data
+    card.liked = liked
+    card.likesCount = Math.max(0, (card.likesCount || 0) + (liked ? 1 : -1))
+  } catch (err: any) {
+    message.error(err.message || '点赞失败')
+  }
+}
+
+function openComments(card: StyleCard) {
+  selectedCard.value = card
+  showCommentDrawer.value = true
+}
+
+function handleCommentCountChange(count: number) {
+  if (!selectedCard.value) return
+  selectedCard.value.commentsCount = count
+  const target = cards.value.find(item => item.id === selectedCard.value?.id)
+  if (target) {
+    target.commentsCount = count
   }
 }
 
@@ -435,7 +511,6 @@ function handleApply(card: StyleCard) {
   if (card.cfg) baseParams.cfg = String(card.cfg)
   if (card.steps) baseParams.steps = String(card.steps)
   if (card.size) baseParams.size = card.size
-
   router.push({
     path: '/generate/image',
     query: baseParams
@@ -445,303 +520,52 @@ function handleApply(card: StyleCard) {
 </script>
 
 <style scoped>
-.stylecards-container {
-  padding-bottom: 40px;
-}
-
-.page-header {
-  margin-bottom: 24px;
-}
-
-.page-header h2 {
-  font-size: 24px;
-  font-weight: 700;
-  margin: 0 0 6px 0;
-  color: #fff;
-}
-
-.subtitle {
-  font-size: 13px;
-  color: #9ca3af;
-  margin: 0;
-}
-
-.glass-card {
-  background: rgba(15, 23, 42, 0.4) !important;
-  backdrop-filter: blur(16px);
-  border: 1px solid rgba(255, 255, 255, 0.08) !important;
-  border-radius: 16px !important;
-}
-
-.filter-card {
-  margin-bottom: 24px;
-}
-
-.filter-row {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-}
-
-.filter-tabs {
-  max-width: 400px;
-}
-
-/* 卡片网格 */
-.cards-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
-  gap: 16px;
-}
-
+.stylecards-container { padding-bottom: 40px; }
+.page-header { margin-bottom: 24px; }
+.page-header h2 { font-size: 24px; font-weight: 700; margin: 0 0 6px 0; color: #fff; }
+.subtitle { font-size: 13px; color: #9ca3af; margin: 0; }
+.glass-card { background: rgba(15, 23, 42, 0.4) !important; backdrop-filter: blur(16px); border: 1px solid rgba(255, 255, 255, 0.08) !important; border-radius: 16px !important; }
+.filter-card { margin-bottom: 24px; }
+.filter-row { display: flex; justify-content: space-between; align-items: center; }
+.filter-tabs { max-width: 400px; }
+.cards-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 16px; }
 .pager { display: flex; justify-content: flex-end; margin-top: 20px; }
-
-.card-item {
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-  transition: transform 0.2s, box-shadow 0.2s;
-}
-
-.card-item:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.3);
-}
-
-.card-preview {
-  height: 120px;
-  overflow: hidden;
-}
-
-.preview-img {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-}
-
-.placeholder-preview {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: rgba(255, 255, 255, 0.02);
-}
-
-.placeholder-icon-box {
-  width: 48px;
-  height: 48px;
-  border-radius: 12px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.placeholder-icon-box.character {
-  background: rgba(59, 130, 246, 0.15);
-}
-
-.placeholder-icon-box.style {
-  background: rgba(16, 185, 129, 0.15);
-}
-
-.placeholder-icon {
-  width: 24px;
-  height: 24px;
-  color: #9ca3af;
-}
-
-/* 预览图选择器 */
-.preview-picker {
-  display: flex;
-  gap: 14px;
-  align-items: flex-start;
-  width: 100%;
-}
-
-.preview-box {
-  position: relative;
-  width: 96px;
-  height: 96px;
-  border-radius: 10px;
-  overflow: hidden;
-  flex-shrink: 0;
-}
-
-.preview-thumb {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-}
-
-.preview-remove {
-  position: absolute;
-  top: 4px;
-  right: 4px;
-  width: 22px;
-  height: 22px;
-  border-radius: 6px;
-  background: rgba(0, 0, 0, 0.55);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
-  transition: background 0.2s;
-}
-
-.preview-remove:hover {
-  background: rgba(239, 68, 68, 0.85);
-}
-
-.remove-icon {
-  width: 13px;
-  height: 13px;
-  color: #fff;
-}
-
-.preview-empty {
-  width: 96px;
-  height: 96px;
-  border-radius: 10px;
-  border: 1px dashed rgba(255, 255, 255, 0.15);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-}
-
-.empty-thumb-icon {
-  width: 28px;
-  height: 28px;
-  color: #6b7280;
-}
-
-.preview-actions {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  padding-top: 4px;
-}
-
-/* 资产选择网格 */
-.assets-picker-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
-  gap: 12px;
-  max-height: 60vh;
-  overflow-y: auto;
-}
-
-.picker-item {
-  border-radius: 10px;
-  overflow: hidden;
-  cursor: pointer;
-  border: 1px solid rgba(255, 255, 255, 0.06);
-  transition: transform 0.15s, border-color 0.15s;
-}
-
-.picker-item:hover {
-  transform: translateY(-2px);
-  border-color: rgba(16, 185, 129, 0.6);
-}
-
-.picker-thumb {
-  width: 100%;
-  height: 100px;
-  object-fit: cover;
-  display: block;
-}
-
-.picker-info {
-  padding: 6px 8px;
-}
-
-.picker-name {
-  font-size: 11px;
-  color: #9ca3af;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  display: block;
-}
-
-.picker-empty {
-  grid-column: 1 / -1;
-  text-align: center;
-  padding: 40px 20px;
-  color: #6b7280;
-  font-size: 13px;
-}
-
-.card-body {
-  padding: 14px 16px 10px;
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
-.card-head {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.card-name {
-  font-size: 14px;
-  font-weight: 600;
-  color: #f3f4f6;
-  flex: 1;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.card-desc {
-  font-size: 12px;
-  color: #9ca3af;
-  line-height: 1.4;
-  margin: 0;
-}
-
-.card-tags {
-  display: flex;
-  gap: 4px;
-}
-
-.card-meta code {
-  font-size: 10px;
-  color: #6b7280;
-}
-
-.card-actions {
-  display: flex;
-  gap: 6px;
-  padding: 8px 16px 12px;
-  border-top: 1px solid rgba(255, 255, 255, 0.04);
-}
-
-.empty-box {
-  text-align: center;
-  padding: 80px 20px;
-  color: #6b7280;
-}
-
-.empty-icon {
-  width: 48px;
-  height: 48px;
-  margin: 0 auto 16px;
-  opacity: 0.3;
-}
-
-.empty-box h3 {
-  font-size: 18px;
-  color: #9ca3af;
-  margin: 0 0 8px;
-}
-
-.empty-box p {
-  font-size: 13px;
-  color: #6b7280;
-  max-width: 400px;
-  margin: 0 auto;
-}
+.card-item { display: flex; flex-direction: column; overflow: hidden; transition: transform 0.2s, box-shadow 0.2s; }
+.card-item:hover { transform: translateY(-2px); box-shadow: 0 8px 30px rgba(0, 0, 0, 0.3); }
+.card-preview { height: 120px; overflow: hidden; }
+.preview-img { width: 100%; height: 100%; object-fit: cover; }
+.placeholder-preview { display: flex; align-items: center; justify-content: center; background: rgba(255,255,255,0.03); }
+.placeholder-icon-box { width: 56px; height: 56px; border-radius: 16px; display: flex; align-items: center; justify-content: center; background: rgba(255,255,255,0.08); }
+.placeholder-icon { width: 26px; height: 26px; color: #cbd5e1; }
+.card-body { padding: 14px; display: flex; flex-direction: column; gap: 8px; flex: 1; }
+.card-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.card-name { font-size: 14px; font-weight: 700; color: #fff; }
+.card-desc { margin: 0; font-size: 12px; color: #9ca3af; line-height: 1.6; }
+.card-author { display: flex; align-items: center; gap: 10px; }
+.card-author-meta { display: flex; flex-direction: column; gap: 2px; }
+.card-author-name { font-size: 12px; color: var(--text-secondary); font-weight: 600; }
+.card-author-time { font-size: 11px; color: var(--text-muted); }
+.card-meta code { font-size: 10px; color: var(--text-muted); }
+.card-stat { display: inline-flex; align-items: center; gap: 4px; font-size: 11px; color: var(--text-muted); }
+.tiny-icon { width: 12px; height: 12px; }
+.card-actions { display: flex; flex-wrap: wrap; gap: 6px; padding: 12px 14px 14px; border-top: 1px solid rgba(255,255,255,0.06); }
+.empty-box { padding: 80px 0; text-align: center; color: #9ca3af; }
+.empty-icon { width: 42px; height: 42px; opacity: 0.45; margin-bottom: 10px; }
+.preview-picker { display: flex; align-items: center; gap: 14px; }
+.preview-box { position: relative; width: 120px; height: 120px; border-radius: 12px; overflow: hidden; border: 1px solid rgba(255,255,255,0.08); }
+.preview-thumb { width: 100%; height: 100%; object-fit: cover; }
+.preview-remove { position: absolute; top: 6px; right: 6px; width: 28px; height: 28px; border-radius: 50%; background: rgba(15,23,42,0.78); display: flex; align-items: center; justify-content: center; cursor: pointer; }
+.remove-icon { width: 14px; height: 14px; color: #fff; }
+.preview-empty { width: 120px; height: 120px; border-radius: 12px; display: flex; align-items: center; justify-content: center; background: rgba(255,255,255,0.03); border: 1px dashed rgba(255,255,255,0.12); }
+.empty-thumb-icon { width: 24px; height: 24px; color: #94a3b8; }
+.preview-actions { display: flex; flex-direction: column; gap: 8px; }
+.assets-picker-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 12px; }
+.picker-item { border: 1px solid rgba(255,255,255,0.08); border-radius: 12px; overflow: hidden; cursor: pointer; background: rgba(255,255,255,0.03); }
+.picker-thumb { width: 100%; height: 120px; object-fit: cover; display: block; }
+.picker-info { padding: 8px 10px; }
+.picker-name { font-size: 12px; color: var(--text-secondary); }
+.picker-empty { grid-column: 1 / -1; padding: 24px 0; text-align: center; color: var(--text-muted); }
+.thread-header { display: flex; flex-direction: column; gap: 10px; margin-bottom: 16px; }
+.thread-author { display: flex; align-items: center; gap: 10px; font-size: 13px; color: var(--text-secondary); }
+.thread-content { margin: 0; padding: 12px; border-radius: 12px; background: rgba(255,255,255,0.04); color: var(--text-secondary); font-size: 13px; line-height: 1.6; }
 </style>

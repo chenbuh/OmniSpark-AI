@@ -14,6 +14,10 @@ public class StyleCard extends BaseEntity {
     @TableId(type = IdType.AUTO)
     private Long id;
     private Long projectId;
+    private Long userId;
+    private String username;
+    private String nickname;
+    private String avatar;
     private String name;
     private String type;
     private String content;
@@ -28,5 +32,7 @@ public class StyleCard extends BaseEntity {
     private String paramsJson;
     private String previewUrl;
     private String tag;
+    private Integer likesCount;
+    private Integer commentsCount;
     private Integer status;
 }

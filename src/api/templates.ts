@@ -3,18 +3,26 @@ import request from './request'
 export interface PromptTemplate {
   id: number
   projectId: number
+  userId?: number
+  username?: string
+  nickname?: string
+  avatar?: string
   name: string
   content: string
   negativePrompt?: string
   modelName?: string
   tag: string
+  likesCount?: number
+  commentsCount?: number
+  liked?: number
   status: number
+  createdAt?: string
 }
 
 export const templateApi = {
   // 获取提示词模板列表
-  async getTemplates(projectId?: number) {
-    return request.get('/api/prompt-templates', { params: { projectId } })
+  async getTemplates(projectId?: number, sort = 'newest') {
+    return request.get('/api/prompt-templates', { params: { projectId, sort } })
   },
 
   // 新增模板
