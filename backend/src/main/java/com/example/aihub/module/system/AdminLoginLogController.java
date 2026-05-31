@@ -1,8 +1,11 @@
 package com.example.aihub.module.system;
 
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import cn.dev33.satoken.annotation.SaCheckLogin;
 import cn.dev33.satoken.annotation.SaCheckRole;
 import com.example.aihub.common.result.ApiResult;
+import com.example.aihub.common.result.PageResult;
 import com.example.aihub.infrastructure.entity.LoginLog;
 import com.example.aihub.infrastructure.mapper.LoginLogMapper;
 import lombok.RequiredArgsConstructor;
@@ -17,15 +20,14 @@ public class AdminLoginLogController {
     private final LoginLogMapper loginLogMapper;
 
     @GetMapping
-    public ApiResult<com.example.aihub.common.result.PageResult<LoginLog>> list(
+    public ApiResult<PageResult<LoginLog>> list(
             @RequestParam(required = false) Long userId,
             @RequestParam(defaultValue = "1") long page,
             @RequestParam(defaultValue = "20") long pageSize) {
-        var wrapper = new com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper<LoginLog>();
+        var wrapper = new LambdaQueryWrapper<LoginLog>();
         if (userId != null) wrapper.eq(LoginLog::getUserId, userId);
         wrapper.orderByDesc(LoginLog::getId);
-        var p = loginLogMapper.selectPage(
-                new com.baomidou.mybatisplus.extension.plugins.pagination.Page<>(page, pageSize), wrapper);
-        return ApiResult.ok(new com.example.aihub.common.result.PageResult<>(p.getTotal(), p.getPages(), p.getRecords()));
+        var p = loginLogMapper.selectPage(new Page<>(page, pageSize), wrapper);
+        return ApiResult.ok(new PageResult<>(p.getTotal(), p.getPages(), p.getRecords()));
     }
 }

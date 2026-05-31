@@ -2,7 +2,10 @@ package com.example.aihub.module.system;
 
 import cn.dev33.satoken.annotation.SaCheckLogin;
 import cn.dev33.satoken.annotation.SaCheckRole;
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.example.aihub.common.result.ApiResult;
+import com.example.aihub.common.result.PageResult;
 import com.example.aihub.common.util.PasswordUtil;
 import com.example.aihub.common.util.SecurityUtil;
 import com.example.aihub.infrastructure.entity.User;
@@ -30,18 +33,17 @@ public class UserAdminController {
     private final UserMapper userMapper;
 
     @GetMapping
-    public ApiResult<com.example.aihub.common.result.PageResult<UserVO>> list(
+    public ApiResult<PageResult<UserVO>> list(
             @RequestParam(required = false) String search,
             @RequestParam(defaultValue = "1") long page,
             @RequestParam(defaultValue = "10") long pageSize) {
-        var wrapper = new com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper<User>();
+        var wrapper = new LambdaQueryWrapper<User>();
         if (search != null && !search.isBlank()) {
             wrapper.and(w -> w.like(User::getUsername, search).or().like(User::getNickname, search));
         }
         wrapper.orderByDesc(User::getId);
 
-        var p = userMapper.selectPage(
-                new com.baomidou.mybatisplus.extension.plugins.pagination.Page<>(page, pageSize), wrapper);
+        var p = userMapper.selectPage(new Page<>(page, pageSize), wrapper);
         List<UserVO> records = p.getRecords().stream().map(u -> {
             UserVO vo = new UserVO();
             vo.setId(u.getId());
@@ -53,7 +55,7 @@ public class UserAdminController {
             vo.setCreatedAt(u.getCreatedAt());
             return vo;
         }).toList();
-        return ApiResult.ok(new com.example.aihub.common.result.PageResult<>(p.getTotal(), p.getPages(), records));
+        return ApiResult.ok(new PageResult<>(p.getTotal(), p.getPages(), records));
     }
 
     @PutMapping("/{id}/role")
@@ -94,7 +96,7 @@ public class UserAdminController {
             return ApiResult.fail("非法的角色，仅允许 admin 或 user");
         }
         Long exists = userMapper.selectCount(
-                new com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper<User>()
+                new LambdaQueryWrapper<User>()
                         .eq(User::getUsername, username));
         if (exists != null && exists > 0) {
             return ApiResult.fail("用户名已存在");
@@ -204,6 +206,7 @@ public class UserAdminController {
         Map<String, Object> result = new LinkedHashMap<>();
         int success = 0, failed = 0;
         List<String> errors = new ArrayList<>();
+        List<Map<String, String>> generatedCredentials = new ArrayList<>();
 
         try {
             String[] lines = csvBody.split("\n");
@@ -221,7 +224,9 @@ public class UserAdminController {
                         failed++;
                         continue;
                     }
-                    String password = exportedRow ? "123456" : defaultIfBlank(safePart(parts, 1), "123456");
+                    String importedPassword = exportedRow ? "" : safePart(parts, 1);
+                    boolean generatedPassword = importedPassword.isBlank();
+                    String password = generatedPassword ? generateRandomPassword() : importedPassword;
                     String nickname = exportedRow
                             ? defaultIfBlank(safePart(parts, 2), username)
                             : defaultIfBlank(safePart(parts, 2), username);
@@ -229,10 +234,15 @@ public class UserAdminController {
                             ? defaultIfBlank(safePart(parts, 3), "user")
                             : defaultIfBlank(safePart(parts, 3), "user");
                     int status = exportedRow ? parseStatus(safePart(parts, 4)) : 1;
+                    if (!ALLOWED_ROLES.contains(role)) {
+                        errors.add("用户 " + username + " 角色非法，仅允许 admin 或 user");
+                        failed++;
+                        continue;
+                    }
 
                     // 检查是否已存在
                     Long exists = userMapper.selectCount(
-                            new com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper<User>()
+                            new LambdaQueryWrapper<User>()
                                     .eq(User::getUsername, username));
                     if (exists != null && exists > 0) {
                         errors.add("用户 " + username + " 已存在，跳过");
@@ -246,6 +256,12 @@ public class UserAdminController {
                     user.setRole(role);
                     user.setStatus(status);
                     userMapper.insert(user);
+                    if (generatedPassword) {
+                        Map<String, String> credential = new LinkedHashMap<>();
+                        credential.put("username", username);
+                        credential.put("initialPassword", password);
+                        generatedCredentials.add(credential);
+                    }
                     success++;
                 } catch (Exception e) {
                     errors.add("行 " + (i + 1) + " 导入失败: " + e.getMessage());
@@ -259,6 +275,7 @@ public class UserAdminController {
         result.put("success", success);
         result.put("failed", failed);
         result.put("errors", errors);
+        result.put("generatedCredentials", generatedCredentials);
         return ApiResult.ok(result);
     }
 

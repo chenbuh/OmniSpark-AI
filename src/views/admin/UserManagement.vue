@@ -27,7 +27,7 @@
           </n-button>
         </n-space>
       </div>
-      <p class="import-tip">导入 CSV 若未提供密码列，将自动使用默认密码 <code>123456</code>。</p>
+      <p class="import-tip">导入 CSV 若未提供密码列，系统会为对应账号自动生成随机初始密码，并在导入完成后一次性展示。</p>
 
       <!-- 加载态 -->
       <template v-if="loading">
@@ -380,11 +380,30 @@ function triggerImport() {
       const json = await res.json()
       if (json.code === 200) {
         message.success(`导入完成：成功 ${json.data?.success} 条，失败 ${json.data?.failed} 条`)
+        const generatedCredentials = Array.isArray(json.data?.generatedCredentials) ? json.data.generatedCredentials : []
+        if (generatedCredentials.length > 0) {
+          dialog.success({
+            title: '导入成功',
+            content: buildGeneratedCredentialSummary(generatedCredentials),
+            positiveText: '我已记录'
+          })
+        }
         await loadUsers()
       } else message.error(json.message || '导入失败')
     } catch (err: any) { message.error('导入失败: ' + (err.message || '文件格式错误')) }
   }
   input.click()
+}
+
+function buildGeneratedCredentialSummary(items: Array<{ username?: string; initialPassword?: string }>) {
+  const visibleItems = items.slice(0, 10).map(item => `${item.username}：${item.initialPassword}`)
+  const extraCount = Math.max(0, items.length - visibleItems.length)
+  return [
+    '以下账号已自动生成随机初始密码：',
+    ...visibleItems,
+    extraCount > 0 ? `另有 ${extraCount} 个账号未展开，请在关闭前完成记录。` : '',
+    '关闭后将无法再次查看。'
+  ].filter(Boolean).join('\n')
 }
 
 // --- 时间格式化 ---

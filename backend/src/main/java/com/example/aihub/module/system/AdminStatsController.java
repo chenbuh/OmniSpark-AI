@@ -1,5 +1,8 @@
 package com.example.aihub.module.system;
 
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
+import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import cn.dev33.satoken.annotation.SaCheckLogin;
 import cn.dev33.satoken.annotation.SaCheckRole;
 import com.example.aihub.common.result.ApiResult;
@@ -41,10 +44,10 @@ public class AdminStatsController {
         stats.put("totalTasks", taskMapper.selectCount(null));
         stats.put("totalAssets", assetMapper.selectCount(null));
         stats.put("successTasks", taskMapper.selectCount(
-                new com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper<GenerationTask>()
+                new LambdaQueryWrapper<GenerationTask>()
                         .eq(GenerationTask::getStatus, "success")));
         stats.put("failedTasks", taskMapper.selectCount(
-                new com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper<GenerationTask>()
+                new LambdaQueryWrapper<GenerationTask>()
                         .eq(GenerationTask::getStatus, "failed")));
         return ApiResult.ok(stats);
     }
@@ -53,8 +56,8 @@ public class AdminStatsController {
     public ApiResult<PageResult<User>> users(@RequestParam(defaultValue = "1") long page,
                                              @RequestParam(defaultValue = "10") long pageSize) {
         var result = userMapper.selectPage(
-                new com.baomidou.mybatisplus.extension.plugins.pagination.Page<>(page, pageSize),
-                new com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper<User>()
+                new Page<>(page, pageSize),
+                new LambdaQueryWrapper<User>()
                         .orderByDesc(User::getId));
         return ApiResult.ok(new PageResult<>(result.getTotal(), result.getPages(), result.getRecords()));
     }
@@ -73,12 +76,12 @@ public class AdminStatsController {
 
         // 各表一次 GROUP BY DATE 聚合,替代每天一次的 14 次 COUNT
         Map<String, Long> taskCountByDay = countByDay(taskMapper.selectMaps(
-                new com.baomidou.mybatisplus.core.conditions.query.QueryWrapper<GenerationTask>()
+                new QueryWrapper<GenerationTask>()
                         .select("DATE(created_at) AS d", "COUNT(*) AS c")
                         .ge("created_at", startTime)
                         .groupBy("DATE(created_at)")));
         Map<String, Long> userCountByDay = countByDay(userMapper.selectMaps(
-                new com.baomidou.mybatisplus.core.conditions.query.QueryWrapper<User>()
+                new QueryWrapper<User>()
                         .select("DATE(created_at) AS d", "COUNT(*) AS c")
                         .ge("created_at", startTime)
                         .groupBy("DATE(created_at)")));
@@ -157,7 +160,7 @@ public class AdminStatsController {
 
         csv.append("\n用户ID,用户名,角色,状态\n");
         List<User> users = userMapper.selectList(
-                new com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper<User>()
+                new LambdaQueryWrapper<User>()
                         .orderByDesc(User::getId));
         if (users != null) {
             for (User u : users) {

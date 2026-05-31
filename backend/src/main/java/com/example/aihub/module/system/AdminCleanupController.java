@@ -1,5 +1,6 @@
 package com.example.aihub.module.system;
 
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import cn.dev33.satoken.annotation.SaCheckLogin;
 import cn.dev33.satoken.annotation.SaCheckRole;
 import com.example.aihub.common.exception.BusinessException;
@@ -39,19 +40,19 @@ public class AdminCleanupController {
         result.put("daysOld", daysOld);
         result.put("cutoffDate", cutoff.toString());
 
-        long oldTasks = taskMapper.selectCount(new com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper<GenerationTask>()
+        long oldTasks = taskMapper.selectCount(new LambdaQueryWrapper<GenerationTask>()
                 .lt(GenerationTask::getCreatedAt, cutoff));
         result.put("oldTasks", oldTasks);
 
-        long oldAssets = assetMapper.selectCount(new com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper<Asset>()
+        long oldAssets = assetMapper.selectCount(new LambdaQueryWrapper<Asset>()
                 .lt(Asset::getCreatedAt, cutoff));
         result.put("oldAssets", oldAssets);
 
-        long oldAuditLogs = auditLogMapper.selectCount(new com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper<AuditLog>()
+        long oldAuditLogs = auditLogMapper.selectCount(new LambdaQueryWrapper<AuditLog>()
                 .lt(AuditLog::getCreatedAt, cutoff));
         result.put("oldAuditLogs", oldAuditLogs);
 
-        long oldLoginLogs = loginLogMapper.selectCount(new com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper<LoginLog>()
+        long oldLoginLogs = loginLogMapper.selectCount(new LambdaQueryWrapper<LoginLog>()
                 .lt(LoginLog::getCreatedAt, cutoff));
         result.put("oldLoginLogs", oldLoginLogs);
 
@@ -66,19 +67,19 @@ public class AdminCleanupController {
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("cutoffDate", cutoff.toString());
 
-        long deletedTasks = taskMapper.delete(new com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper<GenerationTask>()
+        long deletedTasks = taskMapper.delete(new LambdaQueryWrapper<GenerationTask>()
                 .lt(GenerationTask::getCreatedAt, cutoff));
         result.put("deletedTasks", deletedTasks);
 
-        long deletedAssets = assetMapper.delete(new com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper<Asset>()
+        long deletedAssets = assetMapper.delete(new LambdaQueryWrapper<Asset>()
                 .lt(Asset::getCreatedAt, cutoff));
         result.put("deletedAssets", deletedAssets);
 
-        long deletedAuditLogs = auditLogMapper.delete(new com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper<AuditLog>()
+        long deletedAuditLogs = auditLogMapper.delete(new LambdaQueryWrapper<AuditLog>()
                 .lt(AuditLog::getCreatedAt, cutoff));
         result.put("deletedAuditLogs", deletedAuditLogs);
 
-        long deletedLoginLogs = loginLogMapper.delete(new com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper<LoginLog>()
+        long deletedLoginLogs = loginLogMapper.delete(new LambdaQueryWrapper<LoginLog>()
                 .lt(LoginLog::getCreatedAt, cutoff));
         result.put("deletedLoginLogs", deletedLoginLogs);
 

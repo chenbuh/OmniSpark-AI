@@ -1,5 +1,6 @@
 package com.example.aihub.module.system;
 
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import cn.dev33.satoken.annotation.SaCheckLogin;
 import cn.dev33.satoken.annotation.SaCheckRole;
 import com.example.aihub.common.result.ApiResult;
@@ -20,8 +21,7 @@ public class SystemConfigController {
 
     @GetMapping
     public ApiResult<List<SystemConfig>> list(@RequestParam(required = false) String group) {
-        com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper<SystemConfig> wrapper =
-                new com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper<>();
+        LambdaQueryWrapper<SystemConfig> wrapper = new LambdaQueryWrapper<>();
         if (group != null && !group.isBlank()) {
             wrapper.eq(SystemConfig::getConfigGroup, group);
         }

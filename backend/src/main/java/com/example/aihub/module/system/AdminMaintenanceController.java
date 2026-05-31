@@ -1,5 +1,6 @@
 package com.example.aihub.module.system;
 
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import cn.dev33.satoken.annotation.SaCheckLogin;
 import cn.dev33.satoken.annotation.SaCheckRole;
 import com.example.aihub.common.result.ApiResult;
@@ -22,13 +23,13 @@ public class AdminMaintenanceController {
 
     @GetMapping
     public ApiResult<Map<String, Object>> status() {
-        var wrapper = new com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper<SystemConfig>()
+        var wrapper = new LambdaQueryWrapper<SystemConfig>()
                 .eq(SystemConfig::getConfigKey, "maintenance_mode");
         SystemConfig config = configMapper.selectOne(wrapper);
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("enabled", config != null && "true".equals(config.getConfigValue()));
 
-        var msgWrapper = new com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper<SystemConfig>()
+        var msgWrapper = new LambdaQueryWrapper<SystemConfig>()
                 .eq(SystemConfig::getConfigKey, "maintenance_message");
         SystemConfig msgConfig = configMapper.selectOne(msgWrapper);
         result.put("message", msgConfig != null ? msgConfig.getConfigValue() : "系统维护中，请稍后再试");
@@ -43,7 +44,7 @@ public class AdminMaintenanceController {
     }
 
     private void upsertConfig(String key, String value, String group, String remark) {
-        var wrapper = new com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper<SystemConfig>()
+        var wrapper = new LambdaQueryWrapper<SystemConfig>()
                 .eq(SystemConfig::getConfigKey, key);
         SystemConfig config = configMapper.selectOne(wrapper);
         if (config == null) {
