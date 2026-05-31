@@ -30,15 +30,10 @@ public class ProjectAccessGuard {
     private final ProjectShareMapper shareMapper;
     private final TeamMemberMapper teamMemberMapper;
 
-    /** 全局项目（projectId=0）下的资源对所有登录用户可见。 */
-    private boolean isGlobalProject(Long projectId) {
-        return projectId == null || projectId == 0L;
-    }
-
     /** 当前用户是否可访问该项目；不可访问返回 false。 */
     public boolean canAccess(Long projectId) {
-        if (isGlobalProject(projectId)) {
-            return true;
+        if (projectId == null || projectId == 0L) {
+            return false;
         }
         Long userId = SecurityUtil.loginUserId();
         Project project = projectMapper.selectById(projectId);
@@ -59,13 +54,12 @@ public class ProjectAccessGuard {
     }
 
     /**
-     * 当前登录用户可访问的项目 id 集合：本人拥有的项目 + 所在团队被共享的项目 + 全局项目(0)。
-     * 用于 list 类接口在未显式指定 projectId 时按归属过滤，避免返回全量数据。
+     * 当前登录用户可访问的项目 id 集合：本人拥有的项目 + 所在团队被共享的项目。
+     * 用于 list 类接口在未显式指定 projectId 时按归属过滤，避免返回全量数据或全局公共数据。
      */
     public List<Long> accessibleProjectIds() {
         Long userId = SecurityUtil.loginUserId();
         Set<Long> ids = new HashSet<>();
-        ids.add(0L);
 
         List<Project> owned = projectMapper.selectList(
                 new LambdaQueryWrapper<Project>().eq(Project::getUserId, userId));

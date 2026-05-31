@@ -39,11 +39,19 @@ public class WorkflowService {
     private final GenerationService generationService;
     private final SubtitleService subtitleService;
     private final ObjectMapper objectMapper;
+    private final com.example.aihub.common.security.ProjectAccessGuard projectAccessGuard;
 
     public List<WorkflowVO> list(Long projectId) {
         LambdaQueryWrapper<Workflow> wrapper = new LambdaQueryWrapper<>();
         if (projectId != null) {
+            projectAccessGuard.assertAccess(projectId);
             wrapper.eq(Workflow::getProjectId, projectId);
+        } else {
+            List<Long> accessibleIds = projectAccessGuard.accessibleProjectIds();
+            if (accessibleIds.isEmpty()) {
+                return List.of();
+            }
+            wrapper.in(Workflow::getProjectId, accessibleIds);
         }
         wrapper.orderByDesc(Workflow::getId);
         return workflowMapper.selectList(wrapper).stream().map(this::toVO).toList();
@@ -54,11 +62,13 @@ public class WorkflowService {
         if (workflow == null) {
             throw new BusinessException("工作流不存在");
         }
+        projectAccessGuard.assertAccess(workflow.getProjectId());
         return toVO(workflow);
     }
 
     @Transactional(rollbackFor = Exception.class)
     public WorkflowVO create(WorkflowSaveDTO dto) {
+        projectAccessGuard.assertAccess(dto.getProjectId());
         Workflow workflow = new Workflow();
         workflow.setProjectId(dto.getProjectId());
         workflow.setName(dto.getName());
@@ -75,6 +85,8 @@ public class WorkflowService {
         if (workflow == null) {
             throw new BusinessException("工作流不存在");
         }
+        projectAccessGuard.assertAccess(workflow.getProjectId());
+        projectAccessGuard.assertAccess(dto.getProjectId());
         workflow.setProjectId(dto.getProjectId());
         workflow.setName(dto.getName());
         workflow.setDescription(dto.getDescription());
@@ -85,11 +97,21 @@ public class WorkflowService {
 
     @Transactional(rollbackFor = Exception.class)
     public void delete(Long id) {
+        Workflow workflow = workflowMapper.selectById(id);
+        if (workflow == null) {
+            throw new BusinessException("工作流不存在");
+        }
+        projectAccessGuard.assertAccess(workflow.getProjectId());
         workflowMapper.deleteById(id);
         runMapper.delete(new LambdaQueryWrapper<WorkflowRun>().eq(WorkflowRun::getWorkflowId, id));
     }
 
     public List<WorkflowRunVO> listRuns(Long workflowId) {
+        Workflow workflow = workflowMapper.selectById(workflowId);
+        if (workflow == null) {
+            throw new BusinessException("工作流不存在");
+        }
+        projectAccessGuard.assertAccess(workflow.getProjectId());
         return runMapper.selectList(new LambdaQueryWrapper<WorkflowRun>()
                         .eq(WorkflowRun::getWorkflowId, workflowId)
                         .orderByDesc(WorkflowRun::getId))
@@ -103,6 +125,7 @@ public class WorkflowService {
         if (run == null) {
             throw new BusinessException("运行记录不存在");
         }
+        projectAccessGuard.assertAccess(run.getProjectId());
         return toRunVO(run);
     }
 
@@ -112,6 +135,7 @@ public class WorkflowService {
         if (workflow == null) {
             throw new BusinessException("工作流不存在");
         }
+        projectAccessGuard.assertAccess(workflow.getProjectId());
 
         ArrayNode steps = parseStepsArray(workflow.getStepsJson());
         if (steps.isEmpty()) {

@@ -244,7 +244,7 @@ const form = reactive({
 })
 
 const filteredCards = computed(() => {
-  let list = cards.value.filter(c => c.projectId === projectStore.activeProjectId || !c.projectId)
+  let list = cards.value
   if (activeType.value !== 'all') {
     list = list.filter(c => c.type === activeType.value)
   }

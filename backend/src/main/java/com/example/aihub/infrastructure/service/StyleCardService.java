@@ -16,13 +16,13 @@ import java.util.List;
 @Service
 @RequiredArgsConstructor
 public class StyleCardService {
+    private static final long PUBLIC_LIBRARY_PROJECT_ID = 0L;
+
     private final StyleCardMapper cardMapper;
 
     public List<StyleCardVO> list(Long projectId, String type) {
         LambdaQueryWrapper<StyleCard> wrapper = new LambdaQueryWrapper<>();
-        if (projectId != null) {
-            wrapper.eq(StyleCard::getProjectId, projectId);
-        }
+        wrapper.eq(StyleCard::getStatus, 1);
         if (type != null && !type.isBlank()) {
             wrapper.eq(StyleCard::getType, type);
         }
@@ -42,6 +42,7 @@ public class StyleCardService {
     public StyleCardVO create(StyleCardSaveDTO dto) {
         StyleCard card = new StyleCard();
         applyDto(card, dto);
+        card.setProjectId(PUBLIC_LIBRARY_PROJECT_ID);
         card.setStatus(dto.getStatus() == null ? 1 : dto.getStatus());
         cardMapper.insert(card);
         return toVO(card);
@@ -54,12 +55,17 @@ public class StyleCardService {
             throw new BusinessException("卡片不存在");
         }
         applyDto(card, dto);
+        card.setProjectId(PUBLIC_LIBRARY_PROJECT_ID);
         cardMapper.updateById(card);
         return toVO(card);
     }
 
     @Transactional(rollbackFor = Exception.class)
     public void delete(Long id) {
+        StyleCard card = cardMapper.selectById(id);
+        if (card == null) {
+            throw new BusinessException("卡片不存在");
+        }
         cardMapper.deleteById(id);
     }
 

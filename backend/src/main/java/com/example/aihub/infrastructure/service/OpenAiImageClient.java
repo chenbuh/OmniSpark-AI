@@ -38,7 +38,9 @@ import javax.imageio.ImageIO;
 public class OpenAiImageClient {
     private static final Duration GENERATION_TIMEOUT = Duration.ofMinutes(10);
     /** 单次 HTTP 请求超时:网关无响应时尽快超时以触发换渠道重试,避免单次请求挂满 10 分钟。 */
-    private static final Duration SINGLE_REQUEST_TIMEOUT = Duration.ofSeconds(120);
+    private static final Duration DEFAULT_SINGLE_REQUEST_TIMEOUT = Duration.ofSeconds(120);
+    /** 免费网关在高峰期首包明显更慢,适当放宽单次等待时间,避免刚要出图就被本地超时切断。 */
+    private static final Duration SLOW_PROVIDER_REQUEST_TIMEOUT = Duration.ofSeconds(240);
     private static final Duration MEDIA_DOWNLOAD_CONNECT_TIMEOUT = Duration.ofSeconds(45);
     private static final Duration MEDIA_DOWNLOAD_READ_TIMEOUT = Duration.ofSeconds(120);
     private static final Duration REFERENCE_DOWNLOAD_TIMEOUT = Duration.ofMinutes(2);
@@ -84,7 +86,8 @@ public class OpenAiImageClient {
                                             String quality) {
         String endpoint = resolveEndpoint(baseUrl, "/images/generations");
         int actualCount = count == null || count < 1 ? 1 : count;
-        JsonNode node = requestImageNode(endpoint, apiKey, modelName, prompt, actualCount, requestSize, quality);
+        Duration requestTimeout = resolveRequestTimeout(endpoint, modelName);
+        JsonNode node = requestImageNode(endpoint, apiKey, modelName, prompt, actualCount, requestSize, quality, requestTimeout);
         try {
             return extractMedia(node, targetSize);
         } catch (IllegalStateException ex) {
@@ -95,7 +98,8 @@ public class OpenAiImageClient {
                 JsonNode fallbackNode = postJson(
                         endpoint,
                         apiKey,
-                        buildImagePayload(modelName, prompt, actualCount, requestSize, quality, false, true)
+                        buildImagePayload(modelName, prompt, actualCount, requestSize, quality, false, true),
+                        requestTimeout
                 );
                 return extractMedia(fallbackNode, targetSize);
             } catch (IllegalStateException fallbackEx) {
@@ -110,30 +114,31 @@ public class OpenAiImageClient {
                                       String prompt,
                                       int actualCount,
                                       String requestSize,
-                                      String quality) {
+                                      String quality,
+                                      Duration requestTimeout) {
         try {
-            return postJson(endpoint, apiKey, buildImagePayload(modelName, prompt, actualCount, requestSize, quality, true, false));
+            return postJson(endpoint, apiKey, buildImagePayload(modelName, prompt, actualCount, requestSize, quality, true, false), requestTimeout);
         } catch (IllegalStateException ex) {
             if (shouldRetryWithMinimalPayload(ex)) {
-                return requestImageNodeWithMinimalPayload(endpoint, apiKey, modelName, prompt, actualCount, requestSize);
+                return requestImageNodeWithMinimalPayload(endpoint, apiKey, modelName, prompt, actualCount, requestSize, requestTimeout);
             }
             if (shouldRetryWithoutUrlResponse(ex)) {
                 try {
-                    return postJson(endpoint, apiKey, buildImagePayload(modelName, prompt, actualCount, requestSize, quality, false, false));
+                    return postJson(endpoint, apiKey, buildImagePayload(modelName, prompt, actualCount, requestSize, quality, false, false), requestTimeout);
                 } catch (IllegalStateException legacyEx) {
                     if (shouldRetryWithMinimalPayload(legacyEx)) {
-                        return requestImageNodeWithMinimalPayload(endpoint, apiKey, modelName, prompt, actualCount, requestSize);
+                        return requestImageNodeWithMinimalPayload(endpoint, apiKey, modelName, prompt, actualCount, requestSize, requestTimeout);
                     }
                     if (!shouldRetryWithCompatPayload(legacyEx)) {
                         throw legacyEx;
                     }
-                    return postJson(endpoint, apiKey, buildImagePayload(modelName, prompt, actualCount, requestSize, quality, false, true));
+                    return postJson(endpoint, apiKey, buildImagePayload(modelName, prompt, actualCount, requestSize, quality, false, true), requestTimeout);
                 }
             }
             if (!shouldRetryWithCompatPayload(ex)) {
                 throw ex;
             }
-            return postJson(endpoint, apiKey, buildImagePayload(modelName, prompt, actualCount, requestSize, quality, false, true));
+            return postJson(endpoint, apiKey, buildImagePayload(modelName, prompt, actualCount, requestSize, quality, false, true), requestTimeout);
         }
     }
 
@@ -142,25 +147,26 @@ public class OpenAiImageClient {
                                                         String modelName,
                                                         String prompt,
                                                         int actualCount,
-                                                        String requestSize) {
+                                                        String requestSize,
+                                                        Duration requestTimeout) {
         log.warn("图片生成接口返回疑似供应商兼容错误,改用最小 JSON 请求体重试");
         try {
-            return postJson(endpoint, apiKey, buildMinimalImagePayload(modelName, prompt, actualCount, requestSize, true, false));
+            return postJson(endpoint, apiKey, buildMinimalImagePayload(modelName, prompt, actualCount, requestSize, true, false), requestTimeout);
         } catch (IllegalStateException urlEx) {
             if (shouldRetryWithoutUrlResponse(urlEx) || shouldRetryWithMinimalPayload(urlEx)) {
                 try {
-                    return postJson(endpoint, apiKey, buildMinimalImagePayload(modelName, prompt, actualCount, requestSize, false, false));
+                    return postJson(endpoint, apiKey, buildMinimalImagePayload(modelName, prompt, actualCount, requestSize, false, false), requestTimeout);
                 } catch (IllegalStateException plainEx) {
                     if (!shouldRetryWithInlineImageData(plainEx) && !shouldRetryWithCompatPayload(plainEx)) {
                         throw plainEx;
                     }
-                    return postJson(endpoint, apiKey, buildMinimalImagePayload(modelName, prompt, actualCount, requestSize, false, true));
+                    return postJson(endpoint, apiKey, buildMinimalImagePayload(modelName, prompt, actualCount, requestSize, false, true), requestTimeout);
                 }
             }
             if (!shouldRetryWithInlineImageData(urlEx) && !shouldRetryWithCompatPayload(urlEx)) {
                 throw urlEx;
             }
-            return postJson(endpoint, apiKey, buildMinimalImagePayload(modelName, prompt, actualCount, requestSize, false, true));
+            return postJson(endpoint, apiKey, buildMinimalImagePayload(modelName, prompt, actualCount, requestSize, false, true), requestTimeout);
         }
     }
 
@@ -236,9 +242,11 @@ public class OpenAiImageClient {
         }
         body.add(("--" + boundary + "--\r\n").getBytes(StandardCharsets.UTF_8));
 
+        String endpoint = resolveEndpoint(baseUrl, "/images/edits");
+        Duration requestTimeout = resolveRequestTimeout(endpoint, modelName);
         try {
-            HttpRequest request = HttpRequest.newBuilder(URI.create(resolveEndpoint(baseUrl, "/images/edits")))
-                    .timeout(SINGLE_REQUEST_TIMEOUT)
+            HttpRequest request = HttpRequest.newBuilder(URI.create(endpoint))
+                    .timeout(requestTimeout)
                     .header("Authorization", "Bearer " + apiKey)
                     .header("Accept", "application/json")
                     .header("Content-Type", "multipart/form-data; boundary=" + boundary)
@@ -254,7 +262,7 @@ public class OpenAiImageClient {
                 try {
                     fields.put("response_format", "b64_json");
                     fields.put("output_format", "jpeg");
-                    return sendMultipartEdit(baseUrl, apiKey, fields, referenceImage, maskImage, targetSize);
+                    return sendMultipartEdit(endpoint, apiKey, fields, referenceImage, maskImage, targetSize, requestTimeout);
                 } catch (IllegalStateException fallbackEx) {
                     throw explainOriginalAssetUnavailable(fallbackEx, ex);
                 }
@@ -264,7 +272,7 @@ public class OpenAiImageClient {
                 throw ex;
             }
             fields.remove("response_format");
-            return sendMultipartEdit(baseUrl, apiKey, fields, referenceImage, maskImage, targetSize);
+            return sendMultipartEdit(endpoint, apiKey, fields, referenceImage, maskImage, targetSize, requestTimeout);
         }
     }
 
@@ -297,9 +305,11 @@ public class OpenAiImageClient {
         body.add(filePart(boundary, "image", referenceImage.getFileName(), referenceImage.getMimeType(), referenceImage.getBytes()));
         body.add(("--" + boundary + "--\r\n").getBytes(StandardCharsets.UTF_8));
 
+        String endpoint = resolveEndpoint(baseUrl, "/images/edits");
+        Duration requestTimeout = resolveRequestTimeout(endpoint, modelName);
         try {
-            HttpRequest request = HttpRequest.newBuilder(URI.create(resolveEndpoint(baseUrl, "/images/edits")))
-                    .timeout(SINGLE_REQUEST_TIMEOUT)
+            HttpRequest request = HttpRequest.newBuilder(URI.create(endpoint))
+                    .timeout(requestTimeout)
                     .header("Authorization", "Bearer " + apiKey)
                     .header("Accept", "application/json")
                     .header("Content-Type", "multipart/form-data; boundary=" + boundary)
@@ -315,7 +325,7 @@ public class OpenAiImageClient {
                 try {
                     fields.put("response_format", "b64_json");
                     fields.put("output_format", "jpeg");
-                    return sendMultipartEdit(baseUrl, apiKey, fields, referenceImage, null, targetSize);
+                    return sendMultipartEdit(endpoint, apiKey, fields, referenceImage, null, targetSize, requestTimeout);
                 } catch (IllegalStateException fallbackEx) {
                     throw explainOriginalAssetUnavailable(fallbackEx, ex);
                 }
@@ -325,16 +335,17 @@ public class OpenAiImageClient {
                 throw ex;
             }
             fields.remove("response_format");
-            return sendMultipartEdit(baseUrl, apiKey, fields, referenceImage, null, targetSize);
+            return sendMultipartEdit(endpoint, apiKey, fields, referenceImage, null, targetSize, requestTimeout);
         }
     }
 
-    private List<RenderedMedia> sendMultipartEdit(String baseUrl,
+    private List<RenderedMedia> sendMultipartEdit(String endpoint,
                                                   String apiKey,
                                                   Map<String, String> fields,
                                                   ReferenceImage referenceImage,
                                                   ReferenceImage maskImage,
-                                                  String targetSize) {
+                                                  String targetSize,
+                                                  Duration requestTimeout) {
         List<byte[]> body = new ArrayList<>();
         String boundary = "----CodexBoundary" + UUID.randomUUID().toString().replace("-", "");
         for (Map.Entry<String, String> entry : fields.entrySet()) {
@@ -346,8 +357,8 @@ public class OpenAiImageClient {
         }
         body.add(("--" + boundary + "--\r\n").getBytes(StandardCharsets.UTF_8));
 
-        HttpRequest request = HttpRequest.newBuilder(URI.create(resolveEndpoint(baseUrl, "/images/edits")))
-                .timeout(SINGLE_REQUEST_TIMEOUT)
+        HttpRequest request = HttpRequest.newBuilder(URI.create(endpoint))
+                .timeout(requestTimeout)
                 .header("Authorization", "Bearer " + apiKey)
                 .header("Accept", "application/json")
                 .header("Content-Type", "multipart/form-data; boundary=" + boundary)
@@ -356,10 +367,10 @@ public class OpenAiImageClient {
         return extractMedia(send(request), targetSize);
     }
 
-    private JsonNode postJson(String url, String apiKey, Map<String, Object> payload) {
+    private JsonNode postJson(String url, String apiKey, Map<String, Object> payload, Duration requestTimeout) {
         try {
             HttpRequest request = HttpRequest.newBuilder(URI.create(url))
-                    .timeout(SINGLE_REQUEST_TIMEOUT)
+                    .timeout(requestTimeout)
                     .header("Authorization", "Bearer " + apiKey)
                     .header("Accept", "application/json")
                     .header("Content-Type", "application/json")
@@ -426,6 +437,16 @@ public class OpenAiImageClient {
                 .connectTimeout(Duration.ofSeconds(60))
                 .version(HttpClient.Version.HTTP_1_1)
                 .build();
+    }
+
+    private Duration resolveRequestTimeout(String endpoint, String modelName) {
+        String normalizedEndpoint = endpoint == null ? "" : endpoint.toLowerCase(Locale.ROOT);
+        String normalizedModel = modelName == null ? "" : modelName.toLowerCase(Locale.ROOT);
+        if (normalizedEndpoint.contains("tcloudbase.com")
+                || normalizedModel.contains("flatfee")) {
+            return SLOW_PROVIDER_REQUEST_TIMEOUT;
+        }
+        return DEFAULT_SINGLE_REQUEST_TIMEOUT;
     }
 
     /**

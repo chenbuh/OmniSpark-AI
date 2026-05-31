@@ -78,6 +78,7 @@ public class ModelProviderService {
     @Transactional(rollbackFor = Exception.class)
     public ModelProviderVO create(ModelProviderSaveDTO dto) {
         ModelProvider provider = toEntity(dto);
+        projectAccessGuard.assertAccess(provider.getProjectId());
         validateProviderBeforeSave(provider);
         providerMapper.insert(provider);
         applyDefaultRule(provider);

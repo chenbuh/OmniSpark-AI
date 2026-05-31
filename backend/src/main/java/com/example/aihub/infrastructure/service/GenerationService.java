@@ -113,7 +113,7 @@ public class GenerationService {
             throw new BusinessException("局部重绘需要提供原始参考图");
         }
         projectAccessGuard.assertAccess(dto.getProjectId());
-        ModelProvider provider = requireProvider(dto.getProviderId());
+        ModelProvider provider = requireProvider(dto.getProviderId(), dto.getProjectId());
         Long userId = SecurityUtil.loginUserId();
         String modelName = resolveModelName(dto.getModelName(), dto.getOptions(), provider.getModelName());
         GenerationTask task = createTask(dto.getProjectId(), provider.getId(), "image", dto.getPrompt(),
@@ -124,7 +124,7 @@ public class GenerationService {
 
     public GenerationTaskVO generateImage(ImageGenerateDTO dto) {
         projectAccessGuard.assertAccess(dto.getProjectId());
-        ModelProvider provider = requireProvider(dto.getProviderId());
+        ModelProvider provider = requireProvider(dto.getProviderId(), dto.getProjectId());
         Long userId = SecurityUtil.loginUserId();
         String modelName = resolveModelName(dto.getModelName(), dto.getOptions(), provider.getModelName());
         GenerationTask task = createTask(dto.getProjectId(), provider.getId(), "image", dto.getPrompt(),
@@ -135,7 +135,7 @@ public class GenerationService {
 
     public GenerationTaskVO generateVideo(VideoGenerateDTO dto) {
         projectAccessGuard.assertAccess(dto.getProjectId());
-        ModelProvider provider = requireProvider(dto.getProviderId());
+        ModelProvider provider = requireProvider(dto.getProviderId(), dto.getProjectId());
         String modelName = resolveModelName(dto.getModelName(), dto.getOptions(), provider.getModelName());
         GenerationTask task = createTask(dto.getProjectId(), provider.getId(), "video", dto.getPrompt(),
                 null, dto.getDuration(), null, dto.getOptions(), null, dto.getSourceAssetId(), modelName);
@@ -231,7 +231,7 @@ public class GenerationService {
         submitGenerationJob(task.getId(), userId, () -> {
             try {
                 updateTaskProgress(task.getId(), 20, "后台任务已启动，正在准备素材");
-                List<OpenAiImageClient.ReferenceImage> references = loadReferenceImages(referenceAssetIds);
+                List<OpenAiImageClient.ReferenceImage> references = loadReferenceImages(referenceAssetIds, task.getProjectId());
                 int count = dto.getCount() == null || dto.getCount() < 1 ? 1 : dto.getCount();
                 String requestSize = resolveRequestSize(dto.getSize(), options);
                 String quality = resolveImageQuality(options);
@@ -268,11 +268,11 @@ public class GenerationService {
         submitGenerationJob(task.getId(), userId, () -> {
             try {
                 updateTaskProgress(task.getId(), 20, "后台任务已启动，正在准备参考图与遮罩");
-                List<OpenAiImageClient.ReferenceImage> references = loadReferenceImages(referenceAssetIds);
+                List<OpenAiImageClient.ReferenceImage> references = loadReferenceImages(referenceAssetIds, task.getProjectId());
                 if (references.isEmpty()) {
                     throw new BusinessException("无法加载原始参考图");
                 }
-                OpenAiImageClient.ReferenceImage maskImage = loadMaskImage(maskAssetId);
+                OpenAiImageClient.ReferenceImage maskImage = loadMaskImage(maskAssetId, task.getProjectId());
                 int count = dto.getCount() == null || dto.getCount() < 1 ? 1 : dto.getCount();
                 String requestSize = resolveRequestSize(dto.getSize(), options);
                 updateTaskProgress(task.getId(), 40, "素材准备完成，正在请求模型服务");
@@ -467,10 +467,14 @@ public class GenerationService {
         } catch (Exception ignored) {}
     }
 
-    private ModelProvider requireProvider(Long providerId) {
+    private ModelProvider requireProvider(Long providerId, Long projectId) {
         ModelProvider provider = providerMapper.selectById(providerId);
         if (provider == null) {
             throw new BusinessException("模型提供商不存在");
+        }
+        projectAccessGuard.assertAccess(provider.getProjectId());
+        if (!provider.getProjectId().equals(projectId)) {
+            throw new BusinessException("模型提供商不属于当前项目");
         }
         if (provider.getEnabled() != null && provider.getEnabled() == 0) {
             throw new BusinessException("当前模型提供商已禁用");
@@ -478,27 +482,21 @@ public class GenerationService {
         return provider;
     }
 
-    private List<OpenAiImageClient.ReferenceImage> loadReferenceImages(List<Long> referenceAssetIds) {
+    private List<OpenAiImageClient.ReferenceImage> loadReferenceImages(List<Long> referenceAssetIds, Long projectId) {
         if (referenceAssetIds == null || referenceAssetIds.isEmpty()) {
             return List.of();
         }
-        Asset asset = assetMapper.selectById(referenceAssetIds.get(0));
-        if (asset == null) {
-            throw new BusinessException("参考图不存在");
-        }
+        Asset asset = requireProjectAsset(referenceAssetIds.get(0), projectId, "参考图不存在");
         byte[] bytes = imageClient.downloadReferenceBytes(asset.getFileUrl());
         String mimeType = imageClient.detectMimeType(asset.getFileName(), asset.getMimeType());
         return List.of(new OpenAiImageClient.ReferenceImage(bytes, asset.getFileName(), mimeType));
     }
 
-    private OpenAiImageClient.ReferenceImage loadMaskImage(Long maskAssetId) {
+    private OpenAiImageClient.ReferenceImage loadMaskImage(Long maskAssetId, Long projectId) {
         if (maskAssetId == null) {
             throw new BusinessException("遮罩图 ID 不能为空");
         }
-        Asset asset = assetMapper.selectById(maskAssetId);
-        if (asset == null) {
-            throw new BusinessException("遮罩图不存在");
-        }
+        Asset asset = requireProjectAsset(maskAssetId, projectId, "遮罩图不存在");
         byte[] bytes = imageClient.downloadReferenceBytes(asset.getFileUrl());
         String mimeType = imageClient.detectMimeType(asset.getFileName(), asset.getMimeType());
         return new OpenAiImageClient.ReferenceImage(bytes, asset.getFileName(), mimeType);
@@ -601,18 +599,14 @@ public class GenerationService {
         payload.put("options", dto.getOptions());
         payload.put("sourceAssetId", dto.getSourceAssetId());
         if (dto.getSourceAssetId() != null) {
-            Asset source = assetMapper.selectById(dto.getSourceAssetId());
-            if (source != null) {
-                payload.put("sourceAssetUrl", source.getFileUrl());
-            }
+            Asset source = requireProjectAsset(dto.getSourceAssetId(), dto.getProjectId(), "源图片不存在");
+            payload.put("sourceAssetUrl", source.getFileUrl());
         }
         // 尾帧 (end frame)
         payload.put("endAssetId", dto.getEndAssetId());
         if (dto.getEndAssetId() != null) {
-            Asset endAsset = assetMapper.selectById(dto.getEndAssetId());
-            if (endAsset != null) {
-                payload.put("endAssetUrl", endAsset.getFileUrl());
-            }
+            Asset endAsset = requireProjectAsset(dto.getEndAssetId(), dto.getProjectId(), "尾帧图片不存在");
+            payload.put("endAssetUrl", endAsset.getFileUrl());
         }
         JsonNode response = postJson(resolveEndpoint(provider.getBaseUrl(), "/videos/generations"), provider.getApiKey(), payload);
         return extractMedia(response, modelName, "video");
@@ -851,6 +845,18 @@ public class GenerationService {
         record.setRemark("生成消耗");
         record.setCreatedAt(LocalDateTime.now());
         return record;
+    }
+
+    private Asset requireProjectAsset(Long assetId, Long projectId, String missingMessage) {
+        Asset asset = assetMapper.selectById(assetId);
+        if (asset == null) {
+            throw new BusinessException(missingMessage);
+        }
+        projectAccessGuard.assertAccess(asset.getProjectId());
+        if (!asset.getProjectId().equals(projectId)) {
+            throw new BusinessException("资产不属于当前项目");
+        }
+        return asset;
     }
 
     private GenerationTaskVO toTaskVO(GenerationTask task) {

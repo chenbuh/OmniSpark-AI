@@ -26,8 +26,10 @@ import java.util.UUID;
 public class SubtitleService {
     private final SubtitleMapper subtitleMapper;
     private final AssetMapper assetMapper;
+    private final com.example.aihub.common.security.ProjectAccessGuard projectAccessGuard;
 
     public List<SubtitleVO> listByAsset(Long assetId) {
+        requireAccessibleAsset(assetId);
         return subtitleMapper.selectList(
                 new LambdaQueryWrapper<Subtitle>().eq(Subtitle::getAssetId, assetId))
                 .stream().map(this::toVO).toList();
@@ -36,6 +38,7 @@ public class SubtitleService {
     public SubtitleVO get(Long id) {
         Subtitle sub = subtitleMapper.selectById(id);
         if (sub == null) throw new BusinessException("字幕不存在");
+        projectAccessGuard.assertAccess(sub.getProjectId());
         return toVO(sub);
     }
 
@@ -45,8 +48,10 @@ public class SubtitleService {
      */
     @Transactional(rollbackFor = Exception.class)
     public SubtitleVO generate(SubtitleGenerateDTO dto) {
-        Asset asset = assetMapper.selectById(dto.getAssetId());
-        if (asset == null) throw new BusinessException("资产不存在");
+        Asset asset = requireAccessibleAsset(dto.getAssetId());
+        if (!asset.getProjectId().equals(dto.getProjectId())) {
+            throw new BusinessException("字幕所属项目与资产不一致");
+        }
 
         // 先删除该资产已有的字幕
         subtitleMapper.delete(new LambdaQueryWrapper<Subtitle>().eq(Subtitle::getAssetId, dto.getAssetId()));
@@ -54,7 +59,7 @@ public class SubtitleService {
         String srt = buildSrtFromPrompt(dto.getPrompt(), dto.getLanguage());
         Subtitle sub = new Subtitle();
         sub.setAssetId(dto.getAssetId());
-        sub.setProjectId(dto.getProjectId());
+        sub.setProjectId(asset.getProjectId());
         sub.setLanguage(dto.getLanguage() != null ? dto.getLanguage() : "zh");
         sub.setSrtContent(srt);
         sub.setStatus(1);
@@ -66,6 +71,7 @@ public class SubtitleService {
     public SubtitleVO update(SubtitleUpdateDTO dto) {
         Subtitle sub = subtitleMapper.selectById(dto.getId());
         if (sub == null) throw new BusinessException("字幕不存在");
+        projectAccessGuard.assertAccess(sub.getProjectId());
         sub.setSrtContent(dto.getSrtContent());
         if (dto.getLanguage() != null) sub.setLanguage(dto.getLanguage());
         subtitleMapper.updateById(sub);
@@ -79,6 +85,7 @@ public class SubtitleService {
     public SubtitleVO generateVoice(Long subtitleId) {
         Subtitle sub = subtitleMapper.selectById(subtitleId);
         if (sub == null) throw new BusinessException("字幕不存在");
+        projectAccessGuard.assertAccess(sub.getProjectId());
 
         // 从 SRT 中提取纯文本
         String plainText = extractPlainTextFromSrt(sub.getSrtContent());
@@ -106,6 +113,11 @@ public class SubtitleService {
 
     @Transactional(rollbackFor = Exception.class)
     public void delete(Long id) {
+        Subtitle sub = subtitleMapper.selectById(id);
+        if (sub == null) {
+            throw new BusinessException("字幕不存在");
+        }
+        projectAccessGuard.assertAccess(sub.getProjectId());
         subtitleMapper.deleteById(id);
     }
 
@@ -150,5 +162,14 @@ public class SubtitleService {
 
     private SubtitleVO toVO(Subtitle sub) {
         return VoMapper.copy(sub, SubtitleVO.class);
+    }
+
+    private Asset requireAccessibleAsset(Long assetId) {
+        Asset asset = assetMapper.selectById(assetId);
+        if (asset == null) {
+            throw new BusinessException("资产不存在");
+        }
+        projectAccessGuard.assertAccess(asset.getProjectId());
+        return asset;
     }
 }

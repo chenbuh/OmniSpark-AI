@@ -32,6 +32,7 @@ public class ProjectService {
     private final WorkflowRunMapper workflowRunMapper;
     private final AssetMapper assetMapper;
     private final ObjectMapper objectMapper;
+    private final com.example.aihub.common.security.ProjectAccessGuard projectAccessGuard;
 
     // ===== 原有 listMine / create / update / delete 保持不变 =====
 
@@ -112,6 +113,7 @@ public class ProjectService {
     // ===== 导出/导入 =====
 
     public ProjectExportVO exportProject(Long projectId) {
+        projectAccessGuard.assertAccess(projectId);
         Project project = projectMapper.selectById(projectId);
         if (project == null) throw new BusinessException("项目不存在");
 

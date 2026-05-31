@@ -16,13 +16,13 @@ import java.util.List;
 @Service
 @RequiredArgsConstructor
 public class PromptTemplateService {
+    private static final long PUBLIC_LIBRARY_PROJECT_ID = 0L;
+
     private final PromptTemplateMapper templateMapper;
 
     public List<PromptTemplateVO> list(Long projectId) {
         LambdaQueryWrapper<PromptTemplate> wrapper = new LambdaQueryWrapper<>();
-        if (projectId != null) {
-            wrapper.eq(PromptTemplate::getProjectId, projectId);
-        }
+        wrapper.eq(PromptTemplate::getStatus, 1);
         wrapper.orderByDesc(PromptTemplate::getId);
         return templateMapper.selectList(wrapper).stream().map(item -> VoMapper.copy(item, PromptTemplateVO.class)).toList();
     }
@@ -30,7 +30,7 @@ public class PromptTemplateService {
     @Transactional(rollbackFor = Exception.class)
     public PromptTemplateVO create(PromptTemplateSaveDTO dto) {
         PromptTemplate template = new PromptTemplate();
-        template.setProjectId(dto.getProjectId());
+        template.setProjectId(PUBLIC_LIBRARY_PROJECT_ID);
         template.setName(dto.getName());
         template.setContent(dto.getContent());
         template.setTag(dto.getTag());
@@ -45,7 +45,7 @@ public class PromptTemplateService {
         if (template == null) {
             throw new BusinessException("模板不存在");
         }
-        template.setProjectId(dto.getProjectId());
+        template.setProjectId(PUBLIC_LIBRARY_PROJECT_ID);
         template.setName(dto.getName());
         template.setContent(dto.getContent());
         template.setTag(dto.getTag());
@@ -56,6 +56,10 @@ public class PromptTemplateService {
 
     @Transactional(rollbackFor = Exception.class)
     public void delete(Long id) {
+        PromptTemplate template = templateMapper.selectById(id);
+        if (template == null) {
+            throw new BusinessException("模板不存在");
+        }
         templateMapper.deleteById(id);
     }
 }
