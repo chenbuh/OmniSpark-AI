@@ -17,10 +17,11 @@ async function hydrateWorkspace() {
 
 export const authApi = {
   // 登录
-  async login(params: { username: string; password?: string }) {
+  async login(params: { username: string; password?: string; captchaTicket?: string }) {
     const res = await request.post('/api/auth/login', {
       username: params.username,
-      encryptedPassword: await encryptPassword(params.password || '')
+      encryptedPassword: await encryptPassword(params.password || ''),
+      captchaTicket: params.captchaTicket
     })
     useUserStore().setSession(res.data.userInfo, res.data.token)
     await hydrateWorkspace()
@@ -28,11 +29,12 @@ export const authApi = {
   },
 
   // 注册
-  async register(params: { username: string; password: string; nickname: string }) {
+  async register(params: { username: string; password: string; nickname: string; captchaTicket?: string }) {
     return request.post('/api/auth/register', {
       username: params.username,
       nickname: params.nickname,
-      encryptedPassword: await encryptPassword(params.password)
+      encryptedPassword: await encryptPassword(params.password),
+      captchaTicket: params.captchaTicket
     })
   },
 

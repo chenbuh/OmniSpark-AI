@@ -12,18 +12,23 @@ import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
 public class WebConfig implements WebMvcConfigurer {
     private final MaintenanceInterceptor maintenanceInterceptor;
     private final ApiSignInterceptor apiSignInterceptor;
+    private final RateLimitInterceptor rateLimitInterceptor;
 
     @Override
     public void addInterceptors(InterceptorRegistry registry) {
         registry.addInterceptor(maintenanceInterceptor).addPathPatterns("/api/**");
         registry.addInterceptor(apiSignInterceptor).addPathPatterns("/api/**");
+        // 限流拦截器：放在签名校验之后、业务与鉴权之前，对带 @RateLimit 的接口按维度计数拦截。
+        registry.addInterceptor(rateLimitInterceptor).addPathPatterns("/api/**");
         // 注册 Sa-Token 注解拦截器，使 @SaCheckLogin / @SaCheckRole 等注解生效。
         // Spring Boot 3 的 sa-token starter 不会自动注册该拦截器，必须手动注册。
         registry.addInterceptor(new SaInterceptor())
                 .addPathPatterns("/api/**")
                 .excludePathPatterns(
                         "/api/auth/login",
-                        "/api/auth/register"
+                        "/api/auth/register",
+                        "/api/auth/captcha/generate",
+                        "/api/auth/captcha/verify"
                 );
     }
 

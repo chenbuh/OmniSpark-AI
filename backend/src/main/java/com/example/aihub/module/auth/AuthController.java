@@ -2,6 +2,7 @@ package com.example.aihub.module.auth;
 
 import cn.dev33.satoken.stp.StpUtil;
 import cn.dev33.satoken.annotation.SaCheckLogin;
+import com.example.aihub.common.annotation.RateLimit;
 import com.example.aihub.common.result.ApiResult;
 import jakarta.servlet.http.HttpServletRequest;
 import com.example.aihub.infrastructure.dto.LoginDTO;
@@ -9,6 +10,7 @@ import com.example.aihub.infrastructure.entity.LoginLog;
 import com.example.aihub.infrastructure.mapper.LoginLogMapper;
 import com.example.aihub.infrastructure.dto.RegisterDTO;
 import com.example.aihub.infrastructure.service.AuthService;
+import com.example.aihub.infrastructure.service.CaptchaService;
 import com.example.aihub.infrastructure.service.PasswordEncryptionService;
 import com.example.aihub.infrastructure.vo.LoginVO;
 import com.example.aihub.infrastructure.vo.PasswordPublicKeyVO;
@@ -30,6 +32,7 @@ public class AuthController {
     private final AuthService authService;
     private final LoginLogMapper loginLogMapper;
     private final PasswordEncryptionService passwordEncryptionService;
+    private final CaptchaService captchaService;
 
     @GetMapping("/public-key")
     public ApiResult<PasswordPublicKeyVO> publicKey() {
@@ -37,7 +40,9 @@ public class AuthController {
     }
 
     @PostMapping("/login")
+    @RateLimit(count = 10, seconds = 60, dimension = RateLimit.Dimension.IP, message = "登录尝试过于频繁，请稍后再试")
     public ApiResult<LoginVO> login(@Valid @RequestBody LoginDTO dto, HttpServletRequest request) {
+        requireCaptcha(dto.getCaptchaTicket());
         String ip = request.getRemoteAddr();
         String ua = request.getHeader("User-Agent");
         dto.setPassword(passwordEncryptionService.resolvePassword(dto.getPassword(), dto.getEncryptedPassword()));
@@ -45,9 +50,18 @@ public class AuthController {
     }
 
     @PostMapping("/register")
+    @RateLimit(count = 5, seconds = 3600, dimension = RateLimit.Dimension.IP, message = "注册过于频繁，请稍后再试")
     public ApiResult<UserVO> register(@Valid @RequestBody RegisterDTO dto) {
+        requireCaptcha(dto.getCaptchaTicket());
         dto.setPassword(passwordEncryptionService.resolvePassword(dto.getPassword(), dto.getEncryptedPassword()));
         return ApiResult.ok(authService.register(dto));
+    }
+
+    /** 核销滑块验证码票据；无票据或票据无效（过期/已用）则拒绝。 */
+    private void requireCaptcha(String ticket) {
+        if (!captchaService.consumeTicket(ticket)) {
+            throw new com.example.aihub.common.exception.BusinessException("请先完成滑块验证");
+        }
     }
 
     @PostMapping("/logout")

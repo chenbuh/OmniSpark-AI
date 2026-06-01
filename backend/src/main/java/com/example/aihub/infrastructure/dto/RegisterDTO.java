@@ -14,6 +14,9 @@ public class RegisterDTO {
     /** 传输加密后的密码字段，前端实际提交的字段。 */
     private String encryptedPassword;
 
+    /** 滑块验证码通过后获得的一次性票据，注册时核销。 */
+    private String captchaTicket;
+
     @NotBlank
     private String nickname;
 }

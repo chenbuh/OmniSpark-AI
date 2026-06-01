@@ -108,6 +108,13 @@ function getHeaderValue(headers: InternalAxiosRequestConfig['headers'], name: st
   if (!headers) {
     return ''
   }
+  const getter = (headers as any).get
+  if (typeof getter === 'function') {
+    const value = getter.call(headers, name)
+    if (typeof value === 'string') {
+      return value
+    }
+  }
   const direct = headers[name]
   if (typeof direct === 'string') {
     return direct
@@ -116,7 +123,22 @@ function getHeaderValue(headers: InternalAxiosRequestConfig['headers'], name: st
   if (typeof lower === 'string') {
     return lower
   }
+  const targetName = name.toLowerCase()
+  for (const [key, value] of Object.entries(headers as Record<string, unknown>)) {
+    if (key.toLowerCase() === targetName && typeof value === 'string') {
+      return value
+    }
+  }
   return ''
+}
+
+function shouldBypassCache(config: InternalAxiosRequestConfig): boolean {
+  const noCache = getHeaderValue(config.headers, 'x-no-cache').toLowerCase()
+  const cacheControl = getHeaderValue(config.headers, 'Cache-Control').toLowerCase()
+  return noCache === '1'
+    || noCache === 'true'
+    || cacheControl.includes('no-cache')
+    || cacheControl.includes('no-store')
 }
 
 function isFormUrlEncodedRequest(config: InternalAxiosRequestConfig): boolean {
@@ -265,7 +287,7 @@ request.interceptors.request.use(
     }
 
     // GET 请求检查缓存
-    if (isCacheable(config.method) && !config.headers?.['x-no-cache']) {
+    if (isCacheable(config.method) && !shouldBypassCache(config)) {
       const key = getCacheKey(config)
       const cached = cacheStore.get(key)
       if (cached && Date.now() - cached.timestamp < DEFAULT_TTL) {
@@ -309,7 +331,7 @@ request.interceptors.response.use(
     }
 
     // 缓存 GET 成功响应
-    if (isCacheable(response.config.method) && !response.config.headers?.['x-no-cache']) {
+    if (isCacheable(response.config.method) && !shouldBypassCache(response.config as any)) {
       const key = getCacheKey(response.config as any)
       cacheStore.set(key, { data: res, timestamp: Date.now() })
     } else if (!isCacheable(response.config.method)) {
@@ -334,6 +356,11 @@ request.interceptors.response.use(
     if (error?.response?.status === 503) {
       const msg = error?.response?.data?.message || '系统维护中，请稍后再试'
       window.dispatchEvent(new CustomEvent('system-maintenance', { detail: msg }))
+    }
+    // 429 触发限流：透传后端的具体提示文案（如"登录尝试过于频繁"）
+    if (error?.response?.status === 429) {
+      const msg = error?.response?.data?.message || '操作过于频繁，请稍后再试'
+      return Promise.reject(new Error(msg))
     }
     return Promise.reject(new Error(extractErrorMessage(error)))
   }

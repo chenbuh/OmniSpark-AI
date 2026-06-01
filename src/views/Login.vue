@@ -149,6 +149,12 @@
         </div>
       </n-form>
     </n-card>
+
+    <SliderCaptcha
+      :visible="captchaVisible"
+      @success="onCaptchaSuccess"
+      @close="onCaptchaClose"
+    />
   </div>
 </template>
 
@@ -160,6 +166,7 @@ import type { FormInst } from 'naive-ui'
 import { authApi } from '@/api/auth'
 import { User, Lock, Zap, Smile, ShieldCheck } from 'lucide-vue-next'
 import { PASSWORD_REQUIREMENT_TEXT, validatePasswordStrength } from '@/utils/password'
+import SliderCaptcha from '@/components/SliderCaptcha.vue'
 
 const router = useRouter()
 const message = useMessage()
@@ -235,53 +242,80 @@ const toggleMode = (mode: boolean) => {
   registerForm.confirmPassword = ''
 }
 
-// 登录触发
+// ===== 滑块验证码 =====
+const captchaVisible = ref(false)
+const pendingAction = ref<'login' | 'register' | null>(null)
+
+// 登录触发：先校验表单，再弹验证码
 const handleLogin = () => {
-  loginFormRef.value?.validate(async (errors) => {
+  loginFormRef.value?.validate((errors) => {
     if (errors) return
-    
-    loading.value = true
-    try {
-      const res = await authApi.login({
-        username: loginForm.username,
-        password: loginForm.password
-      })
-      message.success(`登录成功，欢迎回来，${res.data.userInfo.nickname}👋`)
-      router.push('/dashboard')
-    } catch (err: any) {
-      message.error(err.message || '账户或安全密码校验失败，请重试！')
-    } finally {
-      loading.value = false
-    }
+    pendingAction.value = 'login'
+    captchaVisible.value = true
   })
 }
 
-// 注册触发
+// 注册触发：先校验表单，再弹验证码
 const handleRegister = () => {
-  registerFormRef.value?.validate(async (errors) => {
+  registerFormRef.value?.validate((errors) => {
     if (errors) return
-    
-    loading.value = true
-    try {
-      await authApi.register({
-        username: registerForm.username,
-        password: registerForm.password,
-        nickname: registerForm.nickname
-      })
-      
-      message.success(`新账号 ${registerForm.username} 注册成功！已为您自动切回登录`)
-      
-      // 自动带入到登录用户名框
-      loginForm.username = registerForm.username
-      loginForm.password = ''
-      isLoginMode.value = true
-      
-    } catch (err: any) {
-      message.error(err.message || '账号注册冲突，请稍后重试！')
-    } finally {
-      loading.value = false
-    }
+    pendingAction.value = 'register'
+    captchaVisible.value = true
   })
+}
+
+// 验证码通过：拿到票据后执行真正的登录/注册
+const onCaptchaSuccess = async (ticket: string) => {
+  captchaVisible.value = false
+  const action = pendingAction.value
+  pendingAction.value = null
+  if (action === 'login') {
+    await doLogin(ticket)
+  } else if (action === 'register') {
+    await doRegister(ticket)
+  }
+}
+
+const onCaptchaClose = () => {
+  captchaVisible.value = false
+  pendingAction.value = null
+}
+
+const doLogin = async (captchaTicket: string) => {
+  loading.value = true
+  try {
+    const res = await authApi.login({
+      username: loginForm.username,
+      password: loginForm.password,
+      captchaTicket
+    })
+    message.success(`登录成功，欢迎回来，${res.data.userInfo.nickname}👋`)
+    router.push('/dashboard')
+  } catch (err: any) {
+    message.error(err.message || '账户或安全密码校验失败，请重试！')
+  } finally {
+    loading.value = false
+  }
+}
+
+const doRegister = async (captchaTicket: string) => {
+  loading.value = true
+  try {
+    await authApi.register({
+      username: registerForm.username,
+      password: registerForm.password,
+      nickname: registerForm.nickname,
+      captchaTicket
+    })
+    message.success(`新账号 ${registerForm.username} 注册成功！已为您自动切回登录`)
+    loginForm.username = registerForm.username
+    loginForm.password = ''
+    isLoginMode.value = true
+  } catch (err: any) {
+    message.error(err.message || '账号注册冲突，请稍后重试！')
+  } finally {
+    loading.value = false
+  }
 }
 </script>
 

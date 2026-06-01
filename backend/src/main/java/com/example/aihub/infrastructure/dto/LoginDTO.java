@@ -11,4 +11,7 @@ public class LoginDTO {
     private String password;
 
     private String encryptedPassword;
+
+    /** 滑块验证码通过后获得的一次性票据，登录时核销。 */
+    private String captchaTicket;
 }
