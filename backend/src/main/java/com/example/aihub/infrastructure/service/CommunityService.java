@@ -2,6 +2,7 @@ package com.example.aihub.infrastructure.service;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.example.aihub.common.exception.BusinessException;
+import com.example.aihub.common.security.UploadAccessSignatureService;
 import com.example.aihub.common.result.PageResult;
 import com.example.aihub.common.util.VoMapper;
 import com.example.aihub.infrastructure.dto.CommunityPostDTO;
@@ -24,6 +25,7 @@ public class CommunityService {
     private final CommunityPostMapper postMapper;
     private final UserMapper userMapper;
     private final PublicContentInteractionService interactionService;
+    private final UploadAccessSignatureService uploadAccessSignatureService;
 
     public List<CommunityPostVO> list(String category, String search, Long currentUserId) {
         return list(category, search, "newest", currentUserId);
@@ -158,6 +160,7 @@ public class CommunityService {
 
     private CommunityPostVO toVO(CommunityPost post, boolean liked) {
         CommunityPostVO vo = VoMapper.copy(post, CommunityPostVO.class);
+        vo.setImageUrl(uploadAccessSignatureService.signUrl(vo.getImageUrl()));
         vo.setLiked(liked ? 1 : 0);
         return vo;
     }

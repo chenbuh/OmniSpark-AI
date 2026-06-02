@@ -2,6 +2,7 @@ package com.example.aihub.infrastructure.service;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.example.aihub.common.exception.BusinessException;
+import com.example.aihub.common.security.UploadAccessSignatureService;
 import com.example.aihub.common.util.VoMapper;
 import com.example.aihub.infrastructure.dto.SubtitleGenerateDTO;
 import com.example.aihub.infrastructure.dto.SubtitleUpdateDTO;
@@ -27,6 +28,7 @@ public class SubtitleService {
     private final SubtitleMapper subtitleMapper;
     private final AssetMapper assetMapper;
     private final com.example.aihub.common.security.ProjectAccessGuard projectAccessGuard;
+    private final UploadAccessSignatureService uploadAccessSignatureService;
 
     public List<SubtitleVO> listByAsset(Long assetId) {
         requireAccessibleAsset(assetId);
@@ -161,7 +163,9 @@ public class SubtitleService {
     }
 
     private SubtitleVO toVO(Subtitle sub) {
-        return VoMapper.copy(sub, SubtitleVO.class);
+        SubtitleVO vo = VoMapper.copy(sub, SubtitleVO.class);
+        vo.setVoiceUrl(uploadAccessSignatureService.signProjectUrl(vo.getVoiceUrl(), sub.getProjectId()));
+        return vo;
     }
 
     private Asset requireAccessibleAsset(Long assetId) {

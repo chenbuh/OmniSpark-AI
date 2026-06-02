@@ -2,6 +2,8 @@ package com.example.aihub.common.config;
 
 import cn.dev33.satoken.stp.StpUtil;
 import com.example.aihub.common.annotation.RateLimit;
+import com.example.aihub.common.security.ClientIpResolver;
+import com.example.aihub.common.security.SecurityRequestAttributes;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
@@ -10,7 +12,10 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.method.HandlerMethod;
 import org.springframework.web.servlet.HandlerInterceptor;
 
-import java.nio.charset.StandardCharsets;
+import java.lang.reflect.Method;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.List;
 import java.time.Duration;
 import java.util.Locale;
 
@@ -25,21 +30,36 @@ import java.util.Locale;
 @RequiredArgsConstructor
 public class RateLimitInterceptor implements HandlerInterceptor {
     private static final String KEY_PREFIX = "rate:";
+    private static final RateLimitRule DEFAULT_READ_IP_LIMIT = new RateLimitRule(
+            180,
+            60,
+            RateLimit.Dimension.IP,
+            "读取请求过于频繁，请稍后再试",
+            new String[]{"GET", "HEAD"}
+    );
+    private static final RateLimitRule DEFAULT_READ_USER_LIMIT = new RateLimitRule(
+            90,
+            60,
+            RateLimit.Dimension.USER_API,
+            "读取请求过于频繁，请稍后再试",
+            new String[]{"GET", "HEAD"}
+    );
 
     private final StringRedisTemplate redisTemplate;
+    private final ClientIpResolver clientIpResolver;
 
     @Override
     public boolean preHandle(HttpServletRequest request, HttpServletResponse response, Object handler) throws Exception {
         if (!(handler instanceof HandlerMethod handlerMethod)) {
             return true;
         }
-        RateLimit[] limits = handlerMethod.getMethod().getAnnotationsByType(RateLimit.class);
-        if (limits.length == 0) {
-            return true;
-        }
+        List<RateLimitRule> limits = resolveLimits(handlerMethod, request);
 
         String handlerKey = handlerMethod.getBeanType().getSimpleName() + "#" + handlerMethod.getMethod().getName();
-        for (RateLimit limit : limits) {
+        for (RateLimitRule limit : limits) {
+            if (!matchesMethod(limit.methods(), request.getMethod())) {
+                continue;
+            }
             String subject = resolveSubject(limit.dimension(), request);
             if (subject == null) {
                 // 该维度无法确定主体（如 USER 维度但当前未登录）：交给后续鉴权拦截器处理，本规则跳过
@@ -48,6 +68,7 @@ public class RateLimitInterceptor implements HandlerInterceptor {
             String key = KEY_PREFIX + limit.dimension().name().toLowerCase(Locale.ROOT)
                     + ":" + subject + ":" + handlerKey + ":" + limit.seconds();
             if (isOverLimit(key, limit)) {
+                request.setAttribute(SecurityRequestAttributes.RATE_LIMIT_HIT, Boolean.TRUE);
                 writeTooManyRequests(response, limit.message());
                 return false;
             }
@@ -55,8 +76,72 @@ public class RateLimitInterceptor implements HandlerInterceptor {
         return true;
     }
 
+    private List<RateLimitRule> resolveLimits(HandlerMethod handlerMethod, HttpServletRequest request) {
+        List<RateLimitRule> limits = new ArrayList<>();
+        limits.addAll(toRules(handlerMethod.getBeanType().getAnnotationsByType(RateLimit.class)));
+        Method method = handlerMethod.getMethod();
+        limits.addAll(toRules(method.getAnnotationsByType(RateLimit.class)));
+        if (isDefaultReadLimited(request)) {
+            if (!hasMatchingDimension(limits, RateLimit.Dimension.IP, request.getMethod())) {
+                limits.add(DEFAULT_READ_IP_LIMIT);
+            }
+            if (!hasMatchingDimension(limits, RateLimit.Dimension.USER_API, request.getMethod())) {
+                limits.add(DEFAULT_READ_USER_LIMIT);
+            }
+        }
+        return limits;
+    }
+
+    private boolean hasMatchingDimension(List<RateLimitRule> limits, RateLimit.Dimension dimension, String method) {
+        for (RateLimitRule limit : limits) {
+            if (limit.dimension() == dimension && matchesMethod(limit.methods(), method)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private List<RateLimitRule> toRules(RateLimit[] annotations) {
+        if (annotations == null || annotations.length == 0) {
+            return List.of();
+        }
+        return Arrays.stream(annotations)
+                .map(item -> new RateLimitRule(item.count(), item.seconds(), item.dimension(), item.message(), item.methods()))
+                .toList();
+    }
+
+    private boolean isDefaultReadLimited(HttpServletRequest request) {
+        String method = request.getMethod();
+        if (!"GET".equalsIgnoreCase(method) && !"HEAD".equalsIgnoreCase(method)) {
+            return false;
+        }
+        String path = request.getRequestURI();
+        if (path == null || !path.startsWith("/api/")) {
+            return false;
+        }
+        return !(path.startsWith("/api/auth/captcha/")
+                || path.equals("/api/auth/public-key")
+                || path.equals("/api/auth/sign/challenge")
+                || path.equals("/api/admin/health"));
+    }
+
+    private boolean matchesMethod(String[] methods, String requestMethod) {
+        if (methods == null || methods.length == 0) {
+            return true;
+        }
+        if (requestMethod == null || requestMethod.isBlank()) {
+            return false;
+        }
+        for (String method : methods) {
+            if (requestMethod.equalsIgnoreCase(method)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     /** 对单条规则计数并判断是否超限。计数失败（如 Redis 不可用）时放行，避免限流组件自身成为单点故障。 */
-    private boolean isOverLimit(String key, RateLimit limit) {
+    private boolean isOverLimit(String key, RateLimitRule limit) {
         try {
             Long current = redisTemplate.opsForValue().increment(key);
             if (current == null) {
@@ -74,7 +159,7 @@ public class RateLimitInterceptor implements HandlerInterceptor {
     /** 按维度取限流主体；无法确定时返回 null 表示跳过该规则。 */
     private String resolveSubject(RateLimit.Dimension dimension, HttpServletRequest request) {
         return switch (dimension) {
-            case IP -> resolveClientIp(request);
+            case IP -> clientIpResolver.resolve(request);
             case USER, USER_API -> resolveUserId();
         };
     }
@@ -89,31 +174,14 @@ public class RateLimitInterceptor implements HandlerInterceptor {
         return null;
     }
 
-    /**
-     * 取客户端 IP。生产部署在 Nginx/网关后时，{@code getRemoteAddr()} 拿到的是网关 IP，
-     * 需读 {@code X-Forwarded-For} 第一段。
-     *
-     * <p>安全提示：{@code X-Forwarded-For} 可被客户端伪造，必须在网关层强制覆写该头、
-     * 只信任自己网关注入的值，否则攻击者可伪造此头绕过 IP 限流。
-     */
-    private String resolveClientIp(HttpServletRequest request) {
-        String forwarded = request.getHeader("X-Forwarded-For");
-        if (forwarded != null && !forwarded.isBlank()) {
-            int comma = forwarded.indexOf(',');
-            String first = (comma > 0 ? forwarded.substring(0, comma) : forwarded).trim();
-            if (!first.isBlank()) {
-                return first;
-            }
-        }
-        String remote = request.getRemoteAddr();
-        return remote == null || remote.isBlank() ? "unknown" : remote;
-    }
-
     private void writeTooManyRequests(HttpServletResponse response, String message) throws Exception {
         response.setStatus(429);
         response.setContentType("application/json;charset=UTF-8");
         String safeMessage = message == null ? "操作过于频繁，请稍后再试" : message.replace("\"", "'");
         response.getWriter().write("{\"code\":429,\"message\":\"" + safeMessage + "\",\"data\":null}");
         response.getWriter().flush();
+    }
+
+    private record RateLimitRule(int count, int seconds, RateLimit.Dimension dimension, String message, String[] methods) {
     }
 }

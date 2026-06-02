@@ -1,14 +1,23 @@
 package com.example.aihub.infrastructure.service;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.example.aihub.common.exception.BusinessException;
+import com.example.aihub.common.result.PageResult;
+import com.example.aihub.common.security.UploadAccessSignatureService;
+import com.example.aihub.common.util.PagingUtil;
+import com.example.aihub.common.util.SecurityUtil;
 import com.example.aihub.common.util.VoMapper;
 import com.example.aihub.infrastructure.entity.Asset;
+import com.example.aihub.infrastructure.entity.ProjectShare;
+import com.example.aihub.infrastructure.entity.TeamMember;
 import com.example.aihub.infrastructure.mapper.AssetMapper;
+import com.example.aihub.infrastructure.mapper.ProjectShareMapper;
+import com.example.aihub.infrastructure.mapper.TeamMemberMapper;
 import com.example.aihub.infrastructure.vo.AssetVO;
+import com.example.aihub.infrastructure.vo.AssetStatsVO;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
@@ -17,7 +26,9 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.List;
+import java.util.Set;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 @Service
 @Slf4j
@@ -30,26 +41,19 @@ public class AssetService {
     );
 
     private final AssetMapper assetMapper;
-    private final com.example.aihub.infrastructure.mapper.ProjectShareMapper projectShareMapper;
-    private final com.example.aihub.infrastructure.mapper.TeamMemberMapper teamMemberMapper;
+    private final ProjectShareMapper projectShareMapper;
+    private final TeamMemberMapper teamMemberMapper;
     private final com.example.aihub.common.security.ProjectAccessGuard projectAccessGuard;
+    private final UploadAccessSignatureService uploadAccessSignatureService;
 
-    @Value("${server.port:8080}")
-    private String serverPort;
-
-    public List<AssetVO> list(Long projectId, String assetType, Long taskId) {
-        LambdaQueryWrapper<Asset> wrapper = new LambdaQueryWrapper<>();
-        if (projectId != null) {
-            projectAccessGuard.assertAccess(projectId);
-            wrapper.eq(Asset::getProjectId, projectId);
-        } else {
-            // 未指定项目时，仅返回当前用户可访问项目下的资产，避免返回全量数据
-            List<Long> accessibleIds = projectAccessGuard.accessibleProjectIds();
-            if (accessibleIds.isEmpty()) {
-                return List.of();
-            }
-            wrapper.in(Asset::getProjectId, accessibleIds);
+    public List<AssetVO> list(Long projectId, String assetType, Long taskId, int limit) {
+        int safeLimit = PagingUtil.clampLimit(limit, 100, 100);
+        List<Long> projectIds = resolveOwnProjectIds(projectId);
+        if (projectIds.isEmpty()) {
+            return List.of();
         }
+        LambdaQueryWrapper<Asset> wrapper = new LambdaQueryWrapper<>();
+        wrapper.in(Asset::getProjectId, projectIds);
         if (assetType != null && !assetType.isBlank()) {
             wrapper.eq(Asset::getAssetType, assetType);
         }
@@ -57,37 +61,86 @@ public class AssetService {
             wrapper.eq(Asset::getTaskId, taskId);
         }
         wrapper.orderByDesc(Asset::getId);
-        return assetMapper.selectList(wrapper).stream().map(item -> VoMapper.copy(item, AssetVO.class)).toList();
+        wrapper.last("LIMIT " + safeLimit);
+        return assetMapper.selectList(wrapper).stream().map(this::toVO).toList();
     }
 
-    public List<AssetVO> listShared(Long userId, String assetType) {
+    public List<AssetVO> listShared(Long userId, String assetType, int limit) {
+        int safeLimit = PagingUtil.clampLimit(limit, 100, 100);
         // 始终以当前登录用户为准，忽略请求参数，避免越权查看他人共享资产
-        Long currentUserId = com.example.aihub.common.util.SecurityUtil.loginUserId();
-        // 查询用户所在的所有团队
-        var teamWrapper = new LambdaQueryWrapper<com.example.aihub.infrastructure.entity.TeamMember>();
-        teamWrapper.eq(com.example.aihub.infrastructure.entity.TeamMember::getUserId, currentUserId);
-        teamWrapper.eq(com.example.aihub.infrastructure.entity.TeamMember::getStatus, 1);
-        var memberships = teamMemberMapper.selectList(teamWrapper);
-        if (memberships.isEmpty()) return List.of();
-
-        var teamIds = memberships.stream().map(com.example.aihub.infrastructure.entity.TeamMember::getTeamId).toList();
-
-        // 查询这些团队共享的项目
-        var shareWrapper = new LambdaQueryWrapper<com.example.aihub.infrastructure.entity.ProjectShare>();
-        shareWrapper.in(com.example.aihub.infrastructure.entity.ProjectShare::getTeamId, teamIds);
-        var shares = projectShareMapper.selectList(shareWrapper);
-        if (shares.isEmpty()) return List.of();
-
-        var projectIds = shares.stream().map(com.example.aihub.infrastructure.entity.ProjectShare::getProjectId).toList();
-
-        // 查询这些项目的资产
+        List<Long> projectIds = resolveSharedProjectIds();
+        if (projectIds.isEmpty()) {
+            return List.of();
+        }
         var assetWrapper = new LambdaQueryWrapper<Asset>();
         assetWrapper.in(Asset::getProjectId, projectIds);
         if (assetType != null && !assetType.isBlank()) {
             assetWrapper.eq(Asset::getAssetType, assetType);
         }
         assetWrapper.orderByDesc(Asset::getId);
-        return assetMapper.selectList(assetWrapper).stream().map(item -> VoMapper.copy(item, AssetVO.class)).toList();
+        assetWrapper.last("LIMIT " + safeLimit);
+        return assetMapper.selectList(assetWrapper).stream().map(this::toVO).toList();
+    }
+
+    public PageResult<AssetVO> page(String scope, Long projectId, String assetType, Boolean favorite,
+                                    String search, String sort, long page, long pageSize) {
+        List<Long> projectIds = resolveProjectIds(scope, projectId);
+        if (projectIds.isEmpty()) {
+            return new PageResult<>(0, 0, List.of());
+        }
+        long safePage = PagingUtil.normalizePage(page);
+        long safePageSize = PagingUtil.clampPageSize(pageSize, 24);
+        LambdaQueryWrapper<Asset> wrapper = buildAssetFilter(projectIds, assetType, favorite, search);
+        applySort(wrapper, sort);
+
+        Page<Asset> result = assetMapper.selectPage(new Page<>(safePage, safePageSize), wrapper);
+        List<AssetVO> records = result.getRecords().stream().map(this::toVO).toList();
+        return new PageResult<>(result.getTotal(), result.getPages(), records);
+    }
+
+    public AssetStatsVO stats(String scope, Long projectId) {
+        List<Long> projectIds = resolveProjectIds(scope, projectId);
+        if (projectIds.isEmpty()) {
+            return new AssetStatsVO(0, 0, 0, 0, 0);
+        }
+        long total = countAssets(projectIds, null, null);
+        long imageCount = countAssets(projectIds, "image", null);
+        long videoCount = countAssets(projectIds, "video", null);
+        long referenceCount = countAssets(projectIds, "reference", null);
+        long favoriteCount = countAssets(projectIds, null, true);
+        return new AssetStatsVO(total, imageCount, videoCount, referenceCount, favoriteCount);
+    }
+
+    public AssetVO get(Long id) {
+        Asset asset = assetMapper.selectById(id);
+        if (asset == null) {
+            throw new BusinessException("资产不存在");
+        }
+        projectAccessGuard.assertAccess(asset.getProjectId());
+        return toVO(asset);
+    }
+
+    public List<AssetVO> listVersions(Long id, int limit) {
+        Asset asset = assetMapper.selectById(id);
+        if (asset == null) {
+            throw new BusinessException("资产不存在");
+        }
+        projectAccessGuard.assertAccess(asset.getProjectId());
+        if (asset.getPrompt() == null || asset.getPrompt().isBlank()) {
+            return List.of();
+        }
+
+        LambdaQueryWrapper<Asset> wrapper = new LambdaQueryWrapper<Asset>()
+                .eq(Asset::getProjectId, asset.getProjectId())
+                .eq(Asset::getPrompt, asset.getPrompt())
+                .orderByDesc(Asset::getId);
+        if (asset.getModelName() == null || asset.getModelName().isBlank()) {
+            wrapper.and(q -> q.isNull(Asset::getModelName).or().eq(Asset::getModelName, ""));
+        } else {
+            wrapper.eq(Asset::getModelName, asset.getModelName());
+        }
+        wrapper.last("LIMIT " + PagingUtil.clampLimit(limit, 12, 20));
+        return assetMapper.selectList(wrapper).stream().map(this::toVO).toList();
     }
 
     @Transactional(rollbackFor = Exception.class)
@@ -133,7 +186,7 @@ public class AssetService {
             asset.setFileSize(file.getSize());
             asset.setFavorite(0);
             assetMapper.insert(asset);
-            return VoMapper.copy(asset, AssetVO.class);
+            return toVO(asset);
         } catch (BusinessException ex) {
             throw ex;
         } catch (Exception ex) {
@@ -197,7 +250,14 @@ public class AssetService {
         projectAccessGuard.assertAccess(asset.getProjectId());
         asset.setFavorite(asset.getFavorite() != null && asset.getFavorite() == 1 ? 0 : 1);
         assetMapper.updateById(asset);
-        return VoMapper.copy(asset, AssetVO.class);
+        return toVO(asset);
+    }
+
+    public AssetVO toVO(Asset asset) {
+        AssetVO vo = VoMapper.copy(asset, AssetVO.class);
+        vo.setFileUrl(uploadAccessSignatureService.signProjectUrl(vo.getFileUrl(), asset.getProjectId()));
+        vo.setThumbUrl(uploadAccessSignatureService.signProjectUrl(vo.getThumbUrl(), asset.getProjectId()));
+        return vo;
     }
 
     /** 管理员删除资产:删 DB 记录并联动删物理文件,不做项目归属校验(由 admin 角色保证)。 */
@@ -219,6 +279,91 @@ public class AssetService {
         for (Asset asset : assets) {
             assetMapper.deleteById(asset.getId());
             deleteAssetFile(asset.getFileUrl());
+        }
+    }
+
+    private List<Long> resolveProjectIds(String scope, Long projectId) {
+        return "shared".equalsIgnoreCase(scope)
+                ? resolveSharedProjectIds()
+                : resolveOwnProjectIds(projectId);
+    }
+
+    private List<Long> resolveOwnProjectIds(Long projectId) {
+        if (projectId != null) {
+            projectAccessGuard.assertAccess(projectId);
+            return List.of(projectId);
+        }
+        return projectAccessGuard.accessibleProjectIds();
+    }
+
+    private List<Long> resolveSharedProjectIds() {
+        Long currentUserId = SecurityUtil.loginUserId();
+        List<TeamMember> memberships = teamMemberMapper.selectList(
+                new LambdaQueryWrapper<TeamMember>()
+                        .eq(TeamMember::getUserId, currentUserId)
+                        .eq(TeamMember::getStatus, 1));
+        if (memberships.isEmpty()) {
+            return List.of();
+        }
+        Set<Long> teamIds = memberships.stream().map(TeamMember::getTeamId).collect(Collectors.toSet());
+        List<ProjectShare> shares = projectShareMapper.selectList(
+                new LambdaQueryWrapper<ProjectShare>().in(ProjectShare::getTeamId, teamIds));
+        if (shares.isEmpty()) {
+            return List.of();
+        }
+        return shares.stream().map(ProjectShare::getProjectId).distinct().toList();
+    }
+
+    private LambdaQueryWrapper<Asset> buildAssetFilter(List<Long> projectIds, String assetType, Boolean favorite, String search) {
+        LambdaQueryWrapper<Asset> wrapper = new LambdaQueryWrapper<Asset>()
+                .in(Asset::getProjectId, projectIds);
+        if (assetType != null && !assetType.isBlank()) {
+            wrapper.eq(Asset::getAssetType, assetType);
+        }
+        if (favorite != null) {
+            wrapper.eq(Asset::getFavorite, favorite ? 1 : 0);
+        }
+        if (search != null && !search.isBlank()) {
+            String keyword = search.trim();
+            wrapper.and(q -> q.like(Asset::getFileName, keyword)
+                    .or().like(Asset::getPrompt, keyword)
+                    .or().like(Asset::getModelName, keyword));
+        }
+        return wrapper;
+    }
+
+    private long countAssets(List<Long> projectIds, String assetType, Boolean favorite) {
+        LambdaQueryWrapper<Asset> wrapper = new LambdaQueryWrapper<Asset>()
+                .in(Asset::getProjectId, projectIds);
+        if (assetType != null && !assetType.isBlank()) {
+            wrapper.eq(Asset::getAssetType, assetType);
+        }
+        if (favorite != null) {
+            wrapper.eq(Asset::getFavorite, favorite ? 1 : 0);
+        }
+        Long count = assetMapper.selectCount(wrapper);
+        return count == null ? 0 : count;
+    }
+
+    private void applySort(LambdaQueryWrapper<Asset> wrapper, String sort) {
+        String normalized = sort == null ? "latest" : sort.trim().toLowerCase(java.util.Locale.ROOT);
+        switch (normalized) {
+            case "oldest":
+                wrapper.orderByAsc(Asset::getId);
+                break;
+            case "size":
+                wrapper.orderByDesc(Asset::getFileSize).orderByDesc(Asset::getId);
+                break;
+            case "name":
+                wrapper.orderByAsc(Asset::getFileName).orderByDesc(Asset::getId);
+                break;
+            case "favorite":
+                wrapper.orderByDesc(Asset::getFavorite).orderByDesc(Asset::getId);
+                break;
+            case "latest":
+            default:
+                wrapper.orderByDesc(Asset::getId);
+                break;
         }
     }
 }

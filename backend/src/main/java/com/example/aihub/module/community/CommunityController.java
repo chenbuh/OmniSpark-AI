@@ -3,6 +3,7 @@ package com.example.aihub.module.community;
 import cn.dev33.satoken.annotation.SaCheckLogin;
 import cn.dev33.satoken.stp.StpUtil;
 import com.example.aihub.common.result.ApiResult;
+import com.example.aihub.common.util.PagingUtil;
 import com.example.aihub.infrastructure.dto.CommunityPostDTO;
 import com.example.aihub.infrastructure.dto.PublicCommentSaveDTO;
 import com.example.aihub.infrastructure.service.CommunityService;
@@ -30,7 +31,14 @@ public class CommunityController {
             @RequestParam(defaultValue = "1") long page,
             @RequestParam(defaultValue = "20") long pageSize) {
         Long userId = StpUtil.isLogin() ? StpUtil.getLoginIdAsLong() : null;
-        return ApiResult.ok(communityService.page(category, search, sort, userId, page, pageSize));
+        return ApiResult.ok(communityService.page(
+                category,
+                search,
+                sort,
+                userId,
+                PagingUtil.normalizePage(page),
+                PagingUtil.clampPageSize(pageSize, 20)
+        ));
     }
 
     @GetMapping("/posts/{id}")

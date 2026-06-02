@@ -2,13 +2,19 @@ import axios from 'axios'
 import type { AxiosInstance, InternalAxiosRequestConfig, AxiosResponse } from 'axios'
 
 export const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || 'http://localhost:8080').replace(/\/$/, '')
-const REQUEST_SIGNING_SECRET = import.meta.env.VITE_REQUEST_SIGNING_SECRET || 'omnispark-dev-signing-secret-2026'
 
 // 统一的接口返回结构，契合 docs/初始化骨架与DTO-VO设计.md 的 ApiResult
 export interface ApiResult<T> {
   code: number
   message: string
   data: T
+}
+
+interface SignChallenge {
+  challengeId: string
+  challengeSecret: string
+  serverTime: number
+  expiresAt: number
 }
 
 // ===== SWR 内存缓存 =====
@@ -249,16 +255,39 @@ async function sha256Hex(value: string): Promise<string> {
   return arrayBufferToHex(digest)
 }
 
-async function hmacSha256Base64(value: string): Promise<string> {
+async function hmacSha256Base64(value: string, secret: string): Promise<string> {
   const key = await window.crypto.subtle.importKey(
     'raw',
-    new TextEncoder().encode(REQUEST_SIGNING_SECRET),
+    new TextEncoder().encode(secret),
     { name: 'HMAC', hash: 'SHA-256' },
     false,
     ['sign']
   )
   const signature = await window.crypto.subtle.sign('HMAC', key, new TextEncoder().encode(value))
   return arrayBufferToBase64(signature)
+}
+
+async function fetchSignChallenge(): Promise<SignChallenge> {
+  const token = localStorage.getItem('satoken')
+  const headers: Record<string, string> = {
+    'Cache-Control': 'no-store',
+    'X-No-Cache': '1'
+  }
+  if (token) {
+    headers.satoken = token
+  }
+  const response = await fetch(`${API_BASE_URL}/api/auth/sign/challenge`, {
+    method: 'GET',
+    headers
+  })
+  if (!response.ok) {
+    throw new Error('签名挑战获取失败，请刷新页面后重试')
+  }
+  const payload = await response.json() as ApiResult<SignChallenge>
+  if (payload.code !== 200 && payload.code !== 0) {
+    throw new Error(payload.message || '签名挑战获取失败，请刷新页面后重试')
+  }
+  return payload.data
 }
 
 function generateNonce() {
@@ -309,12 +338,14 @@ request.interceptors.request.use(
       const nonce = generateNonce()
       const method = (config.method || 'post').toUpperCase()
       const pathWithQuery = buildPathWithQuery(config)
-      const payload = `${method}\n${pathWithQuery}\n${bodyHash}\n${timestamp}\n${nonce}`
-      const signature = await hmacSha256Base64(payload)
+      const challenge = await fetchSignChallenge()
+      const payload = `${method}\n${pathWithQuery}\n${bodyHash}\n${timestamp}\n${nonce}\n${challenge.challengeId}`
+      const signature = await hmacSha256Base64(payload, challenge.challengeSecret)
       if (config.headers) {
         config.headers['X-Timestamp'] = timestamp
         config.headers['X-Nonce'] = nonce
         config.headers['X-Sign'] = signature
+        config.headers['X-Challenge-Id'] = challenge.challengeId
       }
     }
     return config

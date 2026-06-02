@@ -19,7 +19,7 @@ import java.lang.annotation.Target;
  *
  * <p>可在同一方法上叠加多个 {@code @RateLimit}（如同时限"每分钟"和"每天"），见 {@link RateLimits}。
  */
-@Target(ElementType.METHOD)
+@Target({ElementType.METHOD, ElementType.TYPE, ElementType.ANNOTATION_TYPE})
 @Retention(RetentionPolicy.RUNTIME)
 @java.lang.annotation.Repeatable(RateLimits.class)
 public @interface RateLimit {
@@ -35,6 +35,13 @@ public @interface RateLimit {
 
     /** 超限时返回给前端的提示文案。 */
     String message() default "操作过于频繁，请稍后再试";
+
+    /**
+     * 仅对指定 HTTP 方法生效。为空表示所有方法均生效。
+     *
+     * <p>类级别读接口限流可设置为 {@code {"GET", "HEAD"}}，避免影响写接口。</p>
+     */
+    String[] methods() default {};
 
     /**
      * 限流主体维度：

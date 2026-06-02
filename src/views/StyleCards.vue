@@ -24,8 +24,8 @@
       </div>
     </n-card>
 
-    <div class="cards-grid" v-if="filteredCards.length > 0">
-      <div v-for="card in pagedCards" :key="card.id" class="card-item glass-card">
+    <div class="cards-grid" v-if="cards.length > 0">
+      <div v-for="card in cards" :key="card.id" class="card-item glass-card">
         <div class="card-preview" v-if="card.previewUrl">
           <img :src="resolveAssetUrl(card.previewUrl)" :alt="card.name || '卡片预览图'" class="preview-img" />
         </div>
@@ -85,18 +85,18 @@
       </div>
     </div>
 
-    <div class="pager" v-if="filteredCards.length > 0">
+    <div class="pager" v-if="totalCards > 0">
       <n-pagination
         v-model:page="page"
         :page-size="pageSize"
-        :item-count="filteredCards.length"
+        :item-count="totalCards"
         show-size-picker
         :page-sizes="pageSizeOptions"
         @update:page-size="handlePageSizeChange"
       />
     </div>
 
-    <div class="empty-box" v-if="filteredCards.length === 0">
+    <div class="empty-box" v-if="totalCards === 0">
       <Palette class="empty-icon" />
       <h3>暂无角色卡或风格卡</h3>
       <p>创建一个预设卡片，保存完整的提示词、模型和参数配置，下次一键复用。</p>
@@ -235,7 +235,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, reactive, onMounted, watch } from 'vue'
+import { ref, computed, reactive, onMounted, onBeforeUnmount, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useMessage } from 'naive-ui'
 import { useProjectStore } from '@/store/project'
@@ -263,6 +263,8 @@ const uploading = ref(false)
 const uploadInput = ref<HTMLInputElement | null>(null)
 const selectedCard = ref<StyleCard | null>(null)
 const currentUserId = ref<number | null>(null)
+const totalCards = ref(0)
+let searchTimer: ReturnType<typeof setTimeout> | null = null
 
 const imageAssets = computed(() => {
   return assetStore
@@ -288,36 +290,39 @@ const sortOptions = [
   { label: '最多评论', value: 'comments' }
 ]
 
-const filteredCards = computed(() => {
-  let list = cards.value
-  if (activeType.value !== 'all') list = list.filter(c => c.type === activeType.value)
-  if (searchQuery.value) {
-    const q = searchQuery.value.toLowerCase()
-    list = list.filter(c => c.name?.toLowerCase().includes(q) || c.content?.toLowerCase().includes(q))
-  }
-  return list
-})
-
 const page = ref(1)
 const pageSize = ref(12)
 const pageSizeOptions = [12, 24, 48, 96]
-const pagedCards = computed(() => {
-  const start = (page.value - 1) * pageSize.value
-  return filteredCards.value.slice(start, start + pageSize.value)
-})
 function handlePageSizeChange(size: number) {
   pageSize.value = size
   page.value = 1
 }
-watch([activeType, searchQuery, sortBy], () => { page.value = 1 })
 
 async function loadCards() {
   try {
-    const res = await styleCardApi.list(projectStore.activeProjectId, undefined, sortBy.value)
-    cards.value = res.data || []
+    const res = await styleCardApi.list({
+      projectId: projectStore.activeProjectId,
+      type: activeType.value !== 'all' ? activeType.value : undefined,
+      search: searchQuery.value.trim() || undefined,
+      sort: sortBy.value,
+      page: page.value,
+      pageSize: pageSize.value
+    })
+    cards.value = res.data?.records || []
+    totalCards.value = Number(res.data?.total || 0)
   } catch {
     cards.value = []
+    totalCards.value = 0
   }
+}
+
+function scheduleLoadCards(delay = 180) {
+  if (searchTimer) {
+    clearTimeout(searchTimer)
+  }
+  searchTimer = setTimeout(() => {
+    loadCards()
+  }, delay)
 }
 
 onMounted(async () => {
@@ -330,8 +335,17 @@ onMounted(async () => {
     await assetStore.refresh({ projectId: projectStore.activeProjectId })
   } catch {}
 })
-watch([() => projectStore.activeProjectId, sortBy], async () => {
-  await loadCards()
+onBeforeUnmount(() => {
+  if (searchTimer) {
+    clearTimeout(searchTimer)
+  }
+})
+watch([activeType, sortBy, searchQuery, () => projectStore.activeProjectId], () => {
+  page.value = 1
+  scheduleLoadCards()
+})
+watch([page, pageSize], () => {
+  scheduleLoadCards(0)
 })
 
 function authorName(card: StyleCard) {
@@ -364,14 +378,11 @@ function handleSelectAsset(asset: Asset) {
 
 function toRelativeUrl(url: string): string {
   if (!url) return ''
-  if (/^https?:\/\//i.test(url)) {
-    try {
-      return new URL(url).pathname
-    } catch {
-      return url
-    }
+  try {
+    return new URL(url, window.location.origin).pathname
+  } catch {
+    return url.split('?')[0]?.split('#')[0] || url
   }
-  return url
 }
 
 function triggerUpload() {
@@ -393,7 +404,7 @@ async function handleUploadFile(e: Event) {
     formData.append('projectId', String(projectStore.activeProjectId))
     formData.append('file', file)
     const res = await assetApi.uploadAsset(formData)
-    form.previewUrl = res.data?.fileUrl || ''
+    form.previewUrl = toRelativeUrl(res.data?.fileUrl || '')
     await assetStore.refresh({ projectId: projectStore.activeProjectId })
     message.success('预览图已上传')
   } catch (err: any) {
@@ -495,7 +506,7 @@ function handleCommentCountChange(count: number) {
 async function handleDelete(id: number) {
   try {
     await styleCardApi.delete(id)
-    cards.value = cards.value.filter(c => c.id !== id)
+    await loadCards()
     message.success('已删除')
   } catch (err: any) {
     message.error(err.message || '删除失败')

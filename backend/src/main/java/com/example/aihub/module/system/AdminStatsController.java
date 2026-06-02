@@ -5,12 +5,16 @@ import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import cn.dev33.satoken.annotation.SaCheckLogin;
 import cn.dev33.satoken.annotation.SaCheckRole;
+import com.example.aihub.common.annotation.RateLimit;
 import com.example.aihub.common.result.ApiResult;
 import com.example.aihub.common.result.PageResult;
+import com.example.aihub.common.security.CanaryTokenService;
+import com.example.aihub.common.util.PagingUtil;
 import com.example.aihub.infrastructure.entity.GenerationTask;
 import com.example.aihub.infrastructure.entity.User;
 import com.example.aihub.infrastructure.mapper.*;
 import lombok.RequiredArgsConstructor;
+import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -31,6 +35,7 @@ public class AdminStatsController {
     private final ProjectMapper projectMapper;
     private final GenerationTaskMapper taskMapper;
     private final AssetMapper assetMapper;
+    private final CanaryTokenService canaryTokenService;
 
     /** trends 结果按天缓存,跨天自动失效。 */
     private volatile Map<String, Object> cachedTrends;
@@ -55,8 +60,10 @@ public class AdminStatsController {
     @GetMapping("/users")
     public ApiResult<PageResult<User>> users(@RequestParam(defaultValue = "1") long page,
                                              @RequestParam(defaultValue = "10") long pageSize) {
+        long safePage = PagingUtil.normalizePage(page);
+        long safePageSize = PagingUtil.clampPageSize(pageSize, 10);
         var result = userMapper.selectPage(
-                new Page<>(page, pageSize),
+                new Page<>(safePage, safePageSize),
                 new LambdaQueryWrapper<User>()
                         .orderByDesc(User::getId));
         return ApiResult.ok(new PageResult<>(result.getTotal(), result.getPages(), result.getRecords()));
@@ -126,11 +133,15 @@ public class AdminStatsController {
     }
 
     @GetMapping("/export/csv")
-    public void exportCsv(HttpServletResponse response) throws Exception {
+    @RateLimit(count = 10, seconds = 3600, dimension = RateLimit.Dimension.IP, message = "统计导出过于频繁，请稍后再试")
+    @RateLimit(count = 5, seconds = 3600, dimension = RateLimit.Dimension.USER_API, message = "统计导出过于频繁，请稍后再试")
+    public void exportCsv(HttpServletResponse response, HttpServletRequest request) throws Exception {
         response.setContentType("text/csv;charset=UTF-8");
         response.setHeader("Content-Disposition", "attachment;filename=stats_" + LocalDate.now() + ".csv");
 
         StringBuilder csv = new StringBuilder();
+        csv.append("# canary,").append(com.example.aihub.common.util.CsvUtil.escape(
+                canaryTokenService.create("admin_stats_csv", "stats", request))).append("\n");
         csv.append("指标,数值\n");
 
         Map<String, Object> stats = overview().getData();

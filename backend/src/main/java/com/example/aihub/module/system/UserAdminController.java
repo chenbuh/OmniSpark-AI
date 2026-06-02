@@ -4,14 +4,18 @@ import cn.dev33.satoken.annotation.SaCheckLogin;
 import cn.dev33.satoken.annotation.SaCheckRole;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
+import com.example.aihub.common.annotation.RateLimit;
 import com.example.aihub.common.result.ApiResult;
 import com.example.aihub.common.result.PageResult;
+import com.example.aihub.common.security.CanaryTokenService;
+import com.example.aihub.common.util.PagingUtil;
 import com.example.aihub.common.util.PasswordUtil;
 import com.example.aihub.common.util.SecurityUtil;
 import com.example.aihub.infrastructure.entity.User;
 import com.example.aihub.infrastructure.mapper.UserMapper;
 import com.example.aihub.infrastructure.service.PasswordEncryptionService;
 import com.example.aihub.infrastructure.vo.UserVO;
+import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.*;
@@ -33,19 +37,22 @@ public class UserAdminController {
 
     private final UserMapper userMapper;
     private final PasswordEncryptionService passwordEncryptionService;
+    private final CanaryTokenService canaryTokenService;
 
     @GetMapping
     public ApiResult<PageResult<UserVO>> list(
             @RequestParam(required = false) String search,
             @RequestParam(defaultValue = "1") long page,
             @RequestParam(defaultValue = "10") long pageSize) {
+        long safePage = PagingUtil.normalizePage(page);
+        long safePageSize = PagingUtil.clampPageSize(pageSize, 10);
         var wrapper = new LambdaQueryWrapper<User>();
         if (search != null && !search.isBlank()) {
             wrapper.and(w -> w.like(User::getUsername, search).or().like(User::getNickname, search));
         }
         wrapper.orderByDesc(User::getId);
 
-        var p = userMapper.selectPage(new Page<>(page, pageSize), wrapper);
+        var p = userMapper.selectPage(new Page<>(safePage, safePageSize), wrapper);
         List<UserVO> records = p.getRecords().stream().map(u -> {
             UserVO vo = new UserVO();
             vo.setId(u.getId());
@@ -202,12 +209,16 @@ public class UserAdminController {
     // ===== 导出 =====
 
     @GetMapping("/export")
-    public void exportCsv(HttpServletResponse response) throws Exception {
+    @RateLimit(count = 10, seconds = 3600, dimension = RateLimit.Dimension.IP, message = "用户导出过于频繁，请稍后再试")
+    @RateLimit(count = 5, seconds = 3600, dimension = RateLimit.Dimension.USER_API, message = "用户导出过于频繁，请稍后再试")
+    public void exportCsv(HttpServletResponse response, HttpServletRequest request) throws Exception {
         response.setContentType("text/csv;charset=UTF-8");
         response.setHeader("Content-Disposition", "attachment;filename=users_" + java.time.LocalDate.now() + ".csv");
 
         StringBuilder csv = new StringBuilder();
         csv.append("\uFEFF"); // BOM for Excel UTF-8
+        csv.append("# canary,").append(com.example.aihub.common.util.CsvUtil.escape(
+                canaryTokenService.create("admin_users_csv", "users", request))).append("\n");
         csv.append("ID,用户名,昵称,角色,状态\n");
 
         List<User> users = userMapper.selectList(null);
@@ -232,10 +243,14 @@ public class UserAdminController {
 
         try {
             String[] lines = csvBody.split("\n");
-            for (int i = 1; i < lines.length; i++) { // 跳过标题行
+            for (int i = 0; i < lines.length; i++) {
                 String line = lines[i].trim();
-                if (line.isBlank() || line.startsWith("\uFEFF")) continue;
-                String[] parts = line.split(",", -1);
+                if (line.isBlank()) continue;
+                String normalizedLine = line.startsWith("\uFEFF") ? line.substring(1) : line;
+                if (normalizedLine.startsWith("#") || normalizedLine.startsWith("ID,") || normalizedLine.startsWith("用户名,")) {
+                    continue;
+                }
+                String[] parts = normalizedLine.split(",", -1);
                 if (parts.length < 2) { failed++; continue; }
 
                 try {

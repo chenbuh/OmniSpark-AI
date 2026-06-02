@@ -79,7 +79,7 @@ export const useAssetStore = defineStore('asset', {
     setAssets(assets: any[]) {
       this.assets = assets.map(item => this.normalizeAsset(item))
     },
-    async refresh(params?: { projectId?: number; assetType?: string; taskId?: number }) {
+    async refresh(params?: { projectId?: number; assetType?: string; taskId?: number; limit?: number }) {
       const res = await assetApi.getAssets(params)
       this.setAssets(res.data || [])
       return this.assets

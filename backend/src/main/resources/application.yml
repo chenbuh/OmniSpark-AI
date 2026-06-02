@@ -35,9 +35,27 @@ app:
     # 可信来源白名单（逗号分隔），仅这些来源允许携带凭证跨域。生产环境部署后追加正式域名。
     allowed-origins: http://localhost:5173,http://127.0.0.1:5173,http://localhost:8080,http://127.0.0.1:8080
   security:
+    # 只有 remoteAddr 命中这些可信代理时，后端才读取 X-Real-IP / X-Forwarded-For。
+    # 生产环境请填写实际网关/Nginx/负载均衡 IP 或 CIDR，并在网关层强制覆写这些头。
+    trusted-proxies: ${APP_TRUSTED_PROXIES:127.0.0.1,::1,0:0:0:0:0:0:0:1}
     signing:
-      secret: ${APP_SIGNING_SECRET:omnispark-dev-signing-secret-2026}
       window-seconds: 300
+      challenge-ttl-seconds: 120
+    canary:
+      secret: ${APP_CANARY_SECRET:omnispark-dev-canary-secret-2026}
+    upload-access:
+      secret: ${APP_UPLOAD_ACCESS_SECRET:omnispark-dev-upload-access-secret-2026}
+      ttl-seconds: 7200
+      download:
+        max-per-minute-user: 80
+        max-per-minute-ip: 120
+        max-unique-files-5m-user: 45
+        max-unique-files-10m-project-user: 25
+        max-unique-projects-15m-user: 3
+        max-unique-files-15m-multi-project-user: 35
+        max-unique-users-15m-ip: 2
+        max-unique-files-15m-ip-multi-user: 30
+        block-minutes: 30
 
 server:
   port: 8080

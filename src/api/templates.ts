@@ -1,5 +1,11 @@
 import request from './request'
 
+export interface PageResult<T> {
+  total: number
+  pages: number
+  records: T[]
+}
+
 export interface PromptTemplate {
   id: number
   projectId: number
@@ -21,8 +27,24 @@ export interface PromptTemplate {
 
 export const templateApi = {
   // 获取提示词模板列表
-  async getTemplates(projectId?: number, sort = 'newest') {
-    return request.get('/api/prompt-templates', { params: { projectId, sort } })
+  async getTemplates(params?: {
+    projectId?: number
+    tag?: string
+    search?: string
+    sort?: string
+    page?: number
+    pageSize?: number
+  }) {
+    return request.get<PageResult<PromptTemplate>>('/api/prompt-templates', {
+      params: {
+        projectId: params?.projectId,
+        tag: params?.tag,
+        search: params?.search,
+        sort: params?.sort || 'newest',
+        page: params?.page,
+        pageSize: params?.pageSize
+      }
+    })
   },
 
   // 新增模板

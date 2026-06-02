@@ -4,6 +4,7 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import cn.dev33.satoken.annotation.SaCheckLogin;
 import cn.dev33.satoken.annotation.SaCheckRole;
+import com.example.aihub.common.util.PagingUtil;
 import com.example.aihub.common.result.PageResult;
 import com.example.aihub.common.result.ApiResult;
 import com.example.aihub.infrastructure.entity.Asset;
@@ -29,14 +30,16 @@ public class AdminAssetsController {
                                           @RequestParam(required = false) String search,
                                           @RequestParam(defaultValue = "1") long page,
                                           @RequestParam(defaultValue = "12") long pageSize) {
+        long safePage = PagingUtil.normalizePage(page);
+        long safePageSize = PagingUtil.clampPageSize(pageSize, 12);
         var wrapper = new LambdaQueryWrapper<Asset>();
         if (assetType != null && !assetType.isBlank()) wrapper.eq(Asset::getAssetType, assetType);
         if (search != null && !search.isBlank()) wrapper.like(Asset::getFileName, search);
         wrapper.orderByDesc(Asset::getId);
 
-        var p = assetMapper.selectPage(new Page<>(page, pageSize), wrapper);
+        var p = assetMapper.selectPage(new Page<>(safePage, safePageSize), wrapper);
         List<AssetVO> records = p.getRecords().stream()
-                .map(a -> com.example.aihub.common.util.VoMapper.copy(a, AssetVO.class))
+                .map(assetService::toVO)
                 .toList();
         return ApiResult.ok(new PageResult<>(p.getTotal(), p.getPages(), records));
     }

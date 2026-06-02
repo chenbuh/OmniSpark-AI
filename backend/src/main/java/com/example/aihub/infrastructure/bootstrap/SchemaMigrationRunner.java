@@ -52,6 +52,16 @@ public class SchemaMigrationRunner implements CommandLineRunner {
         ensureColumn("community_post", "nickname", "ALTER TABLE `community_post` ADD COLUMN `nickname` varchar(64) DEFAULT NULL AFTER `username`");
         ensureColumn("community_post", "avatar", "ALTER TABLE `community_post` ADD COLUMN `avatar` varchar(512) DEFAULT NULL AFTER `nickname`");
         ensureColumn("community_post", "comments_count", "ALTER TABLE `community_post` ADD COLUMN `comments_count` int NOT NULL DEFAULT 0 AFTER `likes_count`");
+        ensureColumn("api_key", "scope", "ALTER TABLE `api_key` ADD COLUMN `scope` varchar(64) NOT NULL DEFAULT 'all' AFTER `permissions`");
+        ensureColumn("api_key", "expires_at", "ALTER TABLE `api_key` ADD COLUMN `expires_at` datetime DEFAULT NULL AFTER `scope`");
+        ensureColumn("api_key", "daily_quota", "ALTER TABLE `api_key` ADD COLUMN `daily_quota` int NOT NULL DEFAULT 1000 AFTER `expires_at`");
+        ensureColumn("api_key", "daily_used", "ALTER TABLE `api_key` ADD COLUMN `daily_used` int NOT NULL DEFAULT 0 AFTER `daily_quota`");
+        ensureColumn("api_key", "quota_reset_date", "ALTER TABLE `api_key` ADD COLUMN `quota_reset_date` date DEFAULT NULL AFTER `daily_used`");
+        ensureColumn("api_key", "last_used_ip", "ALTER TABLE `api_key` ADD COLUMN `last_used_ip` varchar(64) DEFAULT NULL AFTER `quota_reset_date`");
+        ensureColumn("api_key", "last_user_agent", "ALTER TABLE `api_key` ADD COLUMN `last_user_agent` varchar(512) DEFAULT NULL AFTER `last_used_ip`");
+        ensureColumn("api_key", "frozen_reason", "ALTER TABLE `api_key` ADD COLUMN `frozen_reason` varchar(255) DEFAULT NULL AFTER `last_user_agent`");
+        ensureColumn("api_key", "risk_score", "ALTER TABLE `api_key` ADD COLUMN `risk_score` int NOT NULL DEFAULT 0 AFTER `frozen_reason`");
+        ensureColumn("api_key", "updated_at", "ALTER TABLE `api_key` ADD COLUMN `updated_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP AFTER `created_at`");
         ensureTable("public_content_like", """
                 CREATE TABLE IF NOT EXISTS `public_content_like` (
                   `id` bigint NOT NULL AUTO_INCREMENT,
@@ -85,6 +95,29 @@ public class SchemaMigrationRunner implements CommandLineRunner {
                   KEY `idx_pcc_resource` (`resource_type`,`resource_id`,`status`),
                   KEY `idx_pcc_parent` (`parent_id`),
                   KEY `idx_pcc_user` (`user_id`)
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+                """);
+        ensureTable("access_log", """
+                CREATE TABLE IF NOT EXISTS `access_log` (
+                  `id` bigint NOT NULL AUTO_INCREMENT,
+                  `user_id` bigint DEFAULT NULL,
+                  `api_key_id` bigint DEFAULT NULL,
+                  `client_ip` varchar(64) DEFAULT NULL,
+                  `user_agent` varchar(512) DEFAULT NULL,
+                  `method` varchar(16) NOT NULL,
+                  `path` varchar(512) NOT NULL,
+                  `query_string` varchar(1024) DEFAULT NULL,
+                  `status_code` int DEFAULT NULL,
+                  `duration_ms` bigint DEFAULT NULL,
+                  `rate_limited` tinyint NOT NULL DEFAULT 0,
+                  `risk_reason` varchar(255) DEFAULT NULL,
+                  `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                  PRIMARY KEY (`id`),
+                  KEY `idx_acl_user_id` (`user_id`),
+                  KEY `idx_acl_api_key_id` (`api_key_id`),
+                  KEY `idx_acl_client_ip` (`client_ip`),
+                  KEY `idx_acl_path` (`path`),
+                  KEY `idx_acl_created_at` (`created_at`)
                 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
                 """);
     }

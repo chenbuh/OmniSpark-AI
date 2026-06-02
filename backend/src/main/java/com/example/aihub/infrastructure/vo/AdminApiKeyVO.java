@@ -11,6 +11,14 @@ public class AdminApiKeyVO {
     private String username;
     private String name;
     private String keyPrefix;
+    private String scope;
+    private LocalDateTime expiresAt;
+    private Integer dailyQuota;
+    private Integer dailyUsed;
+    private String lastUsedIp;
+    private String lastUserAgent;
+    private String frozenReason;
+    private Integer riskScore;
     private Integer status;
     private LocalDateTime lastUsedAt;
     private LocalDateTime createdAt;

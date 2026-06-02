@@ -1,6 +1,8 @@
 package com.example.aihub.infrastructure.service;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.example.aihub.common.security.ClientIpResolver;
+import com.example.aihub.common.util.PagingUtil;
 import com.example.aihub.common.util.VoMapper;
 import com.example.aihub.infrastructure.entity.AuditLog;
 import com.example.aihub.infrastructure.mapper.AuditLogMapper;
@@ -16,6 +18,7 @@ import java.util.List;
 @RequiredArgsConstructor
 public class AuditLogService {
     private final AuditLogMapper auditLogMapper;
+    private final ClientIpResolver clientIpResolver;
 
     public void log(Long userId, String username, String action,
                     String resourceType, Long resourceId, String detail, String ip) {
@@ -32,12 +35,14 @@ public class AuditLogService {
     }
 
     public void log(Long userId, String username, String action, String detail, HttpServletRequest request) {
-        String ip = request != null ? request.getRemoteAddr() : null;
+        String ip = request != null ? clientIpResolver.resolve(request) : null;
         log(userId, username, action, null, null, detail, ip);
     }
 
     /** 分页查询审计日志,返回 PageResult。 */
     public com.example.aihub.common.result.PageResult<AuditLogVO> page(String action, Long userId, long page, long size) {
+        long safePage = PagingUtil.normalizePage(page);
+        long safePageSize = PagingUtil.clampPageSize(size, 20);
         LambdaQueryWrapper<AuditLog> wrapper = new LambdaQueryWrapper<>();
         if (action != null && !action.isBlank()) {
             wrapper.eq(AuditLog::getAction, action);
@@ -47,7 +52,7 @@ public class AuditLogService {
         }
         wrapper.orderByDesc(AuditLog::getId);
         var p = auditLogMapper.selectPage(
-                new com.baomidou.mybatisplus.extension.plugins.pagination.Page<>(page, size), wrapper);
+                new com.baomidou.mybatisplus.extension.plugins.pagination.Page<>(safePage, safePageSize), wrapper);
         List<AuditLogVO> records = p.getRecords().stream()
                 .map(item -> VoMapper.copy(item, AuditLogVO.class))
                 .toList();

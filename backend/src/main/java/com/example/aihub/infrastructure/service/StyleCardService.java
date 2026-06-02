@@ -1,7 +1,10 @@
 package com.example.aihub.infrastructure.service;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.example.aihub.common.exception.BusinessException;
+import com.example.aihub.common.result.PageResult;
+import com.example.aihub.common.security.UploadAccessSignatureService;
 import com.example.aihub.common.util.SecurityUtil;
 import com.example.aihub.common.util.VoMapper;
 import com.example.aihub.infrastructure.dto.StyleCardSaveDTO;
@@ -25,21 +28,33 @@ public class StyleCardService {
     private final StyleCardMapper cardMapper;
     private final UserMapper userMapper;
     private final PublicContentInteractionService interactionService;
+    private final UploadAccessSignatureService uploadAccessSignatureService;
 
-    public List<StyleCardVO> list(Long projectId, String type, String sort, Long currentUserId) {
+    public PageResult<StyleCardVO> page(Long projectId, String type, String search, String sort,
+                                        Long currentUserId, long page, long size) {
         LambdaQueryWrapper<StyleCard> wrapper = new LambdaQueryWrapper<>();
         wrapper.eq(StyleCard::getStatus, 1);
         if (type != null && !type.isBlank()) {
             wrapper.eq(StyleCard::getType, type);
         }
+        if (search != null && !search.isBlank()) {
+            wrapper.and(w -> w.like(StyleCard::getName, search)
+                    .or().like(StyleCard::getContent, search)
+                    .or().like(StyleCard::getTag, search));
+        }
         applySort(wrapper, sort);
-        List<StyleCard> cards = cardMapper.selectList(wrapper);
+
+        var result = cardMapper.selectPage(new Page<>(page, size), wrapper);
+        List<StyleCard> cards = result.getRecords();
         Set<Long> likedIds = interactionService.findLikedResourceIds(
                 PublicContentInteractionService.RESOURCE_STYLE_CARD,
                 cards.stream().map(StyleCard::getId).toList(),
                 currentUserId
         );
-        return cards.stream().map(card -> toVO(card, likedIds.contains(card.getId()))).toList();
+        List<StyleCardVO> records = cards.stream()
+                .map(card -> toVO(card, likedIds.contains(card.getId())))
+                .toList();
+        return new PageResult<>(result.getTotal(), result.getPages(), records);
     }
 
     public StyleCardVO get(Long id, Long currentUserId) {
@@ -116,6 +131,7 @@ public class StyleCardService {
 
     private StyleCardVO toVO(StyleCard card, boolean liked) {
         StyleCardVO vo = VoMapper.copy(card, StyleCardVO.class);
+        vo.setPreviewUrl(uploadAccessSignatureService.signUrl(vo.getPreviewUrl()));
         vo.setLiked(liked ? 1 : 0);
         return vo;
     }

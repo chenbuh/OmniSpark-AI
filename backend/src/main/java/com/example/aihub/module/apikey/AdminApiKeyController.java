@@ -9,8 +9,10 @@ import com.example.aihub.infrastructure.mapper.UserMapper;
 import com.example.aihub.infrastructure.service.ApiKeyService;
 import com.example.aihub.infrastructure.vo.AdminApiKeyVO;
 import lombok.RequiredArgsConstructor;
+import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.web.bind.annotation.*;
 
+import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -45,6 +47,14 @@ public class AdminApiKeyController {
             vo.setUsername(usernameMap.getOrDefault(k.getUserId(), "未知"));
             vo.setName(k.getName());
             vo.setKeyPrefix(k.getKeyPrefix());
+            vo.setScope(k.getScope());
+            vo.setExpiresAt(k.getExpiresAt());
+            vo.setDailyQuota(k.getDailyQuota());
+            vo.setDailyUsed(k.getDailyUsed());
+            vo.setLastUsedIp(k.getLastUsedIp());
+            vo.setLastUserAgent(k.getLastUserAgent());
+            vo.setFrozenReason(k.getFrozenReason());
+            vo.setRiskScore(k.getRiskScore());
             vo.setStatus(k.getStatus());
             vo.setLastUsedAt(k.getLastUsedAt());
             vo.setCreatedAt(k.getCreatedAt());
@@ -55,8 +65,12 @@ public class AdminApiKeyController {
 
     @PostMapping
     public ApiResult<Map<String, Object>> create(@RequestParam String name,
-                                                  @RequestParam(name = "userId", required = false, defaultValue = "0") Long userId) {
-        Map<String, Object> result = apiKeyService.generate(name, userId);
+                                                  @RequestParam(name = "userId", required = false, defaultValue = "0") Long userId,
+                                                  @RequestParam(required = false, defaultValue = "all") String scope,
+                                                  @RequestParam(required = false)
+                                                  @DateTimeFormat(pattern = "yyyy-MM-dd HH:mm:ss") LocalDateTime expiresAt,
+                                                  @RequestParam(required = false, defaultValue = "1000") Integer dailyQuota) {
+        Map<String, Object> result = apiKeyService.generate(name, userId, scope, expiresAt, dailyQuota);
         return ApiResult.ok(result);
     }
 
@@ -74,6 +88,12 @@ public class AdminApiKeyController {
         } else {
             apiKeyService.revokeByAdmin(id);
         }
+        return ApiResult.ok();
+    }
+
+    @PostMapping("/{id}/unfreeze")
+    public ApiResult<Void> unfreeze(@PathVariable Long id) {
+        apiKeyService.unfreezeByAdmin(id);
         return ApiResult.ok();
     }
 }

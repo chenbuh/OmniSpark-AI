@@ -1,10 +1,85 @@
 import request from './request'
 
+export interface PageResult<T> {
+  total: number
+  pages: number
+  records: T[]
+}
+
+export interface AssetPageParams {
+  scope?: 'own' | 'shared'
+  projectId?: number
+  assetType?: string
+  favorite?: boolean
+  search?: string
+  sort?: string
+  page?: number
+  pageSize?: number
+}
+
+export interface AssetStats {
+  total: number
+  imageCount: number
+  videoCount: number
+  referenceCount: number
+  favoriteCount: number
+}
+
 export const assetApi = {
   // 获取资产列表，支持按项目 ID 和资产类型过滤
-  async getAssets(params?: { projectId?: number; assetType?: string; taskId?: number }) {
+  async getAssets(params?: { projectId?: number; assetType?: string; taskId?: number; limit?: number }) {
     return request.get('/api/assets', {
-      params,
+      params: {
+        ...params,
+        limit: params?.limit ?? 100
+      },
+      headers: {
+        'x-no-cache': '1'
+      }
+    })
+  },
+
+  async pageAssets(params?: AssetPageParams) {
+    return request.get<PageResult<any>>('/api/assets/page', {
+      params: {
+        scope: params?.scope || 'own',
+        projectId: params?.projectId,
+        assetType: params?.assetType,
+        favorite: params?.favorite,
+        search: params?.search,
+        sort: params?.sort || 'latest',
+        page: params?.page,
+        pageSize: params?.pageSize
+      },
+      headers: {
+        'x-no-cache': '1'
+      }
+    })
+  },
+
+  async getStats(params?: { scope?: 'own' | 'shared'; projectId?: number }) {
+    return request.get<AssetStats>('/api/assets/stats', {
+      params: {
+        scope: params?.scope || 'own',
+        projectId: params?.projectId
+      },
+      headers: {
+        'x-no-cache': '1'
+      }
+    })
+  },
+
+  async getAsset(id: number) {
+    return request.get(`/api/assets/${id}`, {
+      headers: {
+        'x-no-cache': '1'
+      }
+    })
+  },
+
+  async getVersions(id: number, limit = 12) {
+    return request.get<any[]>(`/api/assets/${id}/versions`, {
+      params: { limit },
       headers: {
         'x-no-cache': '1'
       }

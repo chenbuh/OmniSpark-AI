@@ -1,6 +1,7 @@
 package com.example.aihub.module.auth;
 
 import com.example.aihub.common.annotation.RateLimit;
+import com.example.aihub.common.security.ClientIpResolver;
 import com.example.aihub.common.result.ApiResult;
 import com.example.aihub.infrastructure.dto.CaptchaVerifyDTO;
 import com.example.aihub.infrastructure.service.CaptchaService;
@@ -25,29 +26,18 @@ import java.util.Map;
 @RequestMapping("/api/auth/captcha")
 public class CaptchaController {
     private final CaptchaService captchaService;
+    private final ClientIpResolver clientIpResolver;
 
     @GetMapping("/generate")
     @RateLimit(count = 30, seconds = 60, dimension = RateLimit.Dimension.IP, message = "请求过于频繁，请稍后再试")
     public ApiResult<CaptchaVO> generate(HttpServletRequest request) {
-        return ApiResult.ok(captchaService.generate(clientIp(request)));
+        return ApiResult.ok(captchaService.generate(clientIpResolver.resolve(request)));
     }
 
     @PostMapping("/verify")
     @RateLimit(count = 30, seconds = 60, dimension = RateLimit.Dimension.IP, message = "请求过于频繁，请稍后再试")
     public ApiResult<Map<String, String>> verify(@Valid @RequestBody CaptchaVerifyDTO dto, HttpServletRequest request) {
-        String ticket = captchaService.verify(dto, clientIp(request));
+        String ticket = captchaService.verify(dto, clientIpResolver.resolve(request));
         return ApiResult.ok(Map.of("ticket", ticket));
-    }
-
-    private String clientIp(HttpServletRequest request) {
-        String forwarded = request.getHeader("X-Forwarded-For");
-        if (forwarded != null && !forwarded.isBlank()) {
-            int comma = forwarded.indexOf(',');
-            String first = (comma > 0 ? forwarded.substring(0, comma) : forwarded).trim();
-            if (!first.isBlank()) {
-                return first;
-            }
-        }
-        return request.getRemoteAddr();
     }
 }

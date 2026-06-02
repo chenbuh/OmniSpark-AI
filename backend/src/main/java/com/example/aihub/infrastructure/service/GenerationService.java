@@ -2,6 +2,7 @@ package com.example.aihub.infrastructure.service;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.example.aihub.common.exception.BusinessException;
+import com.example.aihub.common.security.UploadAccessSignatureService;
 import com.example.aihub.common.util.SecurityUtil;
 import com.example.aihub.common.util.VoMapper;
 import com.example.aihub.infrastructure.dto.ImageGenerateDTO;
@@ -66,6 +67,7 @@ public class GenerationService {
     private final WebhookService webhookService;
     private final ObjectMapper objectMapper;
     private final com.example.aihub.common.security.ProjectAccessGuard projectAccessGuard;
+    private final UploadAccessSignatureService uploadAccessSignatureService;
     // 有界队列 + AbortPolicy：过载时拒绝而非无限堆积内存，由调用方捕获并提示用户稍后重试
     private final ThreadPoolExecutor generationExecutor = new ThreadPoolExecutor(
             4, 4,
@@ -364,7 +366,7 @@ public class GenerationService {
             if (resultAssetId == null) {
                 resultAssetId = asset.getId();
             }
-            assetVOs.add(VoMapper.copy(asset, AssetVO.class));
+            assetVOs.add(toSignedAssetVO(asset));
         }
 
         task.setStatus("success");
@@ -857,6 +859,13 @@ public class GenerationService {
             throw new BusinessException("资产不属于当前项目");
         }
         return asset;
+    }
+
+    private AssetVO toSignedAssetVO(Asset asset) {
+        AssetVO vo = VoMapper.copy(asset, AssetVO.class);
+        vo.setFileUrl(uploadAccessSignatureService.signProjectUrl(vo.getFileUrl(), asset.getProjectId()));
+        vo.setThumbUrl(uploadAccessSignatureService.signProjectUrl(vo.getThumbUrl(), asset.getProjectId()));
+        return vo;
     }
 
     private GenerationTaskVO toTaskVO(GenerationTask task) {

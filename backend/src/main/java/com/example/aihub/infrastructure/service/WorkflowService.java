@@ -2,6 +2,7 @@ package com.example.aihub.infrastructure.service;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.example.aihub.common.exception.BusinessException;
+import com.example.aihub.common.security.UploadAccessSignatureService;
 import com.example.aihub.common.util.VoMapper;
 import com.example.aihub.infrastructure.dto.ImageGenerateDTO;
 import com.example.aihub.infrastructure.dto.SubtitleGenerateDTO;
@@ -40,6 +41,7 @@ public class WorkflowService {
     private final SubtitleService subtitleService;
     private final ObjectMapper objectMapper;
     private final com.example.aihub.common.security.ProjectAccessGuard projectAccessGuard;
+    private final UploadAccessSignatureService uploadAccessSignatureService;
 
     public List<WorkflowVO> list(Long projectId) {
         LambdaQueryWrapper<Workflow> wrapper = new LambdaQueryWrapper<>();
@@ -342,7 +344,7 @@ public class WorkflowService {
         result.put("assetId", assetId);
         result.put("message", booleanValue(stepNode, "voice") ? "字幕与配音已生成" : "字幕已生成");
         if (subtitle.getVoiceUrl() != null) {
-            result.put("voiceUrl", subtitle.getVoiceUrl());
+            result.put("voiceUrl", uploadAccessSignatureService.signProjectUrl(subtitle.getVoiceUrl(), subtitle.getProjectId()));
         }
         return result;
     }

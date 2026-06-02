@@ -412,12 +412,46 @@ CREATE TABLE IF NOT EXISTS `api_key` (
   `key_prefix` varchar(16) NOT NULL,
   `key_hash` varchar(128) NOT NULL,
   `permissions` varchar(256) DEFAULT 'all',
+  `scope` varchar(64) NOT NULL DEFAULT 'all',
+  `expires_at` datetime DEFAULT NULL,
+  `daily_quota` int NOT NULL DEFAULT 1000,
+  `daily_used` int NOT NULL DEFAULT 0,
+  `quota_reset_date` date DEFAULT NULL,
+  `last_used_ip` varchar(64) DEFAULT NULL,
+  `last_user_agent` varchar(512) DEFAULT NULL,
+  `frozen_reason` varchar(255) DEFAULT NULL,
+  `risk_score` int NOT NULL DEFAULT 0,
   `status` tinyint NOT NULL DEFAULT 1,
   `last_used_at` datetime DEFAULT NULL,
   `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_ak_hash` (`key_hash`),
   KEY `idx_ak_user_id` (`user_id`),
-  KEY `idx_ak_prefix` (`key_prefix`)
+  KEY `idx_ak_prefix` (`key_prefix`),
+  KEY `idx_ak_status_expires` (`status`,`expires_at`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS `access_log` (
+  `id` bigint NOT NULL AUTO_INCREMENT,
+  `user_id` bigint DEFAULT NULL,
+  `api_key_id` bigint DEFAULT NULL,
+  `client_ip` varchar(64) DEFAULT NULL,
+  `user_agent` varchar(512) DEFAULT NULL,
+  `method` varchar(16) NOT NULL,
+  `path` varchar(512) NOT NULL,
+  `query_string` varchar(1024) DEFAULT NULL,
+  `status_code` int DEFAULT NULL,
+  `duration_ms` bigint DEFAULT NULL,
+  `rate_limited` tinyint NOT NULL DEFAULT 0,
+  `risk_reason` varchar(255) DEFAULT NULL,
+  `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  KEY `idx_acl_user_id` (`user_id`),
+  KEY `idx_acl_api_key_id` (`api_key_id`),
+  KEY `idx_acl_client_ip` (`client_ip`),
+  KEY `idx_acl_path` (`path`),
+  KEY `idx_acl_created_at` (`created_at`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 CREATE TABLE IF NOT EXISTS `data_dict` (

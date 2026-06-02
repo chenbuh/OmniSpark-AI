@@ -50,6 +50,7 @@ const routes: RouteRecordRaw[] = [
       { path: 'scheduled-tasks', name: 'AdminScheduledTasks', component: () => import('@/views/admin/AdminScheduledTasks.vue'), meta: adminMeta('定时任务') },
       { path: 'webhooks', name: 'AdminWebhooks', component: () => import('@/views/admin/AdminWebhooks.vue'), meta: adminMeta('Webhook') },
       { path: 'logs', name: 'AdminLogViewer', component: () => import('@/views/admin/AdminLogViewer.vue'), meta: adminMeta('系统日志') },
+      { path: 'access-logs', name: 'AdminAccessLogs', component: () => import('@/views/admin/AdminAccessLogs.vue'), meta: adminMeta('访问日志') },
       { path: 'maintenance', name: 'AdminMaintenance', component: () => import('@/views/admin/AdminMaintenance.vue'), meta: adminMeta('维护模式') },
       { path: 'announcements', name: 'AdminAnnouncements', component: () => import('@/views/admin/AdminAnnouncements.vue'), meta: adminMeta('系统公告') },
       { path: 'cleanup', name: 'AdminCleanup', component: () => import('@/views/admin/AdminCleanup.vue'), meta: adminMeta('数据清理') },

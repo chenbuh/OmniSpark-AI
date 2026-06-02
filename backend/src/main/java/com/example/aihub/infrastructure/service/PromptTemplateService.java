@@ -1,7 +1,9 @@
 package com.example.aihub.infrastructure.service;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.example.aihub.common.exception.BusinessException;
+import com.example.aihub.common.result.PageResult;
 import com.example.aihub.common.util.SecurityUtil;
 import com.example.aihub.common.util.VoMapper;
 import com.example.aihub.infrastructure.dto.PromptTemplateSaveDTO;
@@ -26,17 +28,31 @@ public class PromptTemplateService {
     private final UserMapper userMapper;
     private final PublicContentInteractionService interactionService;
 
-    public List<PromptTemplateVO> list(Long projectId, String sort, Long currentUserId) {
+    public PageResult<PromptTemplateVO> page(Long projectId, String tag, String search, String sort,
+                                             Long currentUserId, long page, long size) {
         LambdaQueryWrapper<PromptTemplate> wrapper = new LambdaQueryWrapper<>();
         wrapper.eq(PromptTemplate::getStatus, 1);
+        if (tag != null && !tag.isBlank()) {
+            wrapper.eq(PromptTemplate::getTag, tag);
+        }
+        if (search != null && !search.isBlank()) {
+            wrapper.and(w -> w.like(PromptTemplate::getName, search)
+                    .or().like(PromptTemplate::getContent, search)
+                    .or().like(PromptTemplate::getTag, search));
+        }
         applySort(wrapper, sort);
-        List<PromptTemplate> templates = templateMapper.selectList(wrapper);
+
+        var result = templateMapper.selectPage(new Page<>(page, size), wrapper);
+        List<PromptTemplate> templates = result.getRecords();
         Set<Long> likedIds = interactionService.findLikedResourceIds(
                 PublicContentInteractionService.RESOURCE_PROMPT_TEMPLATE,
                 templates.stream().map(PromptTemplate::getId).toList(),
                 currentUserId
         );
-        return templates.stream().map(item -> toVO(item, likedIds.contains(item.getId()))).toList();
+        List<PromptTemplateVO> records = templates.stream()
+                .map(item -> toVO(item, likedIds.contains(item.getId())))
+                .toList();
+        return new PageResult<>(result.getTotal(), result.getPages(), records);
     }
 
     @Transactional(rollbackFor = Exception.class)

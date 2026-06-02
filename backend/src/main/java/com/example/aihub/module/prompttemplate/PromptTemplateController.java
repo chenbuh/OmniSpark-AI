@@ -3,6 +3,8 @@ package com.example.aihub.module.prompttemplate;
 import cn.dev33.satoken.annotation.SaCheckLogin;
 import cn.dev33.satoken.stp.StpUtil;
 import com.example.aihub.common.result.ApiResult;
+import com.example.aihub.common.result.PageResult;
+import com.example.aihub.common.util.PagingUtil;
 import com.example.aihub.infrastructure.dto.PromptTemplateSaveDTO;
 import com.example.aihub.infrastructure.dto.PublicCommentSaveDTO;
 import com.example.aihub.infrastructure.service.PublicContentInteractionService;
@@ -32,9 +34,21 @@ public class PromptTemplateController {
     private final PublicContentInteractionService interactionService;
 
     @GetMapping
-    public ApiResult<List<PromptTemplateVO>> list(@RequestParam(name = "projectId", required = false) Long projectId,
-                                                  @RequestParam(name = "sort", required = false, defaultValue = "newest") String sort) {
-        return ApiResult.ok(templateService.list(projectId, sort, StpUtil.getLoginIdAsLong()));
+    public ApiResult<PageResult<PromptTemplateVO>> list(@RequestParam(name = "projectId", required = false) Long projectId,
+                                                        @RequestParam(name = "tag", required = false) String tag,
+                                                        @RequestParam(name = "search", required = false) String search,
+                                                        @RequestParam(name = "sort", required = false, defaultValue = "newest") String sort,
+                                                        @RequestParam(defaultValue = "1") long page,
+                                                        @RequestParam(defaultValue = "12") long pageSize) {
+        return ApiResult.ok(templateService.page(
+                projectId,
+                tag,
+                search,
+                sort,
+                StpUtil.getLoginIdAsLong(),
+                PagingUtil.normalizePage(page),
+                PagingUtil.clampPageSize(pageSize, 12)
+        ));
     }
 
     @PostMapping

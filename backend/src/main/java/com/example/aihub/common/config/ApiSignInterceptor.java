@@ -1,6 +1,8 @@
 package com.example.aihub.common.config;
 
 import cn.hutool.crypto.digest.DigestUtil;
+import com.example.aihub.common.security.ClientIpResolver;
+import com.example.aihub.common.security.SigningChallengeService;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import jakarta.servlet.http.HttpServletRequestWrapper;
@@ -26,9 +28,8 @@ public class ApiSignInterceptor implements HandlerInterceptor {
     private static final String NONCE_KEY_PREFIX = "api:sign:nonce:";
 
     private final StringRedisTemplate redisTemplate;
-
-    @Value("${app.security.signing.secret:omnispark-dev-signing-secret-2026}")
-    private String signingSecret;
+    private final SigningChallengeService signingChallengeService;
+    private final ClientIpResolver clientIpResolver;
 
     @Value("${app.security.signing.window-seconds:300}")
     private long windowSeconds;
@@ -42,7 +43,8 @@ public class ApiSignInterceptor implements HandlerInterceptor {
         String timestamp = request.getHeader("X-Timestamp");
         String nonce = request.getHeader("X-Nonce");
         String signature = request.getHeader("X-Sign");
-        if (isBlank(timestamp) || isBlank(nonce) || isBlank(signature)) {
+        String challengeId = request.getHeader("X-Challenge-Id");
+        if (isBlank(timestamp) || isBlank(nonce) || isBlank(signature) || isBlank(challengeId)) {
             writeError(response, HttpServletResponse.SC_BAD_REQUEST, "请求签名缺失，请刷新页面后重试");
             return false;
         }
@@ -62,7 +64,14 @@ public class ApiSignInterceptor implements HandlerInterceptor {
             return false;
         }
 
-        String expectedSignature = sign(buildSigningPayload(request, timestamp, nonce));
+        String clientIp = clientIpResolver.resolve(request);
+        SigningChallengeService.ConsumedChallenge challenge = signingChallengeService.consume(challengeId, clientIp);
+        if (challenge == null) {
+            writeError(response, HttpServletResponse.SC_BAD_REQUEST, "请求签名挑战已失效，请刷新页面后重试");
+            return false;
+        }
+
+        String expectedSignature = sign(buildSigningPayload(request, timestamp, nonce, challenge.challengeId()), challenge.challengeSecret());
         if (!constantTimeEquals(expectedSignature, signature)) {
             writeError(response, HttpServletResponse.SC_BAD_REQUEST, "请求签名校验失败");
             return false;
@@ -95,7 +104,7 @@ public class ApiSignInterceptor implements HandlerInterceptor {
                 || path.startsWith("/api/admin/users");
     }
 
-    private String buildSigningPayload(HttpServletRequest request, String timestamp, String nonce) throws Exception {
+    private String buildSigningPayload(HttpServletRequest request, String timestamp, String nonce, String challengeId) throws Exception {
         String method = request.getMethod() == null ? "" : request.getMethod().toUpperCase();
         String path = request.getRequestURI();
         if (request.getQueryString() != null && !request.getQueryString().isBlank()) {
@@ -103,7 +112,7 @@ public class ApiSignInterceptor implements HandlerInterceptor {
         }
         String body = isFormUrlEncoded(request) ? buildCanonicalFormBody(request) : readBody(request);
         String bodyHash = DigestUtil.sha256Hex(body);
-        return method + "\n" + path + "\n" + bodyHash + "\n" + timestamp + "\n" + nonce;
+        return method + "\n" + path + "\n" + bodyHash + "\n" + timestamp + "\n" + nonce + "\n" + challengeId;
     }
 
     private String readBody(HttpServletRequest request) {
@@ -157,7 +166,7 @@ public class ApiSignInterceptor implements HandlerInterceptor {
         return URLEncoder.encode(value, StandardCharsets.UTF_8);
     }
 
-    private String sign(String payload) throws Exception {
+    private String sign(String payload, String signingSecret) throws Exception {
         Mac mac = Mac.getInstance(HMAC_ALGORITHM);
         mac.init(new SecretKeySpec(signingSecret.getBytes(StandardCharsets.UTF_8), HMAC_ALGORITHM));
         return Base64.getEncoder().encodeToString(mac.doFinal(payload.getBytes(StandardCharsets.UTF_8)));

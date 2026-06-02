@@ -225,10 +225,10 @@ const activeTasksCount = computed(() => {
 onMounted(async () => {
   try {
     const [tplRes, annRes] = await Promise.all([
-      templateApi.getTemplates(projectStore.activeProjectId),
+      templateApi.getTemplates({ projectId: projectStore.activeProjectId, page: 1, pageSize: 3 }),
       request.get('/api/announcements/active')
     ])
-    recommendedTemplates.value = tplRes.data.slice(0, 3)
+    recommendedTemplates.value = tplRes.data?.records || []
     const anns = (annRes as any).data || []
     announcement.value = anns.length > 0 ? anns[0] : null
   } catch (e) {
@@ -240,8 +240,8 @@ onMounted(async () => {
 
 watch(() => projectStore.activeProjectId, async () => {
   try {
-    const res = await templateApi.getTemplates(projectStore.activeProjectId)
-    recommendedTemplates.value = res.data.slice(0, 3)
+    const res = await templateApi.getTemplates({ projectId: projectStore.activeProjectId, page: 1, pageSize: 3 })
+    recommendedTemplates.value = res.data?.records || []
   } catch (e) {
     console.error(e)
   }

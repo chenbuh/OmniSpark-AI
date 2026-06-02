@@ -1,5 +1,11 @@
 import request from './request'
 
+export interface PageResult<T> {
+  total: number
+  pages: number
+  records: T[]
+}
+
 export interface StyleCard {
   id: number
   projectId: number
@@ -28,8 +34,24 @@ export interface StyleCard {
 }
 
 export const styleCardApi = {
-  async list(projectId?: number, type?: string, sort = 'newest') {
-    return request.get('/api/style-cards', { params: { projectId, type, sort } })
+  async list(params?: {
+    projectId?: number
+    type?: string
+    search?: string
+    sort?: string
+    page?: number
+    pageSize?: number
+  }) {
+    return request.get<PageResult<StyleCard>>('/api/style-cards', {
+      params: {
+        projectId: params?.projectId,
+        type: params?.type,
+        search: params?.search,
+        sort: params?.sort || 'newest',
+        page: params?.page,
+        pageSize: params?.pageSize
+      }
+    })
   },
 
   async get(id: number) {

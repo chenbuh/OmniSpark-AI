@@ -2,6 +2,8 @@ package com.example.aihub.module.stylecard;
 
 import cn.dev33.satoken.annotation.SaCheckLogin;
 import cn.dev33.satoken.stp.StpUtil;
+import com.example.aihub.common.result.PageResult;
+import com.example.aihub.common.util.PagingUtil;
 import com.example.aihub.common.result.ApiResult;
 import com.example.aihub.infrastructure.dto.PublicCommentSaveDTO;
 import com.example.aihub.infrastructure.dto.StyleCardSaveDTO;
@@ -24,10 +26,21 @@ public class StyleCardController {
     private final PublicContentInteractionService interactionService;
 
     @GetMapping
-    public ApiResult<List<StyleCardVO>> list(@RequestParam(required = false) Long projectId,
-                                             @RequestParam(required = false) String type,
-                                             @RequestParam(required = false, defaultValue = "newest") String sort) {
-        return ApiResult.ok(styleCardService.list(projectId, type, sort, StpUtil.getLoginIdAsLong()));
+    public ApiResult<PageResult<StyleCardVO>> list(@RequestParam(required = false) Long projectId,
+                                                   @RequestParam(required = false) String type,
+                                                   @RequestParam(required = false) String search,
+                                                   @RequestParam(required = false, defaultValue = "newest") String sort,
+                                                   @RequestParam(defaultValue = "1") long page,
+                                                   @RequestParam(defaultValue = "12") long pageSize) {
+        return ApiResult.ok(styleCardService.page(
+                projectId,
+                type,
+                search,
+                sort,
+                StpUtil.getLoginIdAsLong(),
+                PagingUtil.normalizePage(page),
+                PagingUtil.clampPageSize(pageSize, 12)
+        ));
     }
 
     @GetMapping("/{id}")

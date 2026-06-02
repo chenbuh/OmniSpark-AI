@@ -2,6 +2,7 @@ package com.example.aihub.infrastructure.service;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
+import com.example.aihub.common.util.PagingUtil;
 import com.example.aihub.common.util.VoMapper;
 import com.example.aihub.infrastructure.entity.Notification;
 import com.example.aihub.infrastructure.mapper.NotificationMapper;
@@ -53,11 +54,12 @@ public class NotificationService {
     }
 
     public List<NotificationVO> listAll(Long userId, int limit) {
+        int safeLimit = PagingUtil.clampLimit(limit, 50, 100);
         return notificationMapper.selectList(
                 new LambdaQueryWrapper<Notification>()
                         .eq(Notification::getUserId, userId)
                         .orderByDesc(Notification::getId)
-                        .last("LIMIT " + limit))
+                        .last("LIMIT " + safeLimit))
                 .stream().map(this::toVO).toList();
     }
 

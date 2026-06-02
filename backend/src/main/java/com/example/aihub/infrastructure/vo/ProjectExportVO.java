@@ -9,6 +9,7 @@ import java.util.Map;
 public class ProjectExportVO {
     private String version;
     private String exportedAt;
+    private String canaryToken;
     private ProjectVO project;
     private List<ModelProviderVO> providers;
     private List<PromptTemplateVO> promptTemplates;

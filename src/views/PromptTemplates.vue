@@ -27,8 +27,8 @@
       </div>
     </n-card>
 
-    <div class="templates-grid" v-if="filteredTemplates.length > 0">
-      <div v-for="tpl in pagedTemplates" :key="tpl.id" class="tpl-card glass-card">
+    <div class="templates-grid" v-if="templates.length > 0">
+      <div v-for="tpl in templates" :key="tpl.id" class="tpl-card glass-card">
         <div class="tpl-header">
           <span class="tpl-name">{{ tpl.name }}</span>
           <n-tag type="warning" size="mini" round>{{ tpl.tag }}</n-tag>
@@ -86,11 +86,11 @@
       </template>
     </n-empty>
 
-    <div class="pager" v-if="filteredTemplates.length > 0">
+    <div class="pager" v-if="totalTemplates > 0">
       <n-pagination
         v-model:page="page"
         :page-size="pageSize"
-        :item-count="filteredTemplates.length"
+        :item-count="totalTemplates"
         show-size-picker
         :page-sizes="pageSizeOptions"
         @update:page-size="handlePageSizeChange"
@@ -152,7 +152,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, computed, onMounted, watch } from 'vue'
+import { ref, reactive, onMounted, onBeforeUnmount, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useMessage, useDialog } from 'naive-ui'
 import { useProjectStore } from '@/store/project'
@@ -176,6 +176,11 @@ const saving = ref(false)
 const templates = ref<PromptTemplate[]>([])
 const selectedTemplate = ref<PromptTemplate | null>(null)
 const currentUserId = ref<number | null>(null)
+const totalTemplates = ref(0)
+let searchTimer: ReturnType<typeof setTimeout> | null = null
+const page = ref(1)
+const pageSize = ref(12)
+const pageSizeOptions = [12, 24, 48, 96]
 
 const form = reactive({
   name: '', tag: '写实/人像', content: '', negativePrompt: '', modelName: ''
@@ -195,11 +200,29 @@ const sortOptions = [
 
 async function loadTemplates() {
   try {
-    const res = await templateApi.getTemplates(projectStore.activeProjectId, sortBy.value)
-    templates.value = res.data || []
+    const res = await templateApi.getTemplates({
+      projectId: projectStore.activeProjectId,
+      tag: activeTag.value !== 'all' ? activeTag.value : undefined,
+      search: searchQuery.value.trim() || undefined,
+      sort: sortBy.value,
+      page: page.value,
+      pageSize: pageSize.value
+    })
+    templates.value = res.data?.records || []
+    totalTemplates.value = Number(res.data?.total || 0)
   } catch {
     templates.value = []
+    totalTemplates.value = 0
   }
+}
+
+function scheduleLoadTemplates(delay = 180) {
+  if (searchTimer) {
+    clearTimeout(searchTimer)
+  }
+  searchTimer = setTimeout(() => {
+    loadTemplates()
+  }, delay)
 }
 
 onMounted(() => {
@@ -209,37 +232,27 @@ onMounted(() => {
   } catch {}
   loadTemplates()
 })
-watch([() => projectStore.activeProjectId, sortBy], () => {
-  loadTemplates()
+onBeforeUnmount(() => {
+  if (searchTimer) {
+    clearTimeout(searchTimer)
+  }
+})
+watch([activeTag, sortBy, searchQuery, () => projectStore.activeProjectId], () => {
+  page.value = 1
+  scheduleLoadTemplates()
+})
+watch([page, pageSize], () => {
+  scheduleLoadTemplates(0)
 })
 
 const resetForm = () => {
   Object.assign(form, { name: '', tag: '写实/人像', content: '', negativePrompt: '', modelName: '' })
   editingId.value = null
 }
-
-const filteredTemplates = computed(() => {
-  let list = templates.value
-  if (activeTag.value !== 'all') list = list.filter(t => t.tag === activeTag.value)
-  if (searchQuery.value) {
-    const q = searchQuery.value.toLowerCase()
-    list = list.filter(t => t.name?.toLowerCase().includes(q) || t.content?.toLowerCase().includes(q))
-  }
-  return list
-})
-
-const page = ref(1)
-const pageSize = ref(12)
-const pageSizeOptions = [12, 24, 48, 96]
-const pagedTemplates = computed(() => {
-  const start = (page.value - 1) * pageSize.value
-  return filteredTemplates.value.slice(start, start + pageSize.value)
-})
 function handlePageSizeChange(size: number) {
   pageSize.value = size
   page.value = 1
 }
-watch([activeTag, searchQuery, sortBy, () => projectStore.activeProjectId], () => { page.value = 1 })
 
 function authorName(tpl: PromptTemplate) {
   return tpl.nickname || tpl.username || '匿名用户'
@@ -365,7 +378,7 @@ const handleDelete = async (id: number) => {
     onPositiveClick: async () => {
       try {
         await templateApi.deleteTemplate(id)
-        templates.value = templates.value.filter(t => t.id !== id)
+        await loadTemplates()
         message.success('已删除')
       } catch (err: any) {
         message.error(err.message || '删除失败')

@@ -34,7 +34,7 @@
       <div class="toolbar-top">
         <div class="library-meta">
           <span class="meta-title">{{ currentProjectName || '未选择项目空间' }}</span>
-          <span class="meta-desc">当前匹配 {{ filteredAssets.length }} / {{ scopedAssets.length }} 个资产（含全局历史素材）</span>
+          <span class="meta-desc">{{ libraryMetaDesc }}</span>
         </div>
         <n-space>
           <n-input
@@ -58,8 +58,8 @@
       </n-tabs>
     </n-card>
 
-    <div v-if="filteredAssets.length > 0" class="assets-grid">
-      <div v-for="asset in pagedAssets" :key="asset.id" class="asset-card" @click="handleOpenDetail(asset)">
+    <div v-if="assetRecords.length > 0" class="assets-grid">
+      <div v-for="asset in assetRecords" :key="asset.id" class="asset-card" @click="handleOpenDetail(asset)">
         <div class="media-container">
           <video
             v-if="asset.assetType === 'video'"
@@ -133,11 +133,11 @@
       </n-space>
     </div>
 
-    <div class="pager" v-if="filteredAssets.length > 0">
+    <div class="pager" v-if="filteredTotal > 0">
       <n-pagination
         v-model:page="page"
         :page-size="pageSize"
-        :item-count="filteredAssets.length"
+        :item-count="filteredTotal"
         show-size-picker
         :page-sizes="pageSizeOptions"
         @update:page-size="handlePageSizeChange"
@@ -315,12 +315,10 @@
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useMessage } from 'naive-ui'
-import { assetApi } from '@/api/assets'
-import request from '@/api/request'
+import { assetApi, type AssetStats } from '@/api/assets'
 import { subtitleApi, type SubtitleVO } from '@/api/subtitles'
 import { useAssetStore, type Asset, resolveAssetUrl } from '@/store/asset'
 import { useProjectStore } from '@/store/project'
-import { useUserStore } from '@/store/user'
 import {
   Library,
   RefreshCw,
@@ -355,19 +353,30 @@ const message = useMessage()
 
 const projectStore = useProjectStore()
 const assetStore = useAssetStore()
-const userStore = useUserStore()
 
 const loading = ref(false)
 const uploading = ref(false)
 const activeTab = ref<'all' | 'image' | 'video' | 'reference' | 'favorite'>('all')
 const searchKeyword = ref('')
 const sortBy = ref<SortKey>('latest')
-const assetTab = ref('own')
-const sharedAssets = ref<Asset[]>([])
+const assetTab = ref<'own' | 'shared'>('own')
 const showDetailDrawer = ref(false)
 const selectedAsset = ref<Asset | null>(null)
 const uploadInput = ref<HTMLInputElement | null>(null)
 let refreshTimer: number | null = null
+let searchTimer: number | null = null
+let latestLoadToken = 0
+
+const assetStats = ref<AssetStats>({
+  total: 0,
+  imageCount: 0,
+  videoCount: 0,
+  referenceCount: 0,
+  favoriteCount: 0
+})
+const assetRecords = ref<Asset[]>([])
+const filteredTotal = ref(0)
+const versionHistory = ref<Asset[]>([])
 
 const subtitles = ref<SubtitleVO[]>([])
 const subGenerating = ref(false)
@@ -385,100 +394,33 @@ const sortOptions = [
 ]
 
 const currentProjectName = computed(() => {
+  if (assetTab.value === 'shared') {
+    return '共享给我'
+  }
   return projectStore.projects.find(item => item.id === projectStore.activeProjectId)?.name || ''
 })
 
-const scopedAssets = computed(() => {
-  const activeProjectId = projectStore.activeProjectId
-  if (!activeProjectId) {
-    return assetStore.assets
-  }
-  return assetStore.assets.filter(item => item.projectId === activeProjectId || item.projectId === 0)
-})
-
 const summaryCards = computed(() => {
-  const assets = scopedAssets.value
-  const imageCount = assets.filter(item => item.assetType === 'image').length
-  const videoCount = assets.filter(item => item.assetType === 'video').length
-  const referenceCount = assets.filter(item => item.assetType === 'reference').length
-  const favoriteCount = assets.filter(item => item.favorite).length
-
   return [
-    { label: '总资产数', value: assets.length, hint: '当前空间的全部素材沉淀' },
-    { label: '图像成果', value: imageCount, hint: '生成图像与关键画面' },
-    { label: '视频成果', value: videoCount, hint: '可复用的视频片段与动画' },
-    { label: '参考素材', value: referenceCount + favoriteCount, hint: `其中收藏 ${favoriteCount} 项` }
+    { label: '总资产数', value: assetStats.value.total, hint: '当前空间的全部素材沉淀' },
+    { label: '图像成果', value: assetStats.value.imageCount, hint: '生成图像与关键画面' },
+    { label: '视频成果', value: assetStats.value.videoCount, hint: '可复用的视频片段与动画' },
+    { label: '参考素材', value: assetStats.value.referenceCount, hint: `其中收藏 ${assetStats.value.favoriteCount} 项` }
   ]
 })
 
-const filteredAssets = computed(() => {
-  const keyword = searchKeyword.value.trim().toLowerCase()
-  // 根据 tab 选择数据源
-  const source = assetTab.value === 'shared' ? sharedAssets.value : scopedAssets.value
-  let list = [...source]
-
-  if (activeTab.value === 'favorite') {
-    list = list.filter(item => item.favorite)
-  } else if (activeTab.value !== 'all') {
-    list = list.filter(item => item.assetType === activeTab.value)
-  }
-
-  if (keyword) {
-    list = list.filter(item => {
-      return [
-        item.fileName,
-        item.prompt,
-        item.modelName,
-        assetTypeLabelMap[item.assetType]
-      ].some(value => String(value || '').toLowerCase().includes(keyword))
-    })
-  }
-
-  list.sort((a, b) => {
-    switch (sortBy.value) {
-      case 'oldest':
-        return toTimestamp(a.createdAt) - toTimestamp(b.createdAt)
-      case 'size':
-        return b.fileSizeBytes - a.fileSizeBytes
-      case 'name':
-        return a.fileName.localeCompare(b.fileName, 'zh-CN')
-      case 'favorite':
-        return Number(b.favorite) - Number(a.favorite) || toTimestamp(b.createdAt) - toTimestamp(a.createdAt)
-      case 'latest':
-      default:
-        return toTimestamp(b.createdAt) - toTimestamp(a.createdAt)
-    }
-  })
-
-  return list
+const libraryMetaDesc = computed(() => {
+  const suffix = assetTab.value === 'shared' ? '（来自已共享项目）' : '（当前可访问范围）'
+  return `当前匹配 ${filteredTotal.value} / ${assetStats.value.total} 个资产${suffix}`
 })
 
-// 前端分页(assetStore 全量不动,仅渲染层切片)
 const page = ref(1)
 const pageSize = ref(24)
 const pageSizeOptions = [12, 24, 48, 96]
-const pagedAssets = computed(() => {
-  const start = (page.value - 1) * pageSize.value
-  return filteredAssets.value.slice(start, start + pageSize.value)
-})
 function handlePageSizeChange(size: number) {
   pageSize.value = size
   page.value = 1
 }
-// 切换 tab / 过滤 / 排序 / 项目时回到第 1 页
-watch([activeTab, assetTab, searchKeyword, sortBy, () => projectStore.activeProjectId], () => { page.value = 1 })
-
-const versionHistory = computed(() => {
-  const current = selectedAsset.value
-  if (!current?.prompt) return []
-  return scopedAssets.value
-    .filter(item =>
-      item.prompt === current.prompt &&
-      item.modelName === current.modelName &&
-      ['image', 'video', 'reference'].includes(item.assetType)
-    )
-    .sort((a, b) => toTimestamp(b.createdAt) - toTimestamp(a.createdAt))
-})
 
 const subtitleRows = computed(() => {
   return subtitles.value.map(item => ({
@@ -487,10 +429,17 @@ const subtitleRows = computed(() => {
   }))
 })
 
-function toTimestamp(value: string): number {
-  const ts = Date.parse(value.replace(' ', 'T'))
-  return Number.isFinite(ts) ? ts : 0
-}
+const currentAssetType = computed(() => {
+  return activeTab.value === 'all' || activeTab.value === 'favorite' ? undefined : activeTab.value
+})
+
+const currentFavorite = computed(() => {
+  return activeTab.value === 'favorite' ? true : undefined
+})
+
+const currentProjectId = computed(() => {
+  return assetTab.value === 'own' ? (projectStore.activeProjectId || undefined) : undefined
+})
 
 function formatCompactDate(value: string) {
   if (!value || value === '--') return '--'
@@ -499,30 +448,71 @@ function formatCompactDate(value: string) {
 
 async function loadAssets() {
   loading.value = true
+  const loadToken = ++latestLoadToken
   try {
-    await assetStore.refresh()
-    // 加载共享给我的资产
-    const userId = userStore.userInfo?.id
-    if (userId) {
-      try {
-        const sharedRes = await request.get('/api/assets/shared', { params: { userId } })
-        sharedAssets.value = (sharedRes as any).data || []
-      } catch {}
+    const [pageRes, statsRes] = await Promise.all([
+      assetApi.pageAssets({
+        scope: assetTab.value,
+        projectId: currentProjectId.value,
+        assetType: currentAssetType.value,
+        favorite: currentFavorite.value,
+        search: searchKeyword.value.trim() || undefined,
+        sort: sortBy.value,
+        page: page.value,
+        pageSize: pageSize.value
+      }),
+      assetApi.getStats({
+        scope: assetTab.value,
+        projectId: currentProjectId.value
+      })
+    ])
+    if (loadToken !== latestLoadToken) {
+      return
+    }
+    assetRecords.value = (pageRes.data?.records || []).map(item => assetStore.normalizeAsset(item))
+    filteredTotal.value = Number(pageRes.data?.total || 0)
+    assetStats.value = {
+      total: Number(statsRes.data?.total || 0),
+      imageCount: Number(statsRes.data?.imageCount || 0),
+      videoCount: Number(statsRes.data?.videoCount || 0),
+      referenceCount: Number(statsRes.data?.referenceCount || 0),
+      favoriteCount: Number(statsRes.data?.favoriteCount || 0)
     }
     openAssetFromRoute()
   } catch (err: any) {
     message.error(err.message || '资产加载失败')
   } finally {
-    loading.value = false
+    if (loadToken === latestLoadToken) {
+      loading.value = false
+    }
   }
 }
 
-function openAssetFromRoute() {
+async function openAssetFromRoute() {
   const assetId = Number(route.query.assetId)
   if (!assetId) return
-  const asset = assetStore.assets.find(item => item.id === assetId)
+  if (selectedAsset.value?.id === assetId) return
+  const asset = assetRecords.value.find(item => item.id === assetId)
   if (asset) {
     handleOpenDetail(asset)
+    return
+  }
+  try {
+    const res = await assetApi.getAsset(assetId)
+    handleOpenDetail(assetStore.normalizeAsset(res.data))
+  } catch {}
+}
+
+async function loadVersionHistory() {
+  if (!selectedAsset.value?.id) {
+    versionHistory.value = []
+    return
+  }
+  try {
+    const res = await assetApi.getVersions(selectedAsset.value.id, 12)
+    versionHistory.value = (res.data || []).map(item => assetStore.normalizeAsset(item))
+  } catch {
+    versionHistory.value = []
   }
 }
 
@@ -553,9 +543,12 @@ async function handleUploadChange(event: Event) {
     formData.append('file', file)
     const res = await assetApi.uploadAsset(formData)
     const uploaded = assetStore.normalizeAsset(res.data)
-    await assetStore.refresh()
+    await assetStore.refresh({ projectId: projectStore.activeProjectId, limit: 100 })
+    assetTab.value = 'own'
     activeTab.value = 'reference'
-    handleOpenDetail(assetStore.assets.find(item => item.id === uploaded.id) || uploaded)
+    page.value = 1
+    await loadAssets()
+    handleOpenDetail(assetRecords.value.find(item => item.id === uploaded.id) || uploaded)
     message.success(`素材已上传到共享资产库: ${file.name}`)
   } catch (err: any) {
     message.error(err.message || '上传失败')
@@ -573,9 +566,11 @@ function handleOpenDetail(asset: Asset) {
 async function handleToggleFavorite(asset: Asset) {
   try {
     const updated = await assetStore.toggleFavorite(asset.id)
+    assetRecords.value = assetRecords.value.map(item => item.id === asset.id ? updated : item)
     if (selectedAsset.value?.id === asset.id) {
       selectedAsset.value = updated
     }
+    await loadAssets()
     message.success(updated.favorite ? '资产已加入收藏' : '已取消收藏')
   } catch (err: any) {
     message.error(err.message || '收藏操作失败')
@@ -741,9 +736,17 @@ async function handleDeleteAsset() {
   try {
     const id = selectedAsset.value.id
     await assetStore.deleteAsset(id)
+    const shouldFallbackToPrevPage = page.value > 1 && assetRecords.value.length === 1
+    assetRecords.value = assetRecords.value.filter(item => item.id !== id)
     subtitles.value = []
+    versionHistory.value = []
     showDetailDrawer.value = false
     selectedAsset.value = null
+    if (shouldFallbackToPrevPage) {
+      page.value -= 1
+    } else {
+      await loadAssets()
+    }
     message.success('资产已删除')
   } catch (err: any) {
     message.error(err.message || '删除失败')
@@ -752,12 +755,42 @@ async function handleDeleteAsset() {
 
 watch(selectedAsset, () => {
   loadSubtitles()
+  loadVersionHistory()
+})
+
+watch([activeTab, assetTab, sortBy], () => {
+  if (page.value !== 1) {
+    page.value = 1
+    return
+  }
+  loadAssets()
+})
+
+watch(searchKeyword, () => {
+  if (searchTimer !== null) {
+    clearTimeout(searchTimer)
+  }
+  if (page.value !== 1) {
+    page.value = 1
+  }
+  searchTimer = window.setTimeout(() => {
+    loadAssets()
+  }, 250)
+})
+
+watch([page, pageSize], () => {
+  loadAssets()
 })
 
 watch(() => projectStore.activeProjectId, () => {
   selectedAsset.value = null
   showDetailDrawer.value = false
   subtitles.value = []
+  versionHistory.value = []
+  if (page.value !== 1) {
+    page.value = 1
+    return
+  }
   loadAssets()
 })
 
@@ -775,6 +808,10 @@ onUnmounted(() => {
   if (refreshTimer !== null) {
     clearInterval(refreshTimer)
     refreshTimer = null
+  }
+  if (searchTimer !== null) {
+    clearTimeout(searchTimer)
+    searchTimer = null
   }
 })
 </script>

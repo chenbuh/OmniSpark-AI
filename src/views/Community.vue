@@ -347,7 +347,7 @@ onMounted(() => {
   if (route.query.sharePrompt) {
     form.prompt = route.query.sharePrompt as string
     form.modelName = (route.query.shareModel as string) || ''
-    form.imageUrl = (route.query.shareImage as string) || ''
+    form.imageUrl = toRelativeUrl((route.query.shareImage as string) || '')
     showUploadModal.value = true
   }
   loadPosts()
@@ -378,14 +378,11 @@ function handleSelectAsset(asset: Asset) {
 // 把可能为绝对地址的资源 URL 转成相对路径（/uploads/...），跨源部署仍可用
 function toRelativeUrl(url: string): string {
   if (!url) return ''
-  if (/^https?:\/\//i.test(url)) {
-    try {
-      return new URL(url).pathname
-    } catch {
-      return url
-    }
+  try {
+    return new URL(url, window.location.origin).pathname
+  } catch {
+    return url.split('?')[0]?.split('#')[0] || url
   }
-  return url
 }
 
 function clearUploadedImage() {
@@ -411,7 +408,7 @@ async function handleImageUpload(event: Event) {
     formData.append('projectId', String(projectStore.activeProjectId))
     formData.append('file', file)
     const res = await assetApi.uploadAsset(formData)
-    form.imageUrl = res.data?.fileUrl || res.data?.thumbUrl || ''
+    form.imageUrl = toRelativeUrl(res.data?.fileUrl || res.data?.thumbUrl || '')
     message.success('效果图上传成功')
   } catch (err: any) {
     message.error(err.message || '图片上传失败')

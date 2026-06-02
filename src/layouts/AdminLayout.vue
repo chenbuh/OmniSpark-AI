@@ -67,6 +67,7 @@ const menuOptions = [
   { label: '定时任务', key: 'admin-scheduled-tasks', icon: renderIcon(Activity) },
   { label: 'Webhook', key: 'admin-webhooks', icon: renderIcon(Activity) },
   { label: '系统日志', key: 'admin-logs', icon: renderIcon(Activity) },
+  { label: '访问日志', key: 'admin-access-logs', icon: renderIcon(Activity) },
   { label: '维护模式', key: 'admin-maintenance', icon: renderIcon(Shield) },
   { label: '系统公告', key: 'admin-announcements', icon: renderIcon(Megaphone) },
   { label: '数据清理', key: 'admin-cleanup', icon: renderIcon(Trash2) },
@@ -87,6 +88,7 @@ const activeKey = computed(() => {
   if (p.startsWith('/admin/scheduled-tasks')) return 'admin-scheduled-tasks'
   if (p.startsWith('/admin/webhooks')) return 'admin-webhooks'
   if (p.startsWith('/admin/logs')) return 'admin-logs'
+  if (p.startsWith('/admin/access-logs')) return 'admin-access-logs'
   if (p.startsWith('/admin/maintenance')) return 'admin-maintenance'
   if (p.startsWith('/admin/announcements')) return 'admin-announcements'
   if (p.startsWith('/admin/cleanup')) return 'admin-cleanup'
@@ -104,6 +106,7 @@ const routeMap: Record<string, string> = {
   'admin-update': '/admin/update', 'admin-dict': '/admin/dict',
   'admin-files': '/admin/files', 'admin-scheduled-tasks': '/admin/scheduled-tasks',
   'admin-webhooks': '/admin/webhooks', 'admin-logs': '/admin/logs',
+  'admin-access-logs': '/admin/access-logs',
   'admin-maintenance': '/admin/maintenance', 'admin-announcements': '/admin/announcements',
   'admin-cleanup': '/admin/cleanup', 'admin-login-logs': '/admin/login-logs',
   'admin-config': '/admin/config'

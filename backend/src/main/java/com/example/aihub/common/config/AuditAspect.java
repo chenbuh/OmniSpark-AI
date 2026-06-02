@@ -1,6 +1,7 @@
 package com.example.aihub.common.config;
 
 import cn.dev33.satoken.stp.StpUtil;
+import com.example.aihub.common.security.ClientIpResolver;
 import com.example.aihub.infrastructure.service.AuditLogService;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
@@ -20,6 +21,7 @@ import java.lang.reflect.Method;
 @RequiredArgsConstructor
 public class AuditAspect {
     private final AuditLogService auditLogService;
+    private final ClientIpResolver clientIpResolver;
 
     @Pointcut("execution(* com.example.aihub.module..*Controller.*(..))")
     public void controllerMethods() {}
@@ -52,7 +54,7 @@ public class AuditAspect {
 
             // 获取请求 IP
             HttpServletRequest request = ((ServletRequestAttributes) RequestContextHolder.getRequestAttributes()).getRequest();
-            String ip = request != null ? request.getRemoteAddr() : null;
+            String ip = request != null ? clientIpResolver.resolve(request) : null;
 
             // 构建详情
             StringBuilder detail = new StringBuilder();
