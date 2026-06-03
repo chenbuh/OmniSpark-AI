@@ -196,6 +196,20 @@
         </div>
       </div>
     </n-modal>
+
+    <n-modal
+      v-model:show="showDeleteProjectModal"
+      preset="dialog"
+      title="删除项目空间"
+      positive-text="确认删除"
+      negative-text="取消"
+      @positive-click="handleDeleteProject"
+    >
+      <div class="delete-project-dialog">
+        <p>确定要删除项目空间“{{ currentProjectName || '未命名项目' }}”吗？</p>
+        <p>删除后将同时清理该项目下的图片、视频、参考素材，以及关联的任务、工作流、模板和模型配置，且无法恢复。</p>
+      </div>
+    </n-modal>
   </n-layout>
 </template>
 
@@ -225,6 +239,7 @@ const teamStore = useTeamStore()
 
 const collapsed = ref(false)
 const showAddProjectModal = ref(false)
+const showDeleteProjectModal = ref(false)
 
 const addProjectForm = reactive({
   name: '',
@@ -423,12 +438,19 @@ const handleRemoveShare = async (shareId: number) => {
 // ===== 项目操作菜单 =====
 const projectActionOptions = [
   { label: '📤 导出项目数据', key: 'export' },
-  { label: '📥 导入项目数据', key: 'import' }
+  { label: '📥 导入项目数据', key: 'import' },
+  { label: '🗑 删除项目空间', key: 'delete' }
 ]
 
 const handleProjectAction = async (key: string) => {
   if (key === 'export') {
     await handleExportProject()
+  } else if (key === 'delete') {
+    if (!projectStore.activeProjectId) {
+      message.error('请先选择一个项目')
+      return
+    }
+    showDeleteProjectModal.value = true
   } else if (key === 'import') {
     const input = document.createElement('input')
     input.type = 'file'
@@ -458,6 +480,25 @@ const handleProjectAction = async (key: string) => {
       }
     }
     input.click()
+  }
+}
+
+const handleDeleteProject = async () => {
+  if (!projectStore.activeProjectId) {
+    message.error('请先选择一个项目')
+    return false
+  }
+  try {
+    const deletingProjectName = currentProjectName.value || `项目 ${projectStore.activeProjectId}`
+    await projectStore.deleteProject(projectStore.activeProjectId)
+    showDeleteProjectModal.value = false
+    message.success(`项目空间“${deletingProjectName}”已删除`)
+    if (route.path.startsWith('/admin/')) {
+      await router.push('/admin/dashboard')
+    }
+  } catch (err: any) {
+    message.error(err.message || '删除项目失败')
+    return false
   }
 }
 
@@ -824,6 +865,17 @@ const handleUserDropdownSelect = async (key: string) => {
   display: flex;
   gap: 8px;
   align-items: center;
+}
+
+.delete-project-dialog p {
+  margin: 0 0 10px;
+  line-height: 1.7;
+  color: var(--text-secondary);
+}
+
+.delete-project-dialog p:last-child {
+  margin-bottom: 0;
+  color: #fca5a5;
 }
 
 /* ---- 通知弹窗 ---- */

@@ -30,9 +30,13 @@ public class ProjectService {
     private final StyleCardMapper styleCardMapper;
     private final WorkflowMapper workflowMapper;
     private final WorkflowRunMapper workflowRunMapper;
+    private final GenerationTaskMapper generationTaskMapper;
+    private final QuotaRecordMapper quotaRecordMapper;
     private final AssetMapper assetMapper;
     private final ObjectMapper objectMapper;
     private final com.example.aihub.common.security.ProjectAccessGuard projectAccessGuard;
+    private final AssetService assetService;
+    private final SubtitleService subtitleService;
 
     // ===== 原有 listMine / create / update / delete 保持不变 =====
 
@@ -99,6 +103,17 @@ public class ProjectService {
         if (project == null) throw new BusinessException("项目不存在");
         if (!project.getUserId().equals(SecurityUtil.loginUserId()))
             throw new BusinessException("只有项目所有者才能删除项目");
+
+        subtitleService.deleteByProjectId(id);
+        assetService.deleteByProjectId(id);
+        workflowRunMapper.delete(new LambdaQueryWrapper<WorkflowRun>().eq(WorkflowRun::getProjectId, id));
+        workflowMapper.delete(new LambdaQueryWrapper<Workflow>().eq(Workflow::getProjectId, id));
+        generationTaskMapper.delete(new LambdaQueryWrapper<GenerationTask>().eq(GenerationTask::getProjectId, id));
+        quotaRecordMapper.delete(new LambdaQueryWrapper<QuotaRecord>().eq(QuotaRecord::getProjectId, id));
+        styleCardMapper.delete(new LambdaQueryWrapper<StyleCard>().eq(StyleCard::getProjectId, id));
+        templateMapper.delete(new LambdaQueryWrapper<PromptTemplate>().eq(PromptTemplate::getProjectId, id));
+        providerMapper.delete(new LambdaQueryWrapper<ModelProvider>().eq(ModelProvider::getProjectId, id));
+        shareMapper.delete(new LambdaQueryWrapper<ProjectShare>().eq(ProjectShare::getProjectId, id));
         projectMapper.deleteById(id);
     }
 
