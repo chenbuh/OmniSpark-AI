@@ -27,6 +27,9 @@ public class AntiCrawlerRiskService {
     private static final String ASSET_UNIQUE_KEY = "risk:asset:unique:";
     private static final String UPLOAD_STEADY_KEY = "risk:upload:steady:";
     private static final String UPLOAD_STEADY_UNIQUE_KEY = "risk:upload:steady:unique:";
+    private static final String UPLOAD_BURST_UNIQUE_KEY = "risk:upload:burst:unique:";
+    private static final String UPLOAD_BURST_EVENT_KEY = "risk:upload:burst:event:";
+    private static final String UPLOAD_BURST_EVENT_MARK_KEY = "risk:upload:burst:event:mark:";
     private static final String UPLOAD_SLOW_KEY = "risk:upload:slow:";
     private static final String UPLOAD_SLOW_UNIQUE_KEY = "risk:upload:slow:unique:";
     private static final String UPLOAD_IP_FAST_USER_KEY = "risk:upload:ip-fast:user:";
@@ -76,6 +79,18 @@ public class AntiCrawlerRiskService {
 
     @Value("${app.security.upload-access.download.risk.steady-min-unique-files-user:12}")
     private long uploadSteadyMinUniqueFilesUser;
+
+    @Value("${app.security.upload-access.download.risk.burst-window-seconds:3}")
+    private long uploadBurstWindowSeconds;
+
+    @Value("${app.security.upload-access.download.risk.burst-min-unique-files-user:12}")
+    private long uploadBurstMinUniqueFilesUser;
+
+    @Value("${app.security.upload-access.download.risk.burst-event-window-minutes:2}")
+    private long uploadBurstEventWindowMinutes;
+
+    @Value("${app.security.upload-access.download.risk.burst-max-events-user:2}")
+    private long uploadBurstMaxEventsUser;
 
     @Value("${app.security.upload-access.download.risk.slow-window-minutes:20}")
     private long uploadSlowWindowMinutes;
@@ -259,6 +274,26 @@ public class AntiCrawlerRiskService {
         }
 
         if (subject.startsWith("user:")) {
+            Duration burstTtl = Duration.ofSeconds(Math.max(uploadBurstWindowSeconds, 1));
+            long burstUniqueCount = distinctCount(UPLOAD_BURST_UNIQUE_KEY + subject, fingerprint, burstTtl);
+            if (burstUniqueCount >= uploadBurstMinUniqueFilesUser) {
+                Boolean firstBurstInWindow = redisTemplate.opsForValue().setIfAbsent(
+                        UPLOAD_BURST_EVENT_MARK_KEY + subject,
+                        "1",
+                        burstTtl
+                );
+                if (Boolean.TRUE.equals(firstBurstInWindow)) {
+                    long burstEvents = increment(
+                            UPLOAD_BURST_EVENT_KEY + subject,
+                            Duration.ofMinutes(Math.max(uploadBurstEventWindowMinutes, 1))
+                    );
+                    if (burstEvents >= uploadBurstMaxEventsUser) {
+                        flag(subject, "检测到秒级突发批量下载行为");
+                        return;
+                    }
+                }
+            }
+
             Duration steadyTtl = Duration.ofMinutes(Math.max(uploadSteadyWindowMinutes, 1));
             long streak = recordIntervalStreak(
                     UPLOAD_STEADY_KEY + subject,

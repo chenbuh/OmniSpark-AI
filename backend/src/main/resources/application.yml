@@ -62,6 +62,10 @@ app:
         max-unique-users-15m-ip: 2
         max-unique-files-15m-ip-multi-user: 30
         risk:
+          burst-window-seconds: 3
+          burst-min-unique-files-user: 12
+          burst-event-window-minutes: 2
+          burst-max-events-user: 2
           fast-ip-window-seconds: 10
           fast-ip-max-users: 2
           fast-ip-max-unique-files: 15
