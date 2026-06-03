@@ -1,6 +1,7 @@
 package com.example.aihub.common.config;
 
 import cn.dev33.satoken.interceptor.SaInterceptor;
+import com.example.aihub.common.storage.UploadStorageResolver;
 import lombok.RequiredArgsConstructor;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.web.servlet.config.annotation.InterceptorRegistry;
@@ -14,6 +15,7 @@ public class WebConfig implements WebMvcConfigurer {
     private final ApiSignInterceptor apiSignInterceptor;
     private final AntiCrawlerRiskInterceptor antiCrawlerRiskInterceptor;
     private final RateLimitInterceptor rateLimitInterceptor;
+    private final UploadStorageResolver uploadStorageResolver;
 
     @Override
     public void addInterceptors(InterceptorRegistry registry) {
@@ -37,6 +39,6 @@ public class WebConfig implements WebMvcConfigurer {
     @Override
     public void addResourceHandlers(ResourceHandlerRegistry registry) {
         registry.addResourceHandler("/uploads/**")
-                .addResourceLocations("file:uploads/");
+                .addResourceLocations(uploadStorageResolver.asResourceLocation());
     }
 }

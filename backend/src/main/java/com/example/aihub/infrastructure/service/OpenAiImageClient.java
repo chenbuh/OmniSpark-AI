@@ -2,6 +2,7 @@ package com.example.aihub.infrastructure.service;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.example.aihub.common.storage.UploadStorageResolver;
 import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.RequiredArgsConstructor;
@@ -48,6 +49,7 @@ public class OpenAiImageClient {
     private static final int MAX_DOWNLOAD_ATTEMPTS = 3;
 
     private final ObjectMapper objectMapper;
+    private final UploadStorageResolver uploadStorageResolver;
 
     public List<RenderedMedia> generateImage(String baseUrl,
                                              String apiKey,
@@ -893,7 +895,7 @@ public class OpenAiImageClient {
     }
 
     private RenderedMedia saveGeneratedMedia(byte[] bytes, String mimeType, String fileName) throws Exception {
-        Path uploadDir = Paths.get("uploads", "generated");
+        Path uploadDir = uploadStorageResolver.resolve("generated");
         Files.createDirectories(uploadDir);
         Path target = uploadDir.resolve(fileName);
         Files.write(target, bytes);
@@ -948,9 +950,10 @@ public class OpenAiImageClient {
                 }
                 return response.body();
             }
-            Path local = fileUrl.startsWith("/uploads/")
-                    ? Paths.get("uploads").resolve(fileUrl.substring("/uploads/".length()))
-                    : Paths.get(fileUrl);
+            Path local = uploadStorageResolver.resolveLocalUploadPath(fileUrl);
+            if (local == null) {
+                local = Paths.get(fileUrl);
+            }
             return Files.readAllBytes(local);
         } catch (Exception ex) {
             throw new IllegalStateException("读取参考图失败: " + ex.getMessage(), ex);

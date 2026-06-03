@@ -3,6 +3,7 @@ package com.example.aihub.infrastructure.service;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.example.aihub.common.exception.BusinessException;
 import com.example.aihub.common.security.UploadAccessSignatureService;
+import com.example.aihub.common.storage.UploadStorageResolver;
 import com.example.aihub.common.util.VoMapper;
 import com.example.aihub.infrastructure.dto.SubtitleGenerateDTO;
 import com.example.aihub.infrastructure.dto.SubtitleUpdateDTO;
@@ -18,7 +19,6 @@ import org.springframework.transaction.annotation.Transactional;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.Paths;
 import java.util.List;
 import java.util.UUID;
 
@@ -29,6 +29,7 @@ public class SubtitleService {
     private final AssetMapper assetMapper;
     private final com.example.aihub.common.security.ProjectAccessGuard projectAccessGuard;
     private final UploadAccessSignatureService uploadAccessSignatureService;
+    private final UploadStorageResolver uploadStorageResolver;
 
     public List<SubtitleVO> listByAsset(Long assetId) {
         requireAccessibleAsset(assetId);
@@ -98,7 +99,7 @@ public class SubtitleService {
         try {
             // 模拟 TTS：生成一段沉默的音频占位 + 保存文本标注
             // 生产环境可接入火山引擎/阿里云 TTS API
-            Path ttsDir = Paths.get("uploads", "tts");
+            Path ttsDir = uploadStorageResolver.resolve("tts");
             Files.createDirectories(ttsDir);
             String fileName = "tts_" + UUID.randomUUID().toString().replace("-", "").substring(0, 12) + ".txt";
             Path target = ttsDir.resolve(fileName);
@@ -120,7 +121,19 @@ public class SubtitleService {
             throw new BusinessException("字幕不存在");
         }
         projectAccessGuard.assertAccess(sub.getProjectId());
+        deleteVoiceFile(sub.getVoiceUrl());
         subtitleMapper.deleteById(id);
+    }
+
+    @Transactional(rollbackFor = Exception.class)
+    public void deleteByProjectId(Long projectId) {
+        if (projectId == null || projectId <= 0) {
+            return;
+        }
+        List<Subtitle> subtitles = subtitleMapper.selectList(
+                new LambdaQueryWrapper<Subtitle>().eq(Subtitle::getProjectId, projectId));
+        subtitles.forEach(sub -> deleteVoiceFile(sub.getVoiceUrl()));
+        subtitleMapper.delete(new LambdaQueryWrapper<Subtitle>().eq(Subtitle::getProjectId, projectId));
     }
 
     // ===== 内部方法 =====
@@ -160,6 +173,20 @@ public class SubtitleService {
             text.append(line.trim()).append(" ");
         }
         return text.toString().trim();
+    }
+
+    private void deleteVoiceFile(String voiceUrl) {
+        if (voiceUrl == null || voiceUrl.isBlank()) {
+            return;
+        }
+        try {
+            Path target = uploadStorageResolver.resolveLocalUploadPath(voiceUrl);
+            if (target == null) {
+                return;
+            }
+            Files.deleteIfExists(target);
+        } catch (Exception ignored) {
+        }
     }
 
     private SubtitleVO toVO(Subtitle sub) {

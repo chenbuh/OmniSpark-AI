@@ -92,7 +92,7 @@ public class UploadDownloadRateLimitFilter implements Filter {
         String clientIp = clientIpResolver.resolve(req);
         try {
             String existingRisk = antiCrawlerRiskService.currentRiskReason(req, clientIp);
-            if (existingRisk != null && !existingRisk.isBlank()) {
+            if (existingRisk != null && !existingRisk.isBlank() && !isInlineMediaPreview(req)) {
                 req.setAttribute(SecurityRequestAttributes.RISK_REASON, existingRisk);
                 writeTooManyRequests((HttpServletResponse) response, existingRisk);
                 return;
@@ -280,6 +280,24 @@ public class UploadDownloadRateLimitFilter implements Filter {
         } catch (Exception ignored) {
             return Integer.toHexString(normalized.hashCode());
         }
+    }
+
+    private boolean isInlineMediaPreview(HttpServletRequest request) {
+        String fetchDest = request.getHeader("Sec-Fetch-Dest");
+        if (fetchDest != null) {
+            String normalizedDest = fetchDest.trim().toLowerCase(Locale.ROOT);
+            if ("image".equals(normalizedDest) || "video".equals(normalizedDest) || "audio".equals(normalizedDest)) {
+                return true;
+            }
+        }
+        String accept = request.getHeader("Accept");
+        if (accept == null || accept.isBlank()) {
+            return false;
+        }
+        String normalizedAccept = accept.toLowerCase(Locale.ROOT);
+        return normalizedAccept.contains("image/")
+                || normalizedAccept.contains("video/")
+                || normalizedAccept.contains("audio/");
     }
 
     private void writeTooManyRequests(HttpServletResponse response, String reason) throws IOException {

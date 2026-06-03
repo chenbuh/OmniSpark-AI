@@ -44,18 +44,29 @@ public class UploadSignatureFilter implements Filter {
             writeForbidden((HttpServletResponse) response);
             return;
         }
-        if (!StpUtil.isLogin()) {
-            writeUnauthorized((HttpServletResponse) response);
-            return;
-        }
-        if (access.userId() != null && !access.userId().equals(StpUtil.getLoginIdAsLong())) {
-            writeForbidden((HttpServletResponse) response);
-            return;
-        }
-        if (UploadAccessSignatureService.MODE_PROJECT.equals(access.mode())
-                && (access.projectId() == null || !projectAccessGuard.canAccess(access.projectId()))) {
-            writeForbidden((HttpServletResponse) response);
-            return;
+
+        Long currentLoginUserId = StpUtil.isLogin() ? StpUtil.getLoginIdAsLong() : null;
+        if (access.userId() != null) {
+            if (currentLoginUserId != null && !access.userId().equals(currentLoginUserId)) {
+                writeForbidden((HttpServletResponse) response);
+                return;
+            }
+            if (UploadAccessSignatureService.MODE_PROJECT.equals(access.mode())
+                    && (access.projectId() == null || !projectAccessGuard.canUserAccess(access.userId(), access.projectId()))) {
+                writeForbidden((HttpServletResponse) response);
+                return;
+            }
+        } else {
+            // 兼容旧签名：没有 uid 绑定时仍然要求当前会话在线，避免旧链接退化成匿名可读。
+            if (currentLoginUserId == null) {
+                writeUnauthorized((HttpServletResponse) response);
+                return;
+            }
+            if (UploadAccessSignatureService.MODE_PROJECT.equals(access.mode())
+                    && (access.projectId() == null || !projectAccessGuard.canAccess(access.projectId()))) {
+                writeForbidden((HttpServletResponse) response);
+                return;
+            }
         }
         req.setAttribute(SecurityRequestAttributes.UPLOAD_ACCESS_MODE, access.mode());
         req.setAttribute(SecurityRequestAttributes.UPLOAD_PROJECT_ID, access.projectId());

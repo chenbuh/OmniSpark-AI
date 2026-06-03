@@ -3,8 +3,8 @@ package com.example.aihub.module.system;
 import cn.dev33.satoken.annotation.SaCheckLogin;
 import cn.dev33.satoken.annotation.SaCheckRole;
 import com.example.aihub.common.result.ApiResult;
+import com.example.aihub.common.storage.UploadStorageResolver;
 import lombok.RequiredArgsConstructor;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.io.FileSystemResource;
 import org.springframework.core.io.Resource;
 import org.springframework.http.MediaType;
@@ -13,7 +13,6 @@ import org.springframework.web.bind.annotation.*;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.Paths;
 import java.util.*;
 import java.util.concurrent.TimeUnit;
 
@@ -25,8 +24,7 @@ import java.util.concurrent.TimeUnit;
 public class FileManagerController {
     private static final long STATS_CACHE_TTL_MS = TimeUnit.SECONDS.toMillis(10);
 
-    @Value("${file.upload-dir:uploads}")
-    private String uploadDir;
+    private final UploadStorageResolver uploadStorageResolver;
     private volatile Map<String, Object> cachedStats;
     private volatile long cachedStatsAt;
 
@@ -37,7 +35,7 @@ public class FileManagerController {
         List<Map<String, Object>> dirs = new ArrayList<>();
 
         try {
-            Path baseDir = Paths.get(uploadDir).normalize();
+            Path baseDir = uploadStorageResolver.getUploadRoot();
             Path targetDir = baseDir.resolve(path).normalize();
 
             // 安全检查：禁止超出 uploads 目录
@@ -101,7 +99,7 @@ public class FileManagerController {
     @DeleteMapping
     public ApiResult<Void> delete(@RequestParam String path) {
         try {
-            Path baseDir = Paths.get(uploadDir).normalize();
+            Path baseDir = uploadStorageResolver.getUploadRoot();
             Path target = baseDir.resolve(path).normalize();
             if (!target.startsWith(baseDir)) {
                 return ApiResult.fail("路径不合法");
@@ -118,7 +116,7 @@ public class FileManagerController {
     @GetMapping("/preview")
     public ResponseEntity<Resource> preview(@RequestParam String path) {
         try {
-            Path baseDir = Paths.get(uploadDir).normalize();
+            Path baseDir = uploadStorageResolver.getUploadRoot();
             Path target = baseDir.resolve(path).normalize();
             if (!target.startsWith(baseDir) || !Files.exists(target)) {
                 return ResponseEntity.notFound().build();
@@ -143,7 +141,7 @@ public class FileManagerController {
 
         Map<String, Object> stats = new LinkedHashMap<>();
         try {
-            Path baseDir = Paths.get(uploadDir).normalize();
+            Path baseDir = uploadStorageResolver.getUploadRoot();
             long totalSize = 0L;
             long fileCount = 0L;
             if (Files.exists(baseDir)) {
@@ -160,7 +158,7 @@ public class FileManagerController {
             }
             stats.put("totalSize", totalSize);
             stats.put("fileCount", fileCount);
-            stats.put("uploadDir", uploadDir);
+            stats.put("uploadDir", baseDir.toString());
             stats.put("totalSizeReadable", formatSize(totalSize));
         } catch (Exception e) {
             stats.put("error", e.getMessage());

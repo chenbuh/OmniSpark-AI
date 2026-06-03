@@ -3,6 +3,7 @@ package com.example.aihub.infrastructure.service;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.example.aihub.common.exception.BusinessException;
 import com.example.aihub.common.security.UploadAccessSignatureService;
+import com.example.aihub.common.storage.UploadStorageResolver;
 import com.example.aihub.common.util.SecurityUtil;
 import com.example.aihub.common.util.VoMapper;
 import com.example.aihub.infrastructure.dto.ImageGenerateDTO;
@@ -35,7 +36,6 @@ import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.Paths;
 import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
@@ -68,6 +68,7 @@ public class GenerationService {
     private final ObjectMapper objectMapper;
     private final com.example.aihub.common.security.ProjectAccessGuard projectAccessGuard;
     private final UploadAccessSignatureService uploadAccessSignatureService;
+    private final UploadStorageResolver uploadStorageResolver;
     // 有界队列 + AbortPolicy：过载时拒绝而非无限堆积内存，由调用方捕获并提示用户稍后重试
     private final ThreadPoolExecutor generationExecutor = new ThreadPoolExecutor(
             4, 4,
@@ -668,7 +669,7 @@ public class GenerationService {
         String extension = detectExtension(mimeType, taskType);
         String safeModel = modelName == null ? "model" : modelName.replaceAll("[^a-zA-Z0-9\\u4e00-\\u9fa5_-]+", "_");
         String fileName = safeModel + "_" + System.currentTimeMillis() + "_" + index + "." + extension;
-        Path uploadDir = Paths.get("uploads", "generated");
+        Path uploadDir = uploadStorageResolver.resolve("generated");
         Files.createDirectories(uploadDir);
         Path target = uploadDir.resolve(fileName);
         Files.write(target, bytes);

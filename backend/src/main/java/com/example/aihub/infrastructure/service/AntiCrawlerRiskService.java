@@ -235,6 +235,10 @@ public class AntiCrawlerRiskService {
         if (!isRead(method) || path == null || subject == null) {
             return;
         }
+        // 浏览器在媒体库中批量加载缩略图/预览图是正常交互，不应被视为爬虫扫库或稳定下载节奏。
+        if (isInlineMediaPreview(request, path)) {
+            return;
+        }
         detectUploadRhythm(request, subject, clientIp, path, method);
         String pageKey = ASSET_PAGE_KEY + subject;
         String detailKey = ASSET_DETAIL_KEY + subject;
@@ -505,6 +509,27 @@ public class AntiCrawlerRiskService {
     private boolean isExport(String method, String path) {
         return path != null && path.contains("/export")
                 && ("GET".equalsIgnoreCase(method) || "POST".equalsIgnoreCase(method));
+    }
+
+    private boolean isInlineMediaPreview(HttpServletRequest request, String path) {
+        if (request == null || path == null || !path.startsWith("/uploads/")) {
+            return false;
+        }
+        String fetchDest = request.getHeader("Sec-Fetch-Dest");
+        if (fetchDest != null) {
+            String normalizedDest = fetchDest.trim().toLowerCase(Locale.ROOT);
+            if ("image".equals(normalizedDest) || "video".equals(normalizedDest) || "audio".equals(normalizedDest)) {
+                return true;
+            }
+        }
+        String accept = request.getHeader("Accept");
+        if (accept == null || accept.isBlank()) {
+            return false;
+        }
+        String normalizedAccept = accept.toLowerCase(Locale.ROOT);
+        return normalizedAccept.contains("image/")
+                || normalizedAccept.contains("video/")
+                || normalizedAccept.contains("audio/");
     }
 
     private String subject(HttpServletRequest request, String clientIp) {

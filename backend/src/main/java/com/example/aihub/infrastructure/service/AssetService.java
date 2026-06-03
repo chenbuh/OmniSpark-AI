@@ -5,6 +5,7 @@ import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.example.aihub.common.exception.BusinessException;
 import com.example.aihub.common.result.PageResult;
 import com.example.aihub.common.security.UploadAccessSignatureService;
+import com.example.aihub.common.storage.UploadStorageResolver;
 import com.example.aihub.common.util.PagingUtil;
 import com.example.aihub.common.util.SecurityUtil;
 import com.example.aihub.common.util.VoMapper;
@@ -25,6 +26,7 @@ import org.springframework.web.multipart.MultipartFile;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.UUID;
@@ -45,6 +47,7 @@ public class AssetService {
     private final TeamMemberMapper teamMemberMapper;
     private final com.example.aihub.common.security.ProjectAccessGuard projectAccessGuard;
     private final UploadAccessSignatureService uploadAccessSignatureService;
+    private final UploadStorageResolver uploadStorageResolver;
 
     public List<AssetVO> list(Long projectId, String assetType, Long taskId, int limit) {
         int safeLimit = PagingUtil.clampLimit(limit, 100, 100);
@@ -166,7 +169,7 @@ public class AssetService {
         }
 
         try {
-            Path uploadDir = Paths.get("uploads").toAbsolutePath().normalize();
+            Path uploadDir = uploadStorageResolver.getUploadRoot();
             Files.createDirectories(uploadDir);
             String safeName = UUID.randomUUID() + "_" + baseName;
             Path target = uploadDir.resolve(safeName).normalize();
@@ -222,23 +225,37 @@ public class AssetService {
             return;
         }
         try {
-            Path base = Paths.get("uploads").toAbsolutePath().normalize();
-            // 仅处理本地 /uploads/ 资源,外链(http)不动
-            String relative = fileUrl.startsWith("/uploads/")
-                    ? fileUrl.substring("/uploads/".length())
-                    : (fileUrl.startsWith("uploads/") ? fileUrl.substring("uploads/".length()) : null);
-            if (relative == null) {
-                return;
-            }
-            Path target = base.resolve(relative).normalize();
-            if (!target.startsWith(base)) {
-                log.warn("跳过删除越界文件: {}", fileUrl);
+            Path target = uploadStorageResolver.resolveLocalUploadPath(fileUrl);
+            if (target == null) {
                 return;
             }
             Files.deleteIfExists(target);
         } catch (Exception ex) {
             log.warn("删除资产物理文件失败: {} - {}", fileUrl, ex.getMessage());
         }
+    }
+
+    @Transactional(rollbackFor = Exception.class)
+    public void deleteByProjectId(Long projectId) {
+        if (projectId == null || projectId <= 0) {
+            return;
+        }
+        List<Asset> assets = assetMapper.selectList(
+                new LambdaQueryWrapper<Asset>().eq(Asset::getProjectId, projectId));
+        if (assets.isEmpty()) {
+            return;
+        }
+        Set<String> localFiles = new LinkedHashSet<>();
+        for (Asset asset : assets) {
+            if (asset.getFileUrl() != null && !asset.getFileUrl().isBlank()) {
+                localFiles.add(asset.getFileUrl());
+            }
+            if (asset.getThumbUrl() != null && !asset.getThumbUrl().isBlank()) {
+                localFiles.add(asset.getThumbUrl());
+            }
+        }
+        assetMapper.delete(new LambdaQueryWrapper<Asset>().eq(Asset::getProjectId, projectId));
+        localFiles.forEach(this::deleteAssetFile);
     }
 
     @Transactional(rollbackFor = Exception.class)

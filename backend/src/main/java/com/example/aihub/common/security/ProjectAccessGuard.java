@@ -6,9 +6,11 @@ import com.example.aihub.common.util.SecurityUtil;
 import com.example.aihub.infrastructure.entity.Project;
 import com.example.aihub.infrastructure.entity.ProjectShare;
 import com.example.aihub.infrastructure.entity.TeamMember;
+import com.example.aihub.infrastructure.entity.User;
 import com.example.aihub.infrastructure.mapper.ProjectMapper;
 import com.example.aihub.infrastructure.mapper.ProjectShareMapper;
 import com.example.aihub.infrastructure.mapper.TeamMemberMapper;
+import com.example.aihub.infrastructure.mapper.UserMapper;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 
@@ -29,13 +31,21 @@ public class ProjectAccessGuard {
     private final ProjectMapper projectMapper;
     private final ProjectShareMapper shareMapper;
     private final TeamMemberMapper teamMemberMapper;
+    private final UserMapper userMapper;
 
     /** 当前用户是否可访问该项目；不可访问返回 false。 */
     public boolean canAccess(Long projectId) {
-        if (projectId == null || projectId == 0L) {
+        return canUserAccess(SecurityUtil.loginUserId(), projectId);
+    }
+
+    /** 指定用户是否可访问该项目；不可访问返回 false。 */
+    public boolean canUserAccess(Long userId, Long projectId) {
+        if (userId == null || projectId == null || projectId == 0L) {
             return false;
         }
-        Long userId = SecurityUtil.loginUserId();
+        if (isAdmin(userId)) {
+            return true;
+        }
         Project project = projectMapper.selectById(projectId);
         if (project == null) {
             return false;
@@ -92,5 +102,10 @@ public class ProjectAccessGuard {
                         .eq(ProjectShare::getProjectId, projectId)
                         .in(ProjectShare::getTeamId, teamIds));
         return count != null && count > 0;
+    }
+
+    private boolean isAdmin(Long userId) {
+        User user = userMapper.selectById(userId);
+        return user != null && "admin".equalsIgnoreCase(user.getRole());
     }
 }
