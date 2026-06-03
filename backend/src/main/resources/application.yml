@@ -51,6 +51,12 @@ app:
         max-per-minute-ip: 120
         max-unique-files-5m-user: 45
         max-unique-files-10m-project-user: 25
+        max-unique-users-2m-ip-burst: 1
+        max-unique-files-2m-ip-burst: 10
+        max-unique-users-10m-ip-ua: 1
+        max-unique-users-2m-ip-ua-burst: 1
+        max-unique-files-2m-ip-ua-burst: 8
+        max-unique-files-10m-ip-ua-multi-user: 24
         max-unique-projects-15m-user: 3
         max-unique-files-15m-multi-project-user: 35
         max-unique-users-15m-ip: 2

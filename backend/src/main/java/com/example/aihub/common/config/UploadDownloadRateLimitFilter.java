@@ -18,7 +18,11 @@ import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Component;
 
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
 import java.time.Duration;
+import java.util.HexFormat;
+import java.util.Locale;
 
 @Component
 @Order(2)
@@ -53,6 +57,24 @@ public class UploadDownloadRateLimitFilter implements Filter {
 
     @Value("${app.security.upload-access.download.max-unique-files-15m-ip-multi-user:30}")
     private int maxUniqueFilesPerFifteenMinutesIpMultiUser;
+
+    @Value("${app.security.upload-access.download.max-unique-users-2m-ip-burst:1}")
+    private int maxUniqueUsersPerTwoMinutesIpBurst;
+
+    @Value("${app.security.upload-access.download.max-unique-files-2m-ip-burst:10}")
+    private int maxUniqueFilesPerTwoMinutesIpBurst;
+
+    @Value("${app.security.upload-access.download.max-unique-users-10m-ip-ua:1}")
+    private int maxUniqueUsersPerTenMinutesIpUa;
+
+    @Value("${app.security.upload-access.download.max-unique-files-10m-ip-ua-multi-user:24}")
+    private int maxUniqueFilesPerTenMinutesIpUaMultiUser;
+
+    @Value("${app.security.upload-access.download.max-unique-users-2m-ip-ua-burst:1}")
+    private int maxUniqueUsersPerTwoMinutesIpUaBurst;
+
+    @Value("${app.security.upload-access.download.max-unique-files-2m-ip-ua-burst:8}")
+    private int maxUniqueFilesPerTwoMinutesIpUaBurst;
 
     @Value("${app.security.upload-access.download.block-minutes:30}")
     private long blockMinutes;
@@ -144,12 +166,60 @@ public class UploadDownloadRateLimitFilter implements Filter {
                 redisTemplate.opsForSet().add(ipUniqueKey, normalizedPath);
                 redisTemplate.expire(ipUniqueKey, Duration.ofMinutes(15));
                 Long ipUniqueCount = redisTemplate.opsForSet().size(ipUniqueKey);
+
+                String ipBurstUserSpanKey = KEY_PREFIX + "ip-burst-user-span:" + clientIp;
+                redisTemplate.opsForSet().add(ipBurstUserSpanKey, String.valueOf(signedUserId));
+                redisTemplate.expire(ipBurstUserSpanKey, Duration.ofMinutes(2));
+                Long ipBurstUserSpanCount = redisTemplate.opsForSet().size(ipBurstUserSpanKey);
+
+                String ipBurstUniqueKey = KEY_PREFIX + "ip-burst-unique:" + clientIp;
+                redisTemplate.opsForSet().add(ipBurstUniqueKey, normalizedPath);
+                redisTemplate.expire(ipBurstUniqueKey, Duration.ofMinutes(2));
+                Long ipBurstUniqueCount = redisTemplate.opsForSet().size(ipBurstUniqueKey);
                 if (ipUserSpanCount != null && ipUniqueCount != null
+                        && ipBurstUserSpanCount != null && ipBurstUniqueCount != null
                         && ipUserSpanCount > maxUniqueUsersPerFifteenMinutesIp
-                        && ipUniqueCount > maxUniqueFilesPerFifteenMinutesIpMultiUser) {
-                    block(req, (HttpServletResponse) response, clientIp,
-                            "15 分钟内同一 IP 跨多个账号访问不同资源超过 " + maxUniqueFilesPerFifteenMinutesIpMultiUser + " 个");
-                    return;
+                        && ipUniqueCount > maxUniqueFilesPerFifteenMinutesIpMultiUser
+                        && ipBurstUserSpanCount > maxUniqueUsersPerTwoMinutesIpBurst
+                        && ipBurstUniqueCount > maxUniqueFilesPerTwoMinutesIpBurst) {
+                        block(req, (HttpServletResponse) response, clientIp,
+                                "15 分钟内同一 IP 跨多个账号访问不同资源超过 "
+                                        + maxUniqueFilesPerFifteenMinutesIpMultiUser
+                                        + " 个，且近 2 分钟仍在持续突发下载");
+                        return;
+                }
+
+                String uaBucket = userAgentBucket(req.getHeader("User-Agent"));
+                String ipUaUserSpanKey = KEY_PREFIX + "ip-ua-user-span:" + clientIp + ":" + uaBucket;
+                redisTemplate.opsForSet().add(ipUaUserSpanKey, String.valueOf(signedUserId));
+                redisTemplate.expire(ipUaUserSpanKey, Duration.ofMinutes(10));
+                Long ipUaUserSpanCount = redisTemplate.opsForSet().size(ipUaUserSpanKey);
+
+                String ipUaUniqueKey = KEY_PREFIX + "ip-ua-multi-user-unique:" + clientIp + ":" + uaBucket;
+                redisTemplate.opsForSet().add(ipUaUniqueKey, normalizedPath);
+                redisTemplate.expire(ipUaUniqueKey, Duration.ofMinutes(10));
+                Long ipUaUniqueCount = redisTemplate.opsForSet().size(ipUaUniqueKey);
+
+                String ipUaBurstUserSpanKey = KEY_PREFIX + "ip-ua-burst-user-span:" + clientIp + ":" + uaBucket;
+                redisTemplate.opsForSet().add(ipUaBurstUserSpanKey, String.valueOf(signedUserId));
+                redisTemplate.expire(ipUaBurstUserSpanKey, Duration.ofMinutes(2));
+                Long ipUaBurstUserSpanCount = redisTemplate.opsForSet().size(ipUaBurstUserSpanKey);
+
+                String ipUaBurstUniqueKey = KEY_PREFIX + "ip-ua-burst-unique:" + clientIp + ":" + uaBucket;
+                redisTemplate.opsForSet().add(ipUaBurstUniqueKey, normalizedPath);
+                redisTemplate.expire(ipUaBurstUniqueKey, Duration.ofMinutes(2));
+                Long ipUaBurstUniqueCount = redisTemplate.opsForSet().size(ipUaBurstUniqueKey);
+                if (ipUaUserSpanCount != null && ipUaUniqueCount != null
+                        && ipUaBurstUserSpanCount != null && ipUaBurstUniqueCount != null
+                        && ipUaUserSpanCount > maxUniqueUsersPerTenMinutesIpUa
+                        && ipUaUniqueCount > maxUniqueFilesPerTenMinutesIpUaMultiUser
+                        && ipUaBurstUserSpanCount > maxUniqueUsersPerTwoMinutesIpUaBurst
+                        && ipUaBurstUniqueCount > maxUniqueFilesPerTwoMinutesIpUaBurst) {
+                        block(req, (HttpServletResponse) response, clientIp,
+                                "10 分钟内同一 IP/UA 跨多个账号访问不同资源超过 "
+                                        + maxUniqueFilesPerTenMinutesIpUaMultiUser
+                                        + " 个，且近 2 分钟仍在持续突发下载");
+                        return;
                 }
             }
         } catch (Exception ignored) {
@@ -192,6 +262,22 @@ public class UploadDownloadRateLimitFilter implements Filter {
             }
         }
         return null;
+    }
+
+    private String userAgentBucket(String userAgent) {
+        String normalized = userAgent == null ? "" : userAgent.trim().toLowerCase(Locale.ROOT).replaceAll("\\s+", " ");
+        if (normalized.isBlank()) {
+            return "unknown";
+        }
+        if (normalized.length() > 180) {
+            normalized = normalized.substring(0, 180);
+        }
+        try {
+            MessageDigest digest = MessageDigest.getInstance("SHA-256");
+            return HexFormat.of().formatHex(digest.digest(normalized.getBytes(StandardCharsets.UTF_8)));
+        } catch (Exception ignored) {
+            return Integer.toHexString(normalized.hashCode());
+        }
     }
 
     private void writeTooManyRequests(HttpServletResponse response, String reason) throws IOException {
