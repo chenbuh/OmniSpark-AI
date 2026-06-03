@@ -179,13 +179,12 @@ public class SubtitleService {
         if (voiceUrl == null || voiceUrl.isBlank()) {
             return;
         }
-        try {
-            Path target = uploadStorageResolver.resolveLocalUploadPath(voiceUrl);
-            if (target == null) {
-                return;
+        List<Path> targets = uploadStorageResolver.resolveLocalUploadPaths(voiceUrl);
+        for (Path target : targets) {
+            try {
+                Files.deleteIfExists(target);
+            } catch (Exception ignored) {
             }
-            Files.deleteIfExists(target);
-        } catch (Exception ignored) {
         }
     }
 

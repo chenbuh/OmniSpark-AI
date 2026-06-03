@@ -224,14 +224,16 @@ public class AssetService {
         if (fileUrl == null || fileUrl.isBlank()) {
             return;
         }
-        try {
-            Path target = uploadStorageResolver.resolveLocalUploadPath(fileUrl);
-            if (target == null) {
-                return;
+        List<Path> targets = uploadStorageResolver.resolveLocalUploadPaths(fileUrl);
+        if (targets.isEmpty()) {
+            return;
+        }
+        for (Path target : targets) {
+            try {
+                Files.deleteIfExists(target);
+            } catch (Exception ex) {
+                log.warn("删除资产物理文件失败: {} - {}", target, ex.getMessage());
             }
-            Files.deleteIfExists(target);
-        } catch (Exception ex) {
-            log.warn("删除资产物理文件失败: {} - {}", fileUrl, ex.getMessage());
         }
     }
 
