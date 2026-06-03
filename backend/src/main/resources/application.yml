@@ -74,6 +74,12 @@ app:
           steady-interval-jitter-millis: 160
           steady-streak-user: 10
           steady-min-unique-files-user: 12
+          slow-window-minutes: 20
+          slow-interval-min-millis: 6000
+          slow-interval-max-millis: 45000
+          slow-interval-jitter-millis: 1200
+          slow-streak-user: 8
+          slow-min-unique-files-user: 10
         block-minutes: 30
 
 server:

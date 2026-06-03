@@ -27,6 +27,8 @@ public class AntiCrawlerRiskService {
     private static final String ASSET_UNIQUE_KEY = "risk:asset:unique:";
     private static final String UPLOAD_STEADY_KEY = "risk:upload:steady:";
     private static final String UPLOAD_STEADY_UNIQUE_KEY = "risk:upload:steady:unique:";
+    private static final String UPLOAD_SLOW_KEY = "risk:upload:slow:";
+    private static final String UPLOAD_SLOW_UNIQUE_KEY = "risk:upload:slow:unique:";
     private static final String UPLOAD_IP_FAST_USER_KEY = "risk:upload:ip-fast:user:";
     private static final String UPLOAD_IP_FAST_UNIQUE_KEY = "risk:upload:ip-fast:unique:";
     private static final String UPLOAD_IP_UA_FAST_USER_KEY = "risk:upload:ip-ua-fast:user:";
@@ -74,6 +76,24 @@ public class AntiCrawlerRiskService {
 
     @Value("${app.security.upload-access.download.risk.steady-min-unique-files-user:12}")
     private long uploadSteadyMinUniqueFilesUser;
+
+    @Value("${app.security.upload-access.download.risk.slow-window-minutes:20}")
+    private long uploadSlowWindowMinutes;
+
+    @Value("${app.security.upload-access.download.risk.slow-interval-min-millis:6000}")
+    private long uploadSlowIntervalMinMillis;
+
+    @Value("${app.security.upload-access.download.risk.slow-interval-max-millis:45000}")
+    private long uploadSlowIntervalMaxMillis;
+
+    @Value("${app.security.upload-access.download.risk.slow-interval-jitter-millis:1200}")
+    private long uploadSlowIntervalJitterMillis;
+
+    @Value("${app.security.upload-access.download.risk.slow-streak-user:8}")
+    private long uploadSlowStreakUser;
+
+    @Value("${app.security.upload-access.download.risk.slow-min-unique-files-user:10}")
+    private long uploadSlowMinUniqueFilesUser;
 
     public String currentRiskReason(HttpServletRequest request, String clientIp) {
         String subject = subject(request, clientIp);
@@ -250,6 +270,20 @@ public class AntiCrawlerRiskService {
             long uniqueCount = distinctCount(UPLOAD_STEADY_UNIQUE_KEY + subject, fingerprint, steadyTtl);
             if (streak >= uploadSteadyStreakUser && uniqueCount >= uploadSteadyMinUniqueFilesUser) {
                 flag(subject, "检测到稳定间隔的批量下载节奏");
+                return;
+            }
+
+            Duration slowTtl = Duration.ofMinutes(Math.max(uploadSlowWindowMinutes, 1));
+            long slowStreak = recordIntervalStreak(
+                    UPLOAD_SLOW_KEY + subject,
+                    slowTtl,
+                    uploadSlowIntervalMinMillis,
+                    uploadSlowIntervalMaxMillis,
+                    uploadSlowIntervalJitterMillis
+            );
+            long slowUniqueCount = distinctCount(UPLOAD_SLOW_UNIQUE_KEY + subject, fingerprint, slowTtl);
+            if (slowStreak >= uploadSlowStreakUser && slowUniqueCount >= uploadSlowMinUniqueFilesUser) {
+                flag(subject, "检测到长时间低抖动的批量顺序拉取");
                 return;
             }
         }
