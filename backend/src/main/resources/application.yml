@@ -61,6 +61,19 @@ app:
         max-unique-files-15m-multi-project-user: 35
         max-unique-users-15m-ip: 2
         max-unique-files-15m-ip-multi-user: 30
+        risk:
+          fast-ip-window-seconds: 10
+          fast-ip-max-users: 2
+          fast-ip-max-unique-files: 15
+          fast-ip-ua-window-seconds: 10
+          fast-ip-ua-max-users: 1
+          fast-ip-ua-max-unique-files: 12
+          steady-window-minutes: 2
+          steady-interval-min-millis: 900
+          steady-interval-max-millis: 5000
+          steady-interval-jitter-millis: 160
+          steady-streak-user: 10
+          steady-min-unique-files-user: 12
         block-minutes: 30
 
 server:

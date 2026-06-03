@@ -176,6 +176,7 @@ public class UploadDownloadRateLimitFilter implements Filter {
                 redisTemplate.opsForSet().add(ipBurstUniqueKey, normalizedPath);
                 redisTemplate.expire(ipBurstUniqueKey, Duration.ofMinutes(2));
                 Long ipBurstUniqueCount = redisTemplate.opsForSet().size(ipBurstUniqueKey);
+
                 if (ipUserSpanCount != null && ipUniqueCount != null
                         && ipBurstUserSpanCount != null && ipBurstUniqueCount != null
                         && ipUserSpanCount > maxUniqueUsersPerFifteenMinutesIp
@@ -209,6 +210,7 @@ public class UploadDownloadRateLimitFilter implements Filter {
                 redisTemplate.opsForSet().add(ipUaBurstUniqueKey, normalizedPath);
                 redisTemplate.expire(ipUaBurstUniqueKey, Duration.ofMinutes(2));
                 Long ipUaBurstUniqueCount = redisTemplate.opsForSet().size(ipUaBurstUniqueKey);
+
                 if (ipUaUserSpanCount != null && ipUaUniqueCount != null
                         && ipUaBurstUserSpanCount != null && ipUaBurstUniqueCount != null
                         && ipUaUserSpanCount > maxUniqueUsersPerTenMinutesIpUa
