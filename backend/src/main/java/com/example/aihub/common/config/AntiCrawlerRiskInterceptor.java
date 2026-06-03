@@ -44,7 +44,8 @@ public class AntiCrawlerRiskInterceptor implements HandlerInterceptor {
         if (path == null || !path.startsWith("/api/")) {
             return false;
         }
-        return !(path.startsWith("/api/auth/captcha/")
+        // 认证链路本身已经叠加了签名、滑块验证码和接口级限流，避免再被通用风险标记卡住登录/注册。
+        return !(path.startsWith("/api/auth/")
                 || path.equals("/api/auth/sign/challenge")
                 || path.equals("/api/auth/public-key"));
     }

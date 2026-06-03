@@ -537,6 +537,10 @@ public class AntiCrawlerRiskService {
         if (apiKeyId != null) {
             return "apiKey:" + apiKeyId;
         }
+        Long signedUserId = asLong(request.getAttribute(SecurityRequestAttributes.UPLOAD_SIGNED_USER_ID));
+        if (signedUserId != null && signedUserId > 0) {
+            return "user:" + signedUserId;
+        }
         try {
             if (StpUtil.isLogin()) {
                 return "user:" + StpUtil.getLoginIdAsString();

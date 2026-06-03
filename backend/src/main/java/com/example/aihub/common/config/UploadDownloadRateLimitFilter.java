@@ -98,7 +98,7 @@ public class UploadDownloadRateLimitFilter implements Filter {
                 return;
             }
 
-            String subject = resolveSubject(clientIp);
+            String subject = resolveSubject(req, clientIp);
             int maxDownloads = subject.startsWith("user:") ? maxDownloadsPerMinuteUser : maxDownloadsPerMinuteIp;
             String minuteKey = KEY_PREFIX + "minute:" + subject + ":" + (System.currentTimeMillis() / 60_000);
             Long current = redisTemplate.opsForValue().increment(minuteKey);
@@ -238,7 +238,11 @@ public class UploadDownloadRateLimitFilter implements Filter {
         writeTooManyRequests(response, reason);
     }
 
-    private String resolveSubject(String clientIp) {
+    private String resolveSubject(HttpServletRequest request, String clientIp) {
+        Long signedUserId = asLong(request.getAttribute(SecurityRequestAttributes.UPLOAD_SIGNED_USER_ID));
+        if (signedUserId != null && signedUserId > 0) {
+            return "user:" + signedUserId;
+        }
         try {
             if (StpUtil.isLogin()) {
                 return "user:" + StpUtil.getLoginIdAsString();
