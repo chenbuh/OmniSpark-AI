@@ -85,7 +85,14 @@ export const authApi = {
       encryptedPassword: await encryptPassword(params.password),
       captchaTicket: params.captchaTicket
     })
-    return normalizeUserInfo((res as any).data)
+    const createdUser = normalizeUserInfo((res as any).data)
+    if (
+      createdUser.username !== params.username.trim()
+      || createdUser.nickname !== params.nickname.trim()
+    ) {
+      throw new Error('注册结果待确认')
+    }
+    return createdUser
   },
 
   // 退出

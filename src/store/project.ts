@@ -18,11 +18,17 @@ export const useProjectStore = defineStore('project', {
   }),
   actions: {
     normalizeProject(project: any): Project {
+      const id = parseRequiredProjectNumber(project?.id)
+      const userId = parseRequiredProjectNumber(project?.userId)
+      const name = normalizeOptionalText(project?.name)
+      if (!name) {
+        throw new Error('项目数据待确认')
+      }
       return {
-        id: Number(project.id),
-        userId: Number(project.userId),
-        name: project.name || '',
-        description: project.description || '',
+        id,
+        userId,
+        name,
+        description: normalizeOptionalText(project?.description),
         status: parseOptionalNumber(project.status),
         createdAt: String(project.createdAt || '').replace('T', ' ').substring(0, 19)
       }
@@ -84,13 +90,26 @@ export const useProjectStore = defineStore('project', {
       throw new Error('项目创建结果待确认')
     },
     async updateProject(id: number, name: string, description: string) {
-      const res = await projectApi.updateProject(id, { name, description })
+      await projectApi.updateProject(id, { name, description })
       await this.refresh()
-      return res.data
+      const expectedName = normalizeOptionalText(name)
+      const expectedDescription = normalizeOptionalText(description)
+      const confirmedProject = this.projects.find(item => item.id === id)
+      if (
+        !confirmedProject
+        || normalizeOptionalText(confirmedProject.name) !== expectedName
+        || normalizeOptionalText(confirmedProject.description) !== expectedDescription
+      ) {
+        throw new Error('项目更新结果待确认')
+      }
+      return confirmedProject
     },
     async deleteProject(id: number) {
       await projectApi.deleteProject(id)
       await this.refresh()
+      if (this.projects.some(project => project.id === id)) {
+        throw new Error('项目删除结果待确认')
+      }
     },
     clear() {
       this.projects = []
@@ -111,6 +130,14 @@ function parseOptionalNumber(value: unknown): number | null {
 function parseRequiredProjectId(value: unknown): number | null {
   const parsed = parseOptionalNumber(value)
   return parsed != null && parsed > 0 ? parsed : null
+}
+
+function parseRequiredProjectNumber(value: unknown): number {
+  const parsed = parseRequiredProjectId(value)
+  if (parsed == null) {
+    throw new Error('项目数据待确认')
+  }
+  return parsed
 }
 
 function normalizeOptionalText(value: unknown): string {
