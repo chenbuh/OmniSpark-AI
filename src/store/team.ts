@@ -28,7 +28,7 @@ export const useTeamStore = defineStore('team', {
         username: m.username || '',
         nickname: m.nickname || m.username || '',
         avatar: m.avatar || undefined,
-        role: m.role || 'member',
+        role: typeof m.role === 'string' ? m.role.trim() : '',
         status: Number(m.status ?? 1),
         createdAt: String(m.createdAt || '').replace('T', ' ').substring(0, 19)
       }

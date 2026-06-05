@@ -188,7 +188,10 @@ function roleType(role: string) {
   return role === 'owner' ? 'warning' : role === 'admin' ? 'info' : 'default'
 }
 function roleLabel(role: string) {
-  return role === 'owner' ? '所有者' : role === 'admin' ? '管理员' : '成员'
+  if (role === 'owner') return '所有者'
+  if (role === 'admin') return '管理员'
+  if (role === 'member') return '成员'
+  return role || '未知角色'
 }
 function canManage(member: any) {
   return selectedTeam.value?.ownerId === userStore.userInfo?.id && member.role !== 'owner'
