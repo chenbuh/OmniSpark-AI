@@ -10,13 +10,13 @@
       <div class="filter-bar">
         <n-tabs v-model:value="activeCategory" type="segment" class="category-tabs" @update:value="onCategoryChange">
           <n-tab name="all">全部</n-tab>
-          <n-tab name="写实">写实</n-tab>
-          <n-tab name="动漫">动漫</n-tab>
-          <n-tab name="赛博朋克">赛博朋克</n-tab>
-          <n-tab name="科幻">科幻</n-tab>
-          <n-tab name="3D">3D</n-tab>
-          <n-tab name="插画">插画</n-tab>
-          <n-tab name="uncategorized">其他</n-tab>
+          <n-tab
+            v-for="category in categoryTabs"
+            :key="category.value"
+            :name="category.value"
+          >
+            {{ category.label }}
+          </n-tab>
         </n-tabs>
         <n-space>
           <n-select v-model:value="sortBy" :options="sortOptions" style="width:130px;" size="small" @update:value="onCategoryChange" />
@@ -96,7 +96,13 @@
         <n-row :gutter="12">
           <n-col :span="12">
             <n-form-item label="分类">
-              <n-select v-model:value="form.category" :options="categoryOptions" />
+              <n-select
+                v-model:value="form.category"
+                :options="categoryOptions"
+                filterable
+                tag
+                placeholder="选择或输入一个分类"
+              />
             </n-form-item>
           </n-col>
           <n-col :span="12">
@@ -239,6 +245,7 @@ const posts = ref<any[]>([])
 const activeCategory = ref('all')
 const sortBy = ref('newest')
 const searchQuery = ref('')
+const categories = ref<string[]>([])
 const showUploadModal = ref(false)
 const showDetailDrawer = ref(false)
 const detailPost = ref<any>(null)
@@ -272,18 +279,31 @@ const form = reactive({
 
 const imagePreviewUrl = computed(() => resolveAssetUrl(form.imageUrl))
 
+const categoryLabel = (value: string) => value === 'uncategorized' ? '其他' : value
+
+const categoryTabs = computed(() => {
+  return categories.value.map(item => ({
+    label: categoryLabel(item),
+    value: item
+  }))
+})
+
 const resetPublishForm = () => {
   Object.assign(form, { title: '', prompt: '', negativePrompt: '', modelName: '', imageUrl: '', category: 'uncategorized', tags: '' })
   clearUploadedImage()
   editingPostId.value = null
 }
 
-const categoryOptions = [
-  { label: '写实', value: '写实' }, { label: '动漫', value: '动漫' },
-  { label: '赛博朋克', value: '赛博朋克' }, { label: '科幻', value: '科幻' },
-  { label: '3D渲染', value: '3D' }, { label: '插画', value: '插画' },
-  { label: '其他', value: 'uncategorized' }
-]
+const categoryOptions = computed(() => {
+  const values = new Set<string>(['uncategorized', ...categories.value])
+  if (form.category?.trim()) {
+    values.add(form.category.trim())
+  }
+  return Array.from(values).map(item => ({
+    label: categoryLabel(item),
+    value: item
+  }))
+})
 
 function canDelete(post: any) {
   return post.userId && currentUserId.value && post.userId === currentUserId.value
@@ -337,7 +357,22 @@ async function loadPosts() {
   }
 }
 
-onMounted(() => {
+async function loadCategories() {
+  try {
+    const res = await request.get('/api/community/categories')
+    const values = Array.isArray((res as any).data) ? (res as any).data : []
+    categories.value = values
+      .map((item: unknown) => typeof item === 'string' ? item.trim() : '')
+      .filter((item: string) => !!item)
+    if (activeCategory.value !== 'all' && !categories.value.includes(activeCategory.value)) {
+      activeCategory.value = 'all'
+    }
+  } catch {
+    categories.value = []
+  }
+}
+
+onMounted(async () => {
   // 从 localStorage 获取当前用户 ID
   try {
     const info = JSON.parse(localStorage.getItem('userInfo') || '{}')
@@ -350,7 +385,8 @@ onMounted(() => {
     form.imageUrl = toRelativeUrl((route.query.shareImage as string) || '')
     showUploadModal.value = true
   }
-  loadPosts()
+  await loadCategories()
+  await loadPosts()
 })
 
 function triggerImageUpload() {
@@ -422,16 +458,20 @@ async function handlePublish() {
   if (!form.title || !form.prompt) { message.error('标题和提示词为必填'); return }
   publishing.value = true
   try {
+    const payload = {
+      ...form,
+      category: form.category?.trim() || 'uncategorized'
+    }
     if (editingPostId.value) {
-      await request.put(`/api/community/posts/${editingPostId.value}`, { ...form })
+      await request.put(`/api/community/posts/${editingPostId.value}`, payload)
       message.success('已更新！')
     } else {
-      await request.post('/api/community/posts', { ...form })
+      await request.post('/api/community/posts', payload)
       message.success('发布成功！')
     }
     showUploadModal.value = false
     resetPublishForm()
-    await loadPosts()
+    await Promise.all([loadCategories(), loadPosts()])
   } catch (err: any) { message.error(err.message || '发布失败') }
   finally { publishing.value = false }
 }
@@ -460,7 +500,8 @@ async function handleLike(post: any) {
 async function handleDelete(id: number) {
   try {
     await request.delete(`/api/community/posts/${id}`)
-    posts.value = posts.value.filter((p: any) => p.id !== id)
+    await loadCategories()
+    await loadPosts()
     message.success('已删除')
   } catch { message.error('删除失败') }
 }
