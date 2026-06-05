@@ -435,12 +435,12 @@ const onCaptchaClose = () => {
 const doLogin = async (captchaTicket: string) => {
   loading.value = true
   try {
-    const res = await authApi.login({
+    const result = await authApi.login({
       username: loginForm.username,
       password: loginForm.password,
       captchaTicket
     })
-    message.success(`登录成功，欢迎回来，${res.data.userInfo.nickname}👋`)
+    message.success(`登录成功，欢迎回来，${result.userInfo.nickname}👋`)
     router.push('/dashboard')
   } catch (err: any) {
     message.error(err.message || '账户或安全密码校验失败，请重试！')
@@ -452,14 +452,17 @@ const doLogin = async (captchaTicket: string) => {
 const doRegister = async (captchaTicket: string) => {
   loading.value = true
   try {
-    await authApi.register({
+    const createdUser = await authApi.register({
       username: registerForm.username,
       password: registerForm.password,
       nickname: registerForm.nickname,
       captchaTicket
     })
-    message.success(`新账号 ${registerForm.username} 注册成功！已为您自动切回登录`)
-    loginForm.username = registerForm.username
+    if (createdUser.username !== registerForm.username) {
+      throw new Error('注册结果待确认')
+    }
+    message.success(`新账号 ${createdUser.username} 注册成功！已为您自动切回登录`)
+    loginForm.username = createdUser.username
     loginForm.password = ''
     isLoginMode.value = true
   } catch (err: any) {

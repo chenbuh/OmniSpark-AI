@@ -671,8 +671,12 @@ const handleReuse = (task: any) => {
 
 // 删除任务
 const handleDelete = async (id: number) => {
-  await taskStore.deleteTask(id)
-  message.success('任务删除成功')
+  try {
+    await taskStore.deleteTask(id)
+    message.success('任务删除成功')
+  } catch (err: any) {
+    message.error(err.message || '任务删除失败')
+  }
 }
 
 // 应用提示词模板

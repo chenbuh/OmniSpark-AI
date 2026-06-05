@@ -141,6 +141,7 @@ import { useMessage, useDialog } from 'naive-ui'
 import { Pencil } from 'lucide-vue-next'
 import { useUserStore } from '@/store/user'
 import request from '@/api/request'
+import { authApi } from '@/api/auth'
 import { PASSWORD_REQUIREMENT_TEXT, validatePasswordStrength } from '@/utils/password'
 import { encryptPassword } from '@/utils/passwordEncryption'
 import { formatUserRole } from '@/utils/role'
@@ -176,9 +177,19 @@ async function saveProfile() {
   if (!name) { message.error('昵称不能为空'); return }
   try {
     const res = await request.put(`/api/auth/profile?nickname=${encodeURIComponent(name)}`)
-    const data = (res as any).data
-    if (data && userStore.userInfo) {
-      userStore.userInfo.nickname = data.nickname
+    const data = requireProfileUser((res as any).data)
+    if (data.nickname !== name) {
+      throw new Error('昵称更新结果待确认')
+    }
+    if (userStore.userInfo) {
+      userStore.setSession({
+        ...userStore.userInfo,
+        nickname: data.nickname,
+        avatar: data.avatar,
+        role: data.role,
+        username: data.username,
+        id: data.id
+      }, userStore.token)
     }
     message.success('昵称已更新')
     editingProfile.value = false
@@ -217,6 +228,7 @@ async function handleChangePassword() {
         await request.put('/api/auth/password', params.toString(), {
           headers: { 'Content-Type': 'application/x-www-form-urlencoded' }
         })
+        await authApi.getMe()
         message.success('密码已修改')
         passwordForm.oldPassword = ''
         passwordForm.newPassword = ''
@@ -256,6 +268,27 @@ const latestLoginIp = computed(() => latestLoginLog.value ? (latestLoginLog.valu
 function getLogTimestamp(dateStr: string): number {
   const timestamp = Date.parse(String(dateStr || ''))
   return Number.isNaN(timestamp) ? 0 : timestamp
+}
+
+function requireProfileUser(payload: unknown) {
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
+    throw new Error('昵称更新结果待确认')
+  }
+  const record = payload as Record<string, unknown>
+  const id = Number(record.id)
+  if (!Number.isFinite(id)) {
+    throw new Error('昵称更新结果待确认')
+  }
+  if (typeof record.username !== 'string' || typeof record.nickname !== 'string' || typeof record.role !== 'string') {
+    throw new Error('昵称更新结果待确认')
+  }
+  return {
+    id,
+    username: record.username,
+    nickname: record.nickname,
+    avatar: typeof record.avatar === 'string' ? record.avatar : '',
+    role: record.role
+  }
 }
 
 // ===== 生命周期 =====
