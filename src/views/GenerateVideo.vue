@@ -31,6 +31,15 @@
                   placeholder="请选择模型..."
                 />
               </n-form-item>
+              <div v-if="providerLoadState === 'error'" class="form-status form-status--error">
+                视频模型提供商待确认，请稍后重试。
+              </div>
+              <div v-else-if="providerLoadState === 'ready' && providerOptions.length === 0" class="form-status">
+                当前项目暂无可用视频提供商，请先前往模型配置。
+              </div>
+              <div v-if="metaLoadState === 'error'" class="form-status form-status--error">
+                视频时长与镜头配置待确认，请稍后重试。
+              </div>
 
               <!-- 图生视频：首帧 + 尾帧 -->
               <div v-if="videoMode === 'img2vid'" class="ref-section">
@@ -205,12 +214,12 @@
           <div v-else class="empty-state">
             <div class="empty-glow" style="background: radial-gradient(circle, rgba(245, 158, 11, 0.05) 0%, transparent 70%);"></div>
             <Video class="empty-icon" />
-            <h3>开始您的视频艺术渲染</h3>
-            <p>在左侧配置模型并键入您的运动创意，高保真动态视频将在右侧为您流畅播放。</p>
+            <h3>{{ emptyStateTitle }}</h3>
+            <p>{{ emptyStateDescription }}</p>
           </div>
 
           <!-- 本空间视频历史 -->
-          <div class="history-section" v-if="taskHistory.length > 0">
+          <div class="history-section" v-if="historyLoadState === 'ready' && taskHistory.length > 0">
             <div class="history-head">
               <span class="history-label">本空间视频历史 ({{ taskHistory.length }})</span>
               <n-button size="tiny" type="error" tertiary @click="handleBatchClear">清空</n-button>
@@ -239,6 +248,9 @@
               </div>
             </n-scrollbar>
           </div>
+          <div v-else-if="historyLoadState === 'error'" class="history-status">
+            视频历史待确认，请稍后重试。
+          </div>
         </n-card>
       </n-col>
     </n-row>
@@ -262,7 +274,13 @@
             <span class="picker-name">{{ asset.fileName }}</span>
           </div>
         </div>
-        <div v-if="imageAssets.length === 0" class="picker-empty">
+        <div v-if="assetLibraryLoadState === 'error'" class="picker-empty">
+          图片资产待确认，请稍后重试。
+        </div>
+        <div v-else-if="assetLibraryLoadState === 'loading'" class="picker-empty">
+          正在加载图片资产...
+        </div>
+        <div v-else-if="imageAssets.length === 0" class="picker-empty">
           资产库中尚无图片，请先前往生图页生成一些大作！
         </div>
       </div>
@@ -302,6 +320,10 @@ const videoMode = ref('txt2vid')
 const generating = ref(false)
 const showAssetSelectModal = ref(false)
 const generationMeta = ref<GenerationMetaVO>({})
+const metaLoadState = ref<'loading' | 'ready' | 'error'>('loading')
+const providerLoadState = ref<'loading' | 'ready' | 'error'>('loading')
+const historyLoadState = ref<'loading' | 'ready' | 'error'>('loading')
+const assetLibraryLoadState = ref<'loading' | 'ready' | 'error'>('loading')
 
 const selectedImageAsset = ref<Asset | null>(null)
 const selectedEndAsset = ref<Asset | null>(null)
@@ -347,11 +369,14 @@ function resolveOptionValue(options: GenerationMetaOption[], preferredValue?: st
 }
 
 async function loadGenerationMeta() {
+  metaLoadState.value = 'loading'
   try {
     const res = await generationApi.getMeta()
     generationMeta.value = ((res as any).data || {}) as GenerationMetaVO
+    metaLoadState.value = 'ready'
   } catch {
     generationMeta.value = {}
+    metaLoadState.value = 'error'
   }
   form.duration = resolveOptionValue(generationMeta.value.video?.durationOptions || [], form.duration, defaultVideoDuration.value)
   form.cameraMotion = resolveOptionValue(cameraMotionOptions.value, form.cameraMotion, defaultCameraMotion.value)
@@ -398,9 +423,90 @@ const handleProviderChange = (val: number) => {
   }
 }
 
-onMounted(async () => {
-  await loadGenerationMeta()
+const generationConfigState = computed<'ready' | 'error' | 'empty'>(() => {
+  if (metaLoadState.value === 'error' || providerLoadState.value === 'error') {
+    return 'error'
+  }
+  if (providerLoadState.value === 'ready' && providerOptions.value.length === 0) {
+    return 'empty'
+  }
+  return 'ready'
+})
+
+const emptyStateTitle = computed(() => {
+  if (generationConfigState.value === 'error') {
+    return '视频配置待确认'
+  }
+  if (generationConfigState.value === 'empty') {
+    return '暂无可用视频模型'
+  }
+  return '开始您的视频艺术渲染'
+})
+
+const emptyStateDescription = computed(() => {
+  if (generationConfigState.value === 'error') {
+    return '当前项目的视频模型或生成参数暂时无法确认，请稍后重试。'
+  }
+  if (generationConfigState.value === 'empty') {
+    return '当前项目还没有配置与视频生成兼容的提供商，先去模型配置页接入后再开始创作。'
+  }
+  return '在左侧配置模型并键入您的运动创意，高保真动态视频将在右侧为您流畅播放。'
+})
+
+async function loadProviders() {
+  if (!projectStore.activeProjectId) {
+    providerLoadState.value = 'ready'
+    return
+  }
+  providerLoadState.value = 'loading'
+  try {
+    await providerStore.refresh(projectStore.activeProjectId)
+    providerLoadState.value = 'ready'
+  } catch {
+    providerLoadState.value = 'error'
+  }
+}
+
+async function loadTaskHistory() {
+  if (!projectStore.activeProjectId) {
+    historyLoadState.value = 'ready'
+    return
+  }
+  historyLoadState.value = 'loading'
+  try {
+    await taskStore.refresh({ projectId: projectStore.activeProjectId })
+    historyLoadState.value = 'ready'
+  } catch {
+    historyLoadState.value = 'error'
+  }
+}
+
+async function loadAssetLibrary() {
+  if (!projectStore.activeProjectId) {
+    assetLibraryLoadState.value = 'ready'
+    return
+  }
+  assetLibraryLoadState.value = 'loading'
+  try {
+    await assetStore.refresh({ projectId: projectStore.activeProjectId })
+    assetLibraryLoadState.value = 'ready'
+  } catch {
+    assetLibraryLoadState.value = 'error'
+  }
+}
+
+async function loadPageContext() {
+  await Promise.allSettled([
+    loadGenerationMeta(),
+    loadProviders(),
+    loadTaskHistory(),
+    loadAssetLibrary()
+  ])
   initDefaults()
+}
+
+onMounted(async () => {
+  await loadPageContext()
   
   // 处理从生图页“一键转视频”带入的参数
   if (route.query.sourceAssetId) {
@@ -421,11 +527,11 @@ onMounted(async () => {
 
 // 监听项目切换
 watch(() => projectStore.activeProjectId, () => {
-  initDefaults()
   selectedImageAsset.value = null
   selectedEndAsset.value = null
   activeTaskId.value = null
   finishGeneratingState()
+  void loadPageContext()
 })
 
 const activeTask = computed(() => {
@@ -531,8 +637,9 @@ const handleClearRefImage = () => {
 }
 
 // 打开资产选择弹窗（指定首帧/尾帧模式）
-const openAssetPicker = (mode: 'start' | 'end') => {
+const openAssetPicker = async (mode: 'start' | 'end') => {
   assetPickerMode.value = mode
+  await loadAssetLibrary()
   showAssetSelectModal.value = true
 }
 
@@ -696,6 +803,16 @@ onBeforeUnmount(() => {
 
 .form-scrollbar {
   flex: 1;
+}
+
+.form-status {
+  margin: -8px 0 12px;
+  font-size: 12px;
+  color: #9ca3af;
+}
+
+.form-status--error {
+  color: #fca5a5;
 }
 
 /* 参考图区域 */
@@ -1066,6 +1183,21 @@ onBeforeUnmount(() => {
   padding: 16px;
   border-top: 1px solid rgba(255, 255, 255, 0.06);
   background: rgba(15, 23, 42, 0.6);
+  backdrop-filter: blur(10px);
+  z-index: 10;
+}
+
+.history-status {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  width: 100%;
+  padding: 18px 16px;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+  background: rgba(15, 23, 42, 0.6);
+  color: #fca5a5;
+  font-size: 13px;
+  text-align: center;
   backdrop-filter: blur(10px);
   z-index: 10;
 }

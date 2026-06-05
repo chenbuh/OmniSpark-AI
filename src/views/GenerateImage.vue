@@ -33,6 +33,15 @@
                   placeholder="请选择模型..."
                 />
               </n-form-item>
+              <div v-if="providerLoadState === 'error'" class="form-status form-status--error">
+                模型提供商待确认，请稍后重试。
+              </div>
+              <div v-else-if="providerLoadState === 'ready' && providerOptions.length === 0" class="form-status">
+                当前项目暂无可用生图提供商，请先前往模型配置。
+              </div>
+              <div v-if="metaLoadState === 'error'" class="form-status form-status--error">
+                生图分辨率与质量配置待确认，请稍后重试。
+              </div>
 
               <!-- 提示词输入 -->
               <n-form-item label="提示词指令 (Prompt)">
@@ -362,12 +371,12 @@
           <div v-else class="empty-state">
             <div class="empty-glow"></div>
             <Paintbrush class="empty-icon" />
-            <h3>开始您的视觉艺术构想</h3>
-            <p>在左侧配置模型并键入您的创意描述，高质感 AI 画面将在此瞬间为您呈现。</p>
+            <h3>{{ emptyStateTitle }}</h3>
+            <p>{{ emptyStateDescription }}</p>
           </div>
 
           <!-- 历史大图列表 -->
-          <div class="history-section" v-if="taskHistory.length > 0">
+          <div class="history-section" v-if="historyLoadState === 'ready' && taskHistory.length > 0">
             <div class="history-head">
               <span class="history-label">本空间生成历史 ({{ taskHistory.length }})</span>
               <n-space>
@@ -395,6 +404,9 @@
                 </div>
               </div>
             </n-scrollbar>
+          </div>
+          <div v-else-if="historyLoadState === 'error'" class="history-status">
+            生成历史待确认，请稍后重试。
           </div>
         </n-card>
       </n-col>
@@ -440,7 +452,14 @@
           </div>
         </div>
       </div>
-      <n-empty v-else description="暂无记录" />
+      <n-empty
+        v-else-if="historyLoadState === 'error'"
+        description="历史记录待确认，请稍后重试"
+      />
+      <n-empty
+        v-else
+        :description="historyLoadState === 'loading' ? '正在加载历史记录...' : '暂无记录'"
+      />
     </n-modal>
 
     <!-- 灯箱弹窗 -->
@@ -518,6 +537,9 @@ const selectedBatchIndex = ref(0)
 const showHistoryModal = ref(false)
 const historyFilter = ref('all')
 const generationMeta = ref<GenerationMetaVO>({})
+const metaLoadState = ref<'loading' | 'ready' | 'error'>('loading')
+const providerLoadState = ref<'loading' | 'ready' | 'error'>('loading')
+const historyLoadState = ref<'loading' | 'ready' | 'error'>('loading')
 let taskPollingTimer: ReturnType<typeof setInterval> | null = null
 let taskSyncing = false
 const resultVersion = ref(0)
@@ -588,14 +610,59 @@ function resolveOptionValue(options: GenerationMetaOption[], preferredValue?: st
 }
 
 async function loadGenerationMeta() {
+  metaLoadState.value = 'loading'
   try {
     const res = await generationApi.getMeta()
     generationMeta.value = ((res as any).data || {}) as GenerationMetaVO
+    metaLoadState.value = 'ready'
   } catch {
     generationMeta.value = {}
+    metaLoadState.value = 'error'
   }
   form.resolution = resolveOptionValue(resolutionOptions.value, form.resolution, defaultImageResolution.value)
   form.quality = resolveOptionValue(qualityOptions.value, form.quality, defaultImageQuality.value)
+}
+
+async function loadProviders() {
+  if (!projectStore.activeProjectId) {
+    providerLoadState.value = 'ready'
+    return
+  }
+  providerLoadState.value = 'loading'
+  try {
+    await providerStore.refresh(projectStore.activeProjectId)
+    providerLoadState.value = 'ready'
+  } catch {
+    providerLoadState.value = 'error'
+  }
+}
+
+async function loadTaskHistory() {
+  if (!projectStore.activeProjectId) {
+    historyLoadState.value = 'ready'
+    return
+  }
+  historyLoadState.value = 'loading'
+  try {
+    await taskStore.refresh({ projectId: projectStore.activeProjectId })
+    historyLoadState.value = 'ready'
+  } catch {
+    historyLoadState.value = 'error'
+  }
+}
+
+async function loadPageContext() {
+  const projectId = projectStore.activeProjectId
+  await Promise.allSettled([
+    loadGenerationMeta(),
+    loadProviders(),
+    loadTaskHistory(),
+    projectId ? assetStore.refresh({ projectId }) : Promise.resolve()
+  ])
+  initDefaults()
+  if (activeTask.value?.status === 'success') {
+    void ensureTaskAssetsLoaded(activeTask.value).catch(() => {})
+  }
 }
 
 const sanitizeInteger = (
@@ -712,6 +779,36 @@ const handleProviderChange = (val: number) => {
     modelOptions.value = provider.modelName ? [{ label: provider.modelName, value: provider.modelName }] : []
   }
 }
+
+const generationConfigState = computed<'ready' | 'error' | 'empty'>(() => {
+  if (metaLoadState.value === 'error' || providerLoadState.value === 'error') {
+    return 'error'
+  }
+  if (providerLoadState.value === 'ready' && providerOptions.value.length === 0) {
+    return 'empty'
+  }
+  return 'ready'
+})
+
+const emptyStateTitle = computed(() => {
+  if (generationConfigState.value === 'error') {
+    return '生成配置待确认'
+  }
+  if (generationConfigState.value === 'empty') {
+    return '暂无可用生图模型'
+  }
+  return '开始您的视觉艺术构想'
+})
+
+const emptyStateDescription = computed(() => {
+  if (generationConfigState.value === 'error') {
+    return '当前项目的生图模型或参数配置暂时无法确认，请稍后重试。'
+  }
+  if (generationConfigState.value === 'empty') {
+    return '当前项目还没有配置与生图兼容的提供商，先去模型配置页接入后再开始创作。'
+  }
+  return '在左侧配置模型并键入您的创意描述，高质感 AI 画面将在此瞬间为您呈现。'
+})
 
 // 清除表单
 const clearForm = () => {
@@ -1277,8 +1374,7 @@ const uploadInpaintMask = async (): Promise<number | null> => {
 }
 
 onMounted(async () => {
-  await loadGenerationMeta()
-  initDefaults()
+  await loadPageContext()
 
   if (route.query.sourceAssetId) {
     const id = Number(route.query.sourceAssetId)
@@ -1325,11 +1421,11 @@ onMounted(async () => {
 
 // 监听项目空间变化
 watch(() => projectStore.activeProjectId, () => {
-  initDefaults()
   activeTaskId.value = null
   selectedRefAssets.value = []
   refImagePreviews.value = []
   finishGeneratingState()
+  void loadPageContext()
 })
 
 // 当前选中任务详情
@@ -1965,6 +2061,16 @@ onBeforeUnmount(() => {
   flex: 1;
 }
 
+.form-status {
+  margin: -8px 0 12px;
+  font-size: 12px;
+  color: #9ca3af;
+}
+
+.form-status--error {
+  color: #fca5a5;
+}
+
 .prompt-input-box {
   position: relative;
   width: 100%;
@@ -2429,6 +2535,21 @@ onBeforeUnmount(() => {
   padding: 16px;
   border-top: 1px solid rgba(255, 255, 255, 0.06);
   background: linear-gradient(180deg, rgba(15, 23, 42, 0.56), rgba(15, 23, 42, 0.72));
+  backdrop-filter: blur(10px);
+  z-index: 10;
+}
+
+.history-status {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  width: 100%;
+  padding: 18px 16px;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+  background: linear-gradient(180deg, rgba(15, 23, 42, 0.56), rgba(15, 23, 42, 0.72));
+  color: #fca5a5;
+  font-size: 13px;
+  text-align: center;
   backdrop-filter: blur(10px);
   z-index: 10;
 }
