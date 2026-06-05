@@ -1489,6 +1489,137 @@ const stopElapsedTimer = () => {
   }
 }
 
+function normalizeTaskField(value: unknown) {
+  return typeof value === 'string' ? value.trim() : ''
+}
+
+function parseTaskRequestJson(task: { requestJson?: string }, errorMessage: string) {
+  if (!task.requestJson) {
+    throw new Error(errorMessage)
+  }
+  try {
+    const parsed = JSON.parse(task.requestJson)
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+      throw new Error(errorMessage)
+    }
+    return parsed as Record<string, unknown>
+  } catch {
+    throw new Error(errorMessage)
+  }
+}
+
+function assertImageGenerationTaskMatches(
+  task: ReturnType<typeof taskStore.normalizeTask>,
+  expected: {
+    projectId: number
+    providerId: number
+    prompt: string
+    negativePrompt: string
+    modelName: string
+    size: string
+    count: number
+    referenceAssetIds: number[]
+    options: {
+      modelName: string
+      aspectRatio: string
+      aspectWidth: number
+      aspectHeight: number
+      resolution: string
+      quality: string
+      width: number
+      height: number
+      cfg: number
+      steps: number
+    }
+  }
+) {
+  const errorMessage = '图片任务提交结果待确认'
+  if (task.projectId !== expected.projectId || task.providerId !== expected.providerId || task.taskType !== 'image') {
+    throw new Error(errorMessage)
+  }
+  if (normalizeTaskField(task.prompt) !== expected.prompt) {
+    throw new Error(errorMessage)
+  }
+  if (normalizeTaskField(task.negativePrompt) !== expected.negativePrompt) {
+    throw new Error(errorMessage)
+  }
+  if (normalizeTaskField(task.modelName) !== expected.modelName) {
+    throw new Error(errorMessage)
+  }
+  const requestPayload = parseTaskRequestJson(task, errorMessage)
+  if (
+    Number(requestPayload.projectId) !== expected.projectId
+    || Number(requestPayload.providerId) !== expected.providerId
+    || normalizeTaskField(requestPayload.prompt) !== expected.prompt
+    || normalizeTaskField(requestPayload.negativePrompt) !== expected.negativePrompt
+    || normalizeTaskField(requestPayload.modelName) !== expected.modelName
+    || normalizeTaskField(requestPayload.size) !== expected.size
+    || Number(requestPayload.count) !== expected.count
+  ) {
+    throw new Error(errorMessage)
+  }
+  const referenceAssetIds = Array.isArray(requestPayload.referenceAssetIds)
+    ? requestPayload.referenceAssetIds.map(item => Number(item)).filter(item => Number.isFinite(item))
+    : []
+  if (
+    referenceAssetIds.length !== expected.referenceAssetIds.length
+    || referenceAssetIds.some((item, index) => item !== expected.referenceAssetIds[index])
+  ) {
+    throw new Error(errorMessage)
+  }
+  const options = requestPayload.options
+  if (!options || typeof options !== 'object' || Array.isArray(options)) {
+    throw new Error(errorMessage)
+  }
+  if (
+    normalizeTaskField((options as Record<string, unknown>).modelName) !== expected.options.modelName
+    || normalizeTaskField((options as Record<string, unknown>).aspectRatio) !== expected.options.aspectRatio
+    || Number((options as Record<string, unknown>).aspectWidth) !== expected.options.aspectWidth
+    || Number((options as Record<string, unknown>).aspectHeight) !== expected.options.aspectHeight
+    || normalizeTaskField((options as Record<string, unknown>).resolution) !== expected.options.resolution
+    || normalizeTaskField((options as Record<string, unknown>).quality) !== expected.options.quality
+    || Number((options as Record<string, unknown>).width) !== expected.options.width
+    || Number((options as Record<string, unknown>).height) !== expected.options.height
+    || Number((options as Record<string, unknown>).cfg) !== expected.options.cfg
+    || Number((options as Record<string, unknown>).steps) !== expected.options.steps
+  ) {
+    throw new Error(errorMessage)
+  }
+}
+
+async function confirmSubmittedImageTask(
+  task: ReturnType<typeof taskStore.normalizeTask>,
+  expected: {
+    projectId: number
+    providerId: number
+    prompt: string
+    negativePrompt: string
+    modelName: string
+    size: string
+    count: number
+    referenceAssetIds: number[]
+    options: {
+      modelName: string
+      aspectRatio: string
+      aspectWidth: number
+      aspectHeight: number
+      resolution: string
+      quality: string
+      width: number
+      height: number
+      cfg: number
+      steps: number
+    }
+  }
+) {
+  assertImageGenerationTaskMatches(task, expected)
+  await taskStore.refresh({ projectId: expected.projectId })
+  const confirmedFromList = taskStore.getTasksByProject(expected.projectId).find(item => item.id === task.id)
+  const confirmed = confirmedFromList ?? taskStore.normalizeTask((await taskApi.getTask(task.id)).data)
+  assertImageGenerationTaskMatches(confirmed, expected)
+  return confirmed
+}
+
 const finishGeneratingState = () => {
   generating.value = false
   taskCompleted.value = true
@@ -1903,6 +2034,9 @@ const handleStartGenerate = async () => {
   startElapsedTimer()
   stopTaskPolling()
   try {
+    const referenceAssetIds = generateMode.value === 'img2img'
+      ? selectedRefAssets.value.map(assetId).filter((id): id is number => id != null)
+      : []
     const commonParams = {
       projectId: projectStore.activeProjectId,
       providerId: form.providerId,
@@ -1935,11 +2069,37 @@ const handleStartGenerate = async () => {
     } else {
       res = await generationApi.generateImage({
         ...commonParams,
-        referenceAssetIds: generateMode.value === 'img2img' ? selectedRefAssets.value.map(assetId).filter((id): id is number => id != null) : [],
+        referenceAssetIds,
       })
     }
 
-    const task = taskStore.upsertTask(res.data)
+    const submittedTask = taskStore.normalizeTask((res as any).data)
+    const expectedReferenceAssetIds = generateMode.value === 'inpaint'
+      ? [assetId(selectedRefAssets.value[0])].filter((id): id is number => id != null)
+      : referenceAssetIds
+    const task = await confirmSubmittedImageTask(submittedTask, {
+      projectId: commonParams.projectId,
+      providerId: commonParams.providerId,
+      prompt: commonParams.prompt.trim(),
+      negativePrompt: normalizeTaskField(commonParams.negativePrompt),
+      modelName: normalizeTaskField(commonParams.modelName),
+      size: commonParams.size,
+      count: commonParams.count,
+      referenceAssetIds: expectedReferenceAssetIds,
+      options: {
+        modelName: normalizeTaskField(commonParams.options.modelName),
+        aspectRatio: normalizeTaskField(commonParams.options.aspectRatio),
+        aspectWidth: commonParams.options.aspectWidth,
+        aspectHeight: commonParams.options.aspectHeight,
+        resolution: normalizeTaskField(commonParams.options.resolution),
+        quality: normalizeTaskField(commonParams.options.quality),
+        width: commonParams.options.width,
+        height: commonParams.options.height,
+        cfg: commonParams.options.cfg,
+        steps: commonParams.options.steps
+      }
+    })
+    taskStore.upsertTask(task)
     activeTaskId.value = task.id
     selectedBatchIndex.value = 0
 

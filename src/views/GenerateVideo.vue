@@ -356,6 +356,96 @@ const cameraMotionOptions = computed(() => generationMeta.value.video?.cameraMot
 const defaultVideoDuration = computed(() => generationMeta.value.video?.defaults?.duration || durations.value[0]?.value || '')
 const defaultCameraMotion = computed(() => generationMeta.value.video?.defaults?.cameraMotion || cameraMotionOptions.value[0]?.value || '')
 
+function normalizeTaskField(value: unknown) {
+  return typeof value === 'string' ? value.trim() : ''
+}
+
+function parseTaskRequestJson(task: { requestJson?: string }, errorMessage: string) {
+  if (!task.requestJson) {
+    throw new Error(errorMessage)
+  }
+  try {
+    const parsed = JSON.parse(task.requestJson)
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+      throw new Error(errorMessage)
+    }
+    return parsed as Record<string, unknown>
+  } catch {
+    throw new Error(errorMessage)
+  }
+}
+
+function assertVideoGenerationTaskMatches(
+  task: ReturnType<typeof taskStore.normalizeTask>,
+  expected: {
+    projectId: number
+    providerId: number
+    prompt: string
+    modelName: string
+    sourceAssetId?: number
+    endAssetId?: number
+    duration: string
+    cameraMotion: string
+    motionSpeed: number
+  }
+) {
+  const errorMessage = '视频任务提交结果待确认'
+  if (task.projectId !== expected.projectId || task.providerId !== expected.providerId || task.taskType !== 'video') {
+    throw new Error(errorMessage)
+  }
+  if (normalizeTaskField(task.prompt) !== expected.prompt) {
+    throw new Error(errorMessage)
+  }
+  if (normalizeTaskField(task.modelName) !== expected.modelName) {
+    throw new Error(errorMessage)
+  }
+  const requestPayload = parseTaskRequestJson(task, errorMessage)
+  if (
+    Number(requestPayload.projectId) !== expected.projectId
+    || Number(requestPayload.providerId) !== expected.providerId
+    || normalizeTaskField(requestPayload.prompt) !== expected.prompt
+    || normalizeTaskField(requestPayload.modelName) !== expected.modelName
+    || normalizeTaskField(requestPayload.size) !== expected.duration
+    || Number(requestPayload.sourceAssetId ?? 0) !== Number(expected.sourceAssetId ?? 0)
+    || Number(requestPayload.endAssetId ?? 0) !== Number(expected.endAssetId ?? 0)
+  ) {
+    throw new Error(errorMessage)
+  }
+  const options = requestPayload.options
+  if (!options || typeof options !== 'object' || Array.isArray(options)) {
+    throw new Error(errorMessage)
+  }
+  if (
+    normalizeTaskField((options as Record<string, unknown>).modelName) !== expected.modelName
+    || normalizeTaskField((options as Record<string, unknown>).cameraMotion) !== expected.cameraMotion
+    || Number((options as Record<string, unknown>).motionSpeed) !== expected.motionSpeed
+  ) {
+    throw new Error(errorMessage)
+  }
+}
+
+async function confirmSubmittedVideoTask(
+  task: ReturnType<typeof taskStore.normalizeTask>,
+  expected: {
+    projectId: number
+    providerId: number
+    prompt: string
+    modelName: string
+    sourceAssetId?: number
+    endAssetId?: number
+    duration: string
+    cameraMotion: string
+    motionSpeed: number
+  }
+) {
+  assertVideoGenerationTaskMatches(task, expected)
+  await taskStore.refresh({ projectId: expected.projectId })
+  const confirmedFromList = taskStore.getTasksByProject(expected.projectId).find(item => item.id === task.id)
+  const confirmed = confirmedFromList ?? taskStore.normalizeTask((await taskApi.getTask(task.id)).data)
+  assertVideoGenerationTaskMatches(confirmed, expected)
+  return confirmed
+}
+
 // 空间下的资产库中的所有图片资产（供参考图挑选）
 const imageAssets = computed(() => {
   return assetStore
@@ -741,7 +831,7 @@ const handleStartGenerate = async () => {
   activeTaskId.value = null
   generating.value = true
   try {
-    const res = await generationApi.generateVideo({
+    const requestPayload = {
       projectId: projectStore.activeProjectId,
       providerId: form.providerId,
       prompt: form.prompt,
@@ -754,13 +844,34 @@ const handleStartGenerate = async () => {
         cameraMotion: form.cameraMotion,
         motionSpeed: form.motionSpeed
       }
+    }
+    const res = await generationApi.generateVideo({
+      projectId: requestPayload.projectId,
+      providerId: requestPayload.providerId,
+      prompt: requestPayload.prompt,
+      modelName: requestPayload.modelName,
+      sourceAssetId: requestPayload.sourceAssetId,
+      endAssetId: requestPayload.endAssetId,
+      duration: requestPayload.duration,
+      options: requestPayload.options
     })
 
-    const task = taskStore.upsertTask(res.data)
+    const submittedTask = taskStore.normalizeTask((res as any).data)
+    const task = await confirmSubmittedVideoTask(submittedTask, {
+      projectId: requestPayload.projectId,
+      providerId: requestPayload.providerId,
+      prompt: requestPayload.prompt.trim(),
+      modelName: normalizeTaskField(requestPayload.modelName),
+      sourceAssetId: requestPayload.sourceAssetId,
+      endAssetId: requestPayload.endAssetId,
+      duration: normalizeTaskField(requestPayload.duration),
+      cameraMotion: normalizeTaskField(requestPayload.options.cameraMotion),
+      motionSpeed: requestPayload.options.motionSpeed
+    })
+    taskStore.upsertTask(task)
     activeTaskId.value = task.id
 
     if (task.status === 'success') {
-      await taskStore.refresh({ projectId: projectStore.activeProjectId })
       await ensureTaskResultAssetLoaded(task)
       finishGeneratingState()
       message.success('视频生成完成')
@@ -768,7 +879,6 @@ const handleStartGenerate = async () => {
     } else if (task.status === 'failed') {
       message.error(task.errorMessage || '视频生成失败')
     } else {
-      await taskStore.refresh({ projectId: projectStore.activeProjectId })
       message.info('视频任务已提交，正在持续获取最新生成进度...')
       startTaskPolling(task.id)
     }
