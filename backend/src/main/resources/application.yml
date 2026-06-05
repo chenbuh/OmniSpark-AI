@@ -29,8 +29,19 @@ spring:
         size: 5
 
 app:
-  version: 1.0.0
-  build-time: 2025-07-20
+  version: ${APP_VERSION:@project.version@}
+  build-time: ${APP_BUILD_TIME:@maven.build.timestamp@}
+  update:
+    prefer-release: ${APP_UPDATE_PREFER_RELEASE:true}
+    cache-ttl-minutes: ${APP_UPDATE_CACHE_TTL_MINUTES:30}
+    request-timeout-seconds: ${APP_UPDATE_REQUEST_TIMEOUT_SECONDS:6}
+    github:
+      api-base: ${APP_UPDATE_GITHUB_API_BASE:https://api.github.com}
+      web-base: ${APP_UPDATE_GITHUB_WEB_BASE:https://github.com}
+      owner: ${APP_UPDATE_GITHUB_OWNER:chenbuh}
+      repo: ${APP_UPDATE_GITHUB_REPO:OmniSpark-AI}
+      branch: ${APP_UPDATE_GITHUB_BRANCH:main}
+      token: ${APP_UPDATE_GITHUB_TOKEN:}
   cors:
     # 可信来源白名单（逗号分隔），仅这些来源允许携带凭证跨域。生产环境部署后追加正式域名。
     allowed-origins: http://localhost:5173,http://127.0.0.1:5173,http://localhost:8080,http://127.0.0.1:8080

@@ -2,7 +2,7 @@
   <div class="admin-update">
     <div class="page-header">
       <h2>系统更新 (System Update)</h2>
-      <p class="subtitle">查看系统版本信息并检查更新。</p>
+      <p class="subtitle">查看当前构建信息，并从 GitHub 仓库检查真实更新状态。</p>
     </div>
 
     <n-row :gutter="20">
@@ -15,6 +15,13 @@
             <n-descriptions-item label="服务器时间">{{ version.serverTime }}</n-descriptions-item>
             <n-descriptions-item label="Java 版本">{{ version.javaVersion }}</n-descriptions-item>
             <n-descriptions-item label="操作系统">{{ version.osName }} ({{ version.osArch }})</n-descriptions-item>
+            <n-descriptions-item label="更新源">
+              <a v-if="version.repositoryUrl" :href="version.repositoryUrl" target="_blank" rel="noreferrer" class="link-text">
+                {{ version.updateSource }}
+              </a>
+              <span v-else>{{ version.updateSource || '-' }}</span>
+            </n-descriptions-item>
+            <n-descriptions-item label="默认分支">{{ version.defaultBranch || '-' }}</n-descriptions-item>
           </n-descriptions>
         </n-card>
       </n-col>
@@ -23,7 +30,7 @@
       <n-col :span="12">
         <n-card title="检查更新" class="glass-card" :bordered="false">
           <div v-if="!updateCheck" class="check-placeholder">
-            <p>点击下方按钮检查是否有新版本可用。</p>
+            <p>点击下方按钮拉取仓库最新发布信息。</p>
             <n-button type="primary" @click="checkUpdate" :loading="checking">
               <template #icon><RefreshCw /></template>检查更新
             </n-button>
@@ -32,22 +39,47 @@
           <div v-else class="update-result">
             <n-descriptions :column="1">
               <n-descriptions-item label="当前版本">{{ updateCheck.currentVersion }}</n-descriptions-item>
-              <n-descriptions-item label="最新版本">{{ updateCheck.latestVersion }}</n-descriptions-item>
+              <n-descriptions-item label="远程版本">{{ updateCheck.latestVersion || '-' }}</n-descriptions-item>
+              <n-descriptions-item label="数据来源">{{ updateCheck.sourceLabel || '-' }}</n-descriptions-item>
+              <n-descriptions-item label="检查时间">{{ formatDateTime(updateCheck.checkTime) }}</n-descriptions-item>
+              <n-descriptions-item v-if="updateCheck.releasePublishedAt" label="发布时间">
+                {{ formatDateTime(updateCheck.releasePublishedAt) }}
+              </n-descriptions-item>
+              <n-descriptions-item v-if="updateCheck.latestCommitShortSha" label="最新提交">
+                <span class="mono">{{ updateCheck.latestCommitShortSha }}</span>
+              </n-descriptions-item>
               <n-descriptions-item label="状态">
-                <n-tag v-if="updateCheck.hasUpdate" type="error">有新版本可用</n-tag>
+                <n-tag v-if="updateCheck.hasUpdate" type="error">发现可用更新</n-tag>
+                <n-tag v-else-if="updateCheck.sourceType === 'commit'" type="warning">仓库未发布版本</n-tag>
                 <n-tag v-else type="success">已是最新版本</n-tag>
               </n-descriptions-item>
             </n-descriptions>
 
             <n-alert v-if="updateCheck.hasUpdate" type="warning" style="margin-top:12px;">
               <template #header>新版本 {{ updateCheck.latestVersion }} 可用</template>
-              <div style="font-size:12px;margin-bottom:8px;white-space:pre-wrap;">{{ updateCheck.releaseNotes }}</div>
-              <n-button size="small" type="primary" @click="openReleaseUrl">前往下载</n-button>
+              <div v-if="updateCheck.releaseNotes" class="notes-text">{{ updateCheck.releaseNotes }}</div>
+              <div class="action-row">
+                <n-button v-if="updateCheck.downloadUrl" size="small" type="primary" @click="openUrl(updateCheck.downloadUrl)">下载安装包</n-button>
+                <n-button size="small" tertiary type="primary" @click="openUrl(updateCheck.releaseUrl || updateCheck.repositoryUrl)">查看版本详情</n-button>
+              </div>
+            </n-alert>
+
+            <n-alert v-else-if="updateCheck.sourceType === 'commit'" type="info" style="margin-top:12px;">
+              <template #header>仓库尚未发布正式版本</template>
+              <div v-if="updateCheck.latestCommitMessage" class="notes-text">{{ updateCheck.latestCommitMessage }}</div>
+              <div class="action-row">
+                <n-button size="small" type="primary" @click="openUrl(updateCheck.releaseUrl || updateCheck.repositoryUrl)">前往仓库</n-button>
+              </div>
             </n-alert>
 
             <n-alert v-else-if="updateCheck.error" type="info" style="margin-top:12px;">
               {{ updateCheck.error }}
             </n-alert>
+
+            <div class="action-row" style="margin-top: 12px;">
+              <n-button size="small" secondary type="primary" @click="checkUpdate">重新检查</n-button>
+              <n-button v-if="updateCheck.repositoryUrl" size="small" quaternary @click="openUrl(updateCheck.repositoryUrl)">打开仓库</n-button>
+            </div>
           </div>
         </n-card>
       </n-col>
@@ -56,40 +88,97 @@
 </template>
 
 <script setup lang="ts">
-import { ref } from 'vue'
+import { onMounted, ref } from 'vue'
 import { RefreshCw } from 'lucide-vue-next'
 import request from '@/api/request'
 
-const version = ref<any>({})
-const updateCheck = ref<any>(null)
+interface VersionInfo {
+  currentVersion?: string
+  buildTime?: string
+  serverTime?: string
+  javaVersion?: string
+  osName?: string
+  osArch?: string
+  updateSource?: string
+  defaultBranch?: string
+  repositoryUrl?: string
+}
+
+interface UpdateCheckInfo {
+  currentVersion?: string
+  latestVersion?: string
+  sourceType?: string
+  sourceLabel?: string
+  checkTime?: string
+  releasePublishedAt?: string
+  latestCommitShortSha?: string
+  latestCommitMessage?: string
+  hasUpdate?: boolean
+  releaseUrl?: string
+  repositoryUrl?: string
+  releaseNotes?: string
+  downloadUrl?: string
+  error?: string
+}
+
+const version = ref<VersionInfo>({})
+const updateCheck = ref<UpdateCheckInfo | null>(null)
 const checking = ref(false)
 
 async function loadVersion() {
-  try { const res = await request.get('/api/admin/version'); version.value = (res as any).data || {} } catch {}
+  try {
+    const res = await request.get<VersionInfo>('/api/admin/version')
+    version.value = (res as any).data || {}
+  } catch {}
 }
 
 async function checkUpdate() {
   checking.value = true
   try {
-    const res = await request.get('/api/admin/version/check')
+    const res = await request.get<UpdateCheckInfo>('/api/admin/version/check', {
+      params: { refresh: true }
+    })
     updateCheck.value = (res as any).data
-  } catch { updateCheck.value = { latestVersion: '查询失败', hasUpdate: false, error: '网络错误' } }
-  finally { checking.value = false }
+  } catch (err: any) {
+    updateCheck.value = {
+      latestVersion: '查询失败',
+      hasUpdate: false,
+      error: err?.message || '网络错误'
+    }
+  } finally {
+    checking.value = false
+  }
 }
 
-function openReleaseUrl() {
-  if (updateCheck.value?.releaseUrl) window.open(updateCheck.value.releaseUrl, '_blank')
+function openUrl(url?: string) {
+  if (url) {
+    window.open(url, '_blank', 'noopener,noreferrer')
+  }
 }
 
-loadVersion()
+function formatDateTime(value?: string) {
+  if (!value) return '-'
+  const date = new Date(value)
+  return Number.isNaN(date.getTime()) ? value : date.toLocaleString()
+}
+
+onMounted(() => {
+  void loadVersion()
+  void checkUpdate()
+})
 </script>
 
 <style scoped>
 .admin-update { padding-bottom: 40px; }
 .page-header { margin-bottom: 24px; }
-.page-header h2 { font-size: 24px; font-weight: 700; margin: 0 0 6px 0; color: #fff; }
-.subtitle { font-size: 13px; color: #9ca3af; margin: 0; }
+.page-header h2 { font-size: 24px; font-weight: 700; margin: 0 0 6px 0; color: var(--text-primary); }
+.subtitle { font-size: 13px; color: var(--text-muted); margin: 0; }
 .glass-card { background: rgba(15,23,42,0.4) !important; backdrop-filter: blur(16px); border: 1px solid rgba(255,255,255,0.08) !important; border-radius: 16px !important; }
 .check-placeholder { text-align: center; padding: 20px; color: #9ca3af; display: flex; flex-direction: column; align-items: center; gap: 16px; }
 .update-result { display: flex; flex-direction: column; gap: 8px; }
+.notes-text { font-size: 12px; line-height: 1.7; margin-bottom: 10px; white-space: pre-wrap; }
+.action-row { display: flex; flex-wrap: wrap; gap: 8px; }
+.link-text { color: #10b981; text-decoration: none; }
+.link-text:hover { text-decoration: underline; }
+.mono { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; }
 </style>
