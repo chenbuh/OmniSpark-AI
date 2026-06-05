@@ -11,14 +11,17 @@
         <n-card class="glass-card" :bordered="false">
           <template #header>
             <div class="card-header-row">
-              <span>我的团队 ({{ teamStore.teams.length }})</span>
+              <span>我的团队 ({{ teamsCountDisplay }})</span>
               <n-button type="primary" size="small" @click="showCreateModal = true">
                 <template #icon><Plus /></template>新建团队
               </n-button>
             </div>
           </template>
 
-          <div class="team-list" v-if="teamStore.teams.length > 0">
+          <div v-if="teamsLoading && !teamsReady" class="loading-box">
+            <n-spin size="small" />
+          </div>
+          <div class="team-list" v-else-if="teamsReady && teamStore.teams.length > 0">
             <div
               v-for="team in pagedTeams"
               :key="team.id"
@@ -40,8 +43,9 @@
               </n-dropdown>
             </div>
           </div>
-          <n-empty v-else description="暂无团队，点击右上角创建" />
-          <div class="pager" v-if="teamStore.teams.length > pageSize">
+          <n-empty v-else-if="teamsReady" description="暂无团队，点击右上角创建" />
+          <n-empty v-else description="团队数据待确认，请稍后重试。" />
+          <div class="pager" v-if="teamsReady && teamStore.teams.length > pageSize">
             <n-pagination v-model:page="page" :page-size="pageSize" :item-count="teamStore.teams.length" simple />
           </div>
         </n-card>
@@ -53,7 +57,7 @@
           <template #header>
             <div class="card-header-row">
               <div class="header-col">
-                <span>{{ selectedTeam.name }} · 成员 ({{ teamStore.currentMembers.length }})</span>
+                <span>{{ selectedTeam.name }} · 成员 ({{ membersCountDisplay }})</span>
                 <span class="team-desc" v-if="(selectedTeam as any).description">{{ (selectedTeam as any).description }}</span>
               </div>
               <n-space>
@@ -67,7 +71,10 @@
             </div>
           </template>
 
-          <div class="member-list">
+          <div v-if="membersLoading && !membersReady" class="loading-box">
+            <n-spin size="small" />
+          </div>
+          <div v-else class="member-list">
             <div v-for="member in filteredMembers" :key="member.id" class="member-row">
               <n-avatar round :size="36" :src="member.avatar" color="#3b82f6">
                 {{ memberInitial(member) }}
@@ -81,7 +88,8 @@
                 移除
               </n-button>
             </div>
-            <n-empty v-if="filteredMembers.length===0" description="无匹配成员" style="padding:20px 0;" />
+            <n-empty v-if="membersReady && filteredMembers.length===0" description="无匹配成员" style="padding:20px 0;" />
+            <n-empty v-else-if="!membersReady" description="成员数据待确认，请稍后重试。" style="padding:20px 0;" />
           </div>
         </n-card>
         <n-card class="glass-card" :bordered="false" v-else>
@@ -160,10 +168,16 @@ const showInviteModal = ref(false)
 const creating = ref(false)
 const inviting = ref(false)
 const memberSearch = ref('')
+const teamsLoading = ref(true)
+const teamsReady = ref(false)
+const membersLoading = ref(false)
+const membersReady = ref(false)
 
 const createForm = ref({ name: '', description: '' })
 const editForm = ref({ id: 0, name: '', description: '' })
 const inviteForm = ref({ username: '', role: 'member' })
+const teamsCountDisplay = computed(() => teamsReady.value ? teamStore.teams.length : '-')
+const membersCountDisplay = computed(() => membersReady.value ? teamStore.currentMembers.length : '-')
 
 // 前端分页(teamStore 全量不动)
 const page = ref(1)
@@ -211,11 +225,38 @@ function canManage(member: any) {
   return selectedTeam.value?.ownerId === userStore.userInfo?.id && member.role !== 'owner'
 }
 
-onMounted(async () => { await teamStore.refresh() })
+async function loadTeams() {
+  teamsLoading.value = true
+  try {
+    await teamStore.refresh()
+    teamsReady.value = true
+  } catch (err: any) {
+    teamsReady.value = false
+    message.error(err.message || '加载团队失败')
+  } finally {
+    teamsLoading.value = false
+  }
+}
+
+async function loadMembers(teamId: number) {
+  membersLoading.value = true
+  membersReady.value = false
+  try {
+    await teamStore.refreshMembers(teamId)
+    membersReady.value = true
+  } catch (err: any) {
+    membersReady.value = false
+    message.error(err.message || '加载团队成员失败')
+  } finally {
+    membersLoading.value = false
+  }
+}
+
+onMounted(async () => { await loadTeams() })
 
 const handleSelectTeam = async (team: Team) => {
   selectedTeam.value = team
-  await teamStore.refreshMembers(team.id)
+  await loadMembers(team.id)
 }
 
 const handleCreateTeam = async () => {
@@ -223,6 +264,7 @@ const handleCreateTeam = async () => {
   creating.value = true
   try {
     await teamStore.createTeam(createForm.value.name, createForm.value.description)
+    teamsReady.value = true
     createForm.value = { name: '', description: '' }
     showCreateModal.value = false
     message.success('团队创建成功！')
@@ -243,6 +285,7 @@ const handleTeamAction = (key: string, team: Team) => {
       onPositiveClick: async () => {
         await teamStore.deleteTeam(team.id)
         if (selectedTeam.value?.id === team.id) selectedTeam.value = null
+        membersReady.value = false
         message.success('团队已解散')
       }
     })
@@ -252,7 +295,7 @@ const handleTeamAction = (key: string, team: Team) => {
 const handleEditTeam = async () => {
   try {
     await teamApi.updateTeam(editForm.value.id, { name: editForm.value.name, description: editForm.value.description })
-    await teamStore.refresh()
+    await loadTeams()
     if (selectedTeam.value?.id === editForm.value.id) {
       selectedTeam.value = teamStore.teams.find(t => t.id === editForm.value.id) || selectedTeam.value
     }
@@ -266,7 +309,7 @@ const handleInviteMember = async () => {
   inviting.value = true
   try {
     await teamApi.inviteMember({ teamId: selectedTeam.value.id, username: inviteForm.value.username, role: inviteForm.value.role })
-    await teamStore.refreshMembers(selectedTeam.value.id)
+    await loadMembers(selectedTeam.value.id)
     inviteForm.value = { username: '', role: 'member' }
     showInviteModal.value = false
     message.success('邀请成功！')
@@ -283,7 +326,7 @@ const handleRemoveMember = async (member: any) => {
     negativeText: '取消',
     onPositiveClick: async () => {
       await teamApi.removeMember(selectedTeam.value!.id, member.userId)
-      await teamStore.refreshMembers(selectedTeam.value!.id)
+      await loadMembers(selectedTeam.value!.id)
       message.success(`已移除 ${memberDisplayName(member)}`)
     }
   })
@@ -302,6 +345,7 @@ const handleRemoveMember = async (member: any) => {
 .s-icon { width: 14px; height: 14px; color: var(--text-muted); }
 
 .team-list { display: flex; flex-direction: column; gap: 8px; }
+.loading-box { display: flex; justify-content: center; padding: 24px 0; }
 .pager { display: flex; justify-content: center; margin-top: 14px; }
 .team-card { display: flex; align-items: center; gap: 12px; padding: 12px; border-radius: 12px; cursor: pointer; transition: all .2s; border: 1px solid transparent; }
 .team-card:hover { background: rgba(128,128,128,0.03); border-color: var(--border-color); }

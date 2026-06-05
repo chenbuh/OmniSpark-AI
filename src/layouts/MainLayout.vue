@@ -162,7 +162,7 @@
         </div>
 
         <!-- 已有共享列表 -->
-        <div class="share-list" v-if="shares.length > 0">
+        <div class="share-list" v-if="shares && shares.length > 0">
           <div class="share-item" v-for="s in shares" :key="s.id">
             <span class="share-team-name">{{ s.teamName }}</span>
             <n-select
@@ -177,7 +177,8 @@
             </n-button>
           </div>
         </div>
-        <n-empty v-else description="暂无共享" style="padding: 16px 0;" />
+        <n-empty v-else-if="shares !== null" description="暂无共享" style="padding: 16px 0;" />
+        <n-empty v-else description="共享列表待确认，请稍后重试。" style="padding: 16px 0;" />
 
         <!-- 添加共享 -->
         <n-divider />
@@ -250,7 +251,7 @@ const addProjectForm = reactive({
 
 // 项目共享状态
 const showShareModal = ref(false)
-const shares = ref<any[]>([])
+const shares = ref<any[] | null>(null)
 const newShareTeamId = ref<number | null>(null)
 const newSharePermission = ref('view')
 const permissionOptions = [
@@ -397,7 +398,7 @@ const loadShares = async () => {
     const res = await projectShareApi.getShares(projectStore.activeProjectId)
     shares.value = res.data || []
   } catch {
-    shares.value = []
+    shares.value = null
   }
 }
 

@@ -85,8 +85,11 @@
               </n-space>
             </td>
           </tr>
-          <tr v-if="filteredTasks.length===0">
+          <tr v-if="tasksReady && filteredTasks.length===0">
             <td colspan="8" class="empty-row"><ClipboardList class="empty-icon" /><span>暂无任务</span></td>
+          </tr>
+          <tr v-else-if="!tasksReady">
+            <td colspan="8" class="empty-row"><ClipboardList class="empty-icon" /><span>任务数据待确认</span></td>
           </tr>
         </tbody>
       </n-table>
@@ -185,6 +188,7 @@ const searchQuery = ref('')
 const showDetailDrawer = ref(false)
 const selectedTask = ref<any>(null)
 const selectedIds = ref(new Set<number>())
+const tasksReady = ref(false)
 let autoTimer: ReturnType<typeof setInterval> | null = null
 let isRefreshing = false
 
@@ -220,6 +224,10 @@ async function refresh() {
   isRefreshing = true
   try {
     await taskStore.refresh()
+    tasksReady.value = true
+  } catch (err: any) {
+    tasksReady.value = false
+    message.error(err.message || '加载任务失败')
   } finally {
     isRefreshing = false
     loading.value = false
@@ -227,6 +235,9 @@ async function refresh() {
 }
 
 const taskCount = computed(() => {
+  if (!tasksReady.value) {
+    return { all: '-', running: '-', success: '-', failed: '-' }
+  }
   const all = taskStore.getTasksByProject(projectStore.activeProjectId)
   return { all: all.length, running: all.filter(t => t.status==='running'||t.status==='pending').length, success: all.filter(t => t.status==='success').length, failed: all.filter(t => t.status==='failed').length }
 })

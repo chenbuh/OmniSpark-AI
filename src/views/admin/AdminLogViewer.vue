@@ -21,12 +21,17 @@
         </n-space>
       </div>
 
-      <div class="log-container" ref="logContainer">
-        <div class="log-line" v-for="(line, i) in logs" :key="i">
+      <div v-if="loadingLogs && logs === null" class="loading-box">
+        <n-spin size="small" />
+      </div>
+
+      <div v-else class="log-container" ref="logContainer">
+        <div class="log-line" v-for="(line, i) in logs || []" :key="i">
           <span class="line-num">{{ i + 1 }}</span>
           <span class="line-text" :class="logLevelClass(line)">{{ line }}</span>
         </div>
-        <div v-if="logs.length === 0" class="log-empty">暂无日志</div>
+        <div v-if="logs !== null && logs.length === 0" class="log-empty">暂无日志</div>
+        <div v-else-if="logs === null" class="log-empty">日志数据待确认，请稍后重试。</div>
       </div>
     </n-card>
   </div>
@@ -39,7 +44,8 @@ import { Search } from 'lucide-vue-next'
 import request from '@/api/request'
 
 const message = useMessage()
-const logs = ref<string[]>([])
+const loadingLogs = ref(true)
+const logs = ref<string[] | null>(null)
 const search = ref('')
 const lineCount = ref(100)
 const autoRefresh = ref(false)
@@ -66,6 +72,7 @@ const logLevelClass = (line: string) => {
 async function loadLogs() {
   if (inFlight) return
   inFlight = true
+  loadingLogs.value = true
   try {
     const params: Record<string, any> = { lines: lineCount.value }
     if (search.value) params.search = search.value
@@ -79,13 +86,14 @@ async function loadLogs() {
       }
     }, 50)
   } catch (err: any) {
-    logs.value = ['无法加载日志']
+    logs.value = null
     if (!errorNotified) {
       message.error(err.message || '日志加载失败')
       errorNotified = true
     }
   } finally {
     inFlight = false
+    loadingLogs.value = false
   }
 }
 
@@ -118,6 +126,7 @@ watch(() => autoRefresh.value, (val) => {
 .glass-card { background: rgba(15,23,42,0.4) !important; backdrop-filter: blur(16px); border: 1px solid rgba(255,255,255,0.08) !important; border-radius: 16px !important; }
 .toolbar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
 .s-icon { width: 16px; height: 16px; color: #9ca3af; }
+.loading-box { display: flex; justify-content: center; padding: 24px 0; }
 
 .log-container {
   height: 500px;

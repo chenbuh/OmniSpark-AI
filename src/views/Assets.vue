@@ -56,7 +56,11 @@
       </n-tabs>
     </n-card>
 
-    <div v-if="assetRecords.length > 0" class="assets-grid">
+    <div v-if="loading && assetRecords === null" class="loading-box">
+      <n-spin size="small" />
+    </div>
+
+    <div v-else-if="assetRecords && assetRecords.length > 0" class="assets-grid">
       <div v-for="asset in assetRecords" :key="asset.id" class="asset-card" @click="handleOpenDetail(asset)">
         <div class="media-container">
           <video
@@ -118,7 +122,7 @@
       </div>
     </div>
 
-    <div v-else class="empty-box glass-card">
+    <div v-else-if="assetRecords !== null" class="empty-box glass-card">
       <Library class="empty-icon" />
       <h3>当前筛选下暂无资产</h3>
       <p>可以先上传参考素材，或回到生图、生视频工作台生成新的内容资产。</p>
@@ -130,12 +134,17 @@
         <n-button secondary @click="resetFilters">重置筛选</n-button>
       </n-space>
     </div>
+    <div v-else class="empty-box glass-card">
+      <Library class="empty-icon" />
+      <h3>资产数据待确认</h3>
+      <p>当前无法确认资产列表，请稍后重试。</p>
+    </div>
 
-    <div class="pager" v-if="filteredTotal > 0">
+    <div class="pager" v-if="(filteredTotal ?? 0) > 0">
       <n-pagination
         v-model:page="page"
         :page-size="pageSize"
-        :item-count="filteredTotal"
+        :item-count="filteredTotal || 0"
         show-size-picker
         :page-sizes="pageSizeOptions"
         @update:page-size="handlePageSizeChange"
@@ -221,10 +230,10 @@
             </div>
           </div>
 
-          <div v-if="versionHistory.length > 1" class="detail-section">
-            <h4 class="section-title">版本历史 ({{ versionHistory.length }})</h4>
+          <div v-if="versionHistory === null || versionHistory.length > 1" class="detail-section">
+            <h4 class="section-title">版本历史 ({{ versionHistory?.length ?? '-' }})</h4>
             <p class="version-subtitle">同一提示词与模型下的其他输出版本</p>
-            <div class="version-grid">
+            <div v-if="versionHistory && versionHistory.length > 1" class="version-grid">
               <div
                 v-for="version in versionHistory"
                 :key="version.id"
@@ -247,6 +256,7 @@
                 </div>
               </div>
             </div>
+            <n-empty v-else description="版本历史待确认，请稍后重试。" style="padding: 12px 0;" />
           </div>
 
           <div v-if="selectedAsset.assetType === 'video'" class="detail-section">
@@ -279,7 +289,8 @@
                 </div>
               </div>
             </div>
-            <n-empty v-else description="暂无字幕" style="padding: 12px 0;" />
+            <n-empty v-else-if="subtitles !== null" description="暂无字幕" style="padding: 12px 0;" />
+            <n-empty v-else description="字幕数据待确认，请稍后重试。" style="padding: 12px 0;" />
 
             <n-space style="margin-top: 8px;">
               <n-button size="small" type="primary" secondary :loading="subGenerating" @click="handleGenerateSubtitle">
@@ -313,7 +324,7 @@
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useMessage } from 'naive-ui'
-import { assetApi, type AssetStats } from '@/api/assets'
+import { assetApi } from '@/api/assets'
 import { dictApi, type DataDictItem } from '@/api/dicts'
 import { subtitleApi, type SubtitleVO } from '@/api/subtitles'
 import { useAssetStore, type Asset, resolveAssetUrl } from '@/store/asset'
@@ -339,6 +350,13 @@ import {
 } from 'lucide-vue-next'
 
 type SortKey = 'latest' | 'oldest' | 'size' | 'name' | 'favorite'
+type AssetStatsState = {
+  total: number | null
+  imageCount: number | null
+  videoCount: number | null
+  referenceCount: number | null
+  favoriteCount: number | null
+}
 
 const route = useRoute()
 const router = useRouter()
@@ -360,19 +378,19 @@ let refreshTimer: number | null = null
 let searchTimer: number | null = null
 let latestLoadToken = 0
 
-const assetStats = ref<AssetStats>({
-  total: 0,
-  imageCount: 0,
-  videoCount: 0,
-  referenceCount: 0,
-  favoriteCount: 0
+const assetStats = ref<AssetStatsState>({
+  total: null,
+  imageCount: null,
+  videoCount: null,
+  referenceCount: null,
+  favoriteCount: null
 })
-const assetRecords = ref<Asset[]>([])
-const filteredTotal = ref(0)
-const versionHistory = ref<Asset[]>([])
+const assetRecords = ref<Asset[] | null>(null)
+const filteredTotal = ref<number | null>(null)
+const versionHistory = ref<Asset[] | null>(null)
 const assetTypeItems = ref<DataDictItem[]>([])
 
-const subtitles = ref<SubtitleVO[]>([])
+const subtitles = ref<SubtitleVO[] | null>(null)
 const subGenerating = ref(false)
 const voiceLoading = ref(false)
 const showSubEditor = ref(false)
@@ -396,10 +414,10 @@ const currentProjectName = computed(() => {
 
 const summaryCards = computed(() => {
   return [
-    { label: '总资产数', value: assetStats.value.total, hint: '当前空间的全部素材沉淀' },
-    { label: `${assetTypeLabel('image')}成果`, value: assetStats.value.imageCount, hint: `已沉淀 ${assetTypeLabel('image')}类资产` },
-    { label: `${assetTypeLabel('video')}成果`, value: assetStats.value.videoCount, hint: `可复用的${assetTypeLabel('video')}内容` },
-    { label: assetTypeLabel('reference'), value: assetStats.value.referenceCount, hint: `其中收藏 ${assetStats.value.favoriteCount} 项` }
+    { label: '总资产数', value: formatSummaryValue(assetStats.value.total), hint: '当前空间的全部素材沉淀' },
+    { label: `${assetTypeLabel('image')}成果`, value: formatSummaryValue(assetStats.value.imageCount), hint: `已沉淀 ${assetTypeLabel('image')}类资产` },
+    { label: `${assetTypeLabel('video')}成果`, value: formatSummaryValue(assetStats.value.videoCount), hint: `可复用的${assetTypeLabel('video')}内容` },
+    { label: assetTypeLabel('reference'), value: formatSummaryValue(assetStats.value.referenceCount), hint: `其中收藏 ${formatSummaryValue(assetStats.value.favoriteCount)} 项` }
   ]
 })
 
@@ -412,7 +430,7 @@ const assetTypeTabs = computed(() => {
 
 const libraryMetaDesc = computed(() => {
   const suffix = assetTab.value === 'shared' ? '（来自已共享项目）' : '（当前可访问范围）'
-  return `当前匹配 ${filteredTotal.value} / ${assetStats.value.total} 个资产${suffix}`
+  return `当前匹配 ${formatSummaryValue(filteredTotal.value)} / ${formatSummaryValue(assetStats.value.total)} 个资产${suffix}`
 })
 
 const page = ref(1)
@@ -424,11 +442,15 @@ function handlePageSizeChange(size: number) {
 }
 
 const subtitleRows = computed(() => {
-  return subtitles.value.map(item => ({
+  return (subtitles.value || []).map(item => ({
     ...item,
     voiceUrl: resolveAssetUrl(item.voiceUrl)
   }))
 })
+
+function formatSummaryValue(value: number | null) {
+  return value == null ? '-' : value
+}
 
 const currentAssetType = computed(() => {
   return activeTab.value === 'all' || activeTab.value === 'favorite' ? undefined : activeTab.value
@@ -493,16 +515,25 @@ async function loadAssets() {
       return
     }
     assetRecords.value = (pageRes.data?.records || []).map(item => assetStore.normalizeAsset(item))
-    filteredTotal.value = Number(pageRes.data?.total || 0)
+    filteredTotal.value = typeof pageRes.data?.total === 'number' ? pageRes.data.total : 0
     assetStats.value = {
-      total: Number(statsRes.data?.total || 0),
-      imageCount: Number(statsRes.data?.imageCount || 0),
-      videoCount: Number(statsRes.data?.videoCount || 0),
-      referenceCount: Number(statsRes.data?.referenceCount || 0),
-      favoriteCount: Number(statsRes.data?.favoriteCount || 0)
+      total: typeof statsRes.data?.total === 'number' ? statsRes.data.total : 0,
+      imageCount: typeof statsRes.data?.imageCount === 'number' ? statsRes.data.imageCount : 0,
+      videoCount: typeof statsRes.data?.videoCount === 'number' ? statsRes.data.videoCount : 0,
+      referenceCount: typeof statsRes.data?.referenceCount === 'number' ? statsRes.data.referenceCount : 0,
+      favoriteCount: typeof statsRes.data?.favoriteCount === 'number' ? statsRes.data.favoriteCount : 0
     }
     openAssetFromRoute()
   } catch (err: any) {
+    assetRecords.value = null
+    filteredTotal.value = null
+    assetStats.value = {
+      total: null,
+      imageCount: null,
+      videoCount: null,
+      referenceCount: null,
+      favoriteCount: null
+    }
     message.error(err.message || '资产加载失败')
   } finally {
     if (loadToken === latestLoadToken) {
@@ -515,7 +546,7 @@ async function openAssetFromRoute() {
   const assetId = Number(route.query.assetId)
   if (!assetId) return
   if (selectedAsset.value?.id === assetId) return
-  const asset = assetRecords.value.find(item => item.id === assetId)
+  const asset = assetRecords.value?.find(item => item.id === assetId)
   if (asset) {
     handleOpenDetail(asset)
     return
@@ -535,7 +566,7 @@ async function loadVersionHistory() {
     const res = await assetApi.getVersions(selectedAsset.value.id, 12)
     versionHistory.value = (res.data || []).map(item => assetStore.normalizeAsset(item))
   } catch {
-    versionHistory.value = []
+    versionHistory.value = null
   }
 }
 
@@ -571,7 +602,7 @@ async function handleUploadChange(event: Event) {
     activeTab.value = 'reference'
     page.value = 1
     await loadAssets()
-    handleOpenDetail(assetRecords.value.find(item => item.id === uploaded.id) || uploaded)
+    handleOpenDetail(assetRecords.value?.find(item => item.id === uploaded.id) || uploaded)
     message.success(`素材已上传到共享资产库: ${file.name}`)
   } catch (err: any) {
     message.error(err.message || '上传失败')
@@ -589,7 +620,7 @@ function handleOpenDetail(asset: Asset) {
 async function handleToggleFavorite(asset: Asset) {
   try {
     const updated = await assetStore.toggleFavorite(asset.id)
-    assetRecords.value = assetRecords.value.map(item => item.id === asset.id ? updated : item)
+    assetRecords.value = assetRecords.value?.map(item => item.id === asset.id ? updated : item) || []
     if (selectedAsset.value?.id === asset.id) {
       selectedAsset.value = updated
     }
@@ -686,7 +717,7 @@ async function loadSubtitles() {
     const res = await subtitleApi.list(selectedAsset.value.id)
     subtitles.value = (res.data || []) as SubtitleVO[]
   } catch {
-    subtitles.value = []
+    subtitles.value = null
   }
 }
 
@@ -745,7 +776,7 @@ async function handleGenerateVoice(id: number) {
 async function handleDeleteSubtitle(id: number) {
   try {
     await subtitleApi.delete(id)
-    subtitles.value = subtitles.value.filter(item => item.id !== id)
+    subtitles.value = subtitles.value?.filter(item => item.id !== id) || []
     message.success('字幕已删除')
   } catch (err: any) {
     message.error(err.message || '删除失败')
@@ -757,8 +788,8 @@ async function handleDeleteAsset() {
   try {
     const id = selectedAsset.value.id
     await assetStore.deleteAsset(id)
-    const shouldFallbackToPrevPage = page.value > 1 && assetRecords.value.length === 1
-    assetRecords.value = assetRecords.value.filter(item => item.id !== id)
+    const shouldFallbackToPrevPage = page.value > 1 && (assetRecords.value?.length || 0) === 1
+    assetRecords.value = assetRecords.value?.filter(item => item.id !== id) || []
     subtitles.value = []
     versionHistory.value = []
     showDetailDrawer.value = false
@@ -947,6 +978,12 @@ onUnmounted(() => {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
   gap: 18px;
+}
+
+.loading-box {
+  display: flex;
+  justify-content: center;
+  padding: 48px 0;
 }
 
 .pager { display: flex; justify-content: flex-end; margin-top: 20px; }

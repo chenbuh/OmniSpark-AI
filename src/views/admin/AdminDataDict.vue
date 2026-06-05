@@ -11,20 +11,21 @@
         <n-card class="glass-card" :bordered="false">
           <template #header>
             <div class="card-header">
-              <span>字典列表 ({{ dicts.length }})</span>
+              <span>字典列表 ({{ dictCountDisplay }})</span>
               <n-button size="tiny" primary @click="showDictEditor = true; editingDict = null; Object.assign(dictForm, { code: '', name: '', description: '' })">
                 <template #icon><Plus /></template>
               </n-button>
             </div>
           </template>
-          <div v-for="d in dicts" :key="d.id" class="dict-item" :class="{ active: activeDict?.id === d.id }" @click="selectDict(d)">
+          <div v-for="d in dicts || []" :key="d.id" class="dict-item" :class="{ active: activeDict?.id === d.id }" @click="selectDict(d)">
             <div class="dict-info">
               <span class="dict-name">{{ d.dictName }}</span>
               <span class="dict-code"><code>{{ d.dictCode }}</code></span>
             </div>
             <n-button size="tiny" text type="error" @click.stop="handleDeleteDict(d.id)">×</n-button>
           </div>
-          <n-empty v-if="dicts.length === 0" description="暂无字典" style="padding:20px" />
+          <n-empty v-if="dicts !== null && dicts.length === 0" description="暂无字典" style="padding:20px" />
+          <n-empty v-else-if="dicts === null" description="字典数据待确认，请稍后重试。" style="padding:20px" />
         </n-card>
       </n-col>
 
@@ -33,7 +34,7 @@
         <n-card class="glass-card" :bordered="false" v-if="activeDict">
           <template #header>
             <div class="card-header">
-              <span>{{ activeDict.dictName }} — 条目 ({{ items.length }})</span>
+              <span>{{ activeDict.dictName }} — 条目 ({{ itemCountDisplay }})</span>
               <n-space>
                 <n-button size="tiny" @click="showDictEditor = true; editingDict = activeDict.id; Object.assign(dictForm, { code: activeDict.dictCode, name: activeDict.dictName, description: activeDict.description || '' })">编辑字典</n-button>
                 <n-button size="tiny" primary @click="showItemEditor = true; editingItem = null; Object.assign(itemForm, { code: '', name: '', sortOrder: 0 })">添加条目</n-button>
@@ -46,7 +47,7 @@
               <tr><th style="width:80px">排序</th><th>编码</th><th>名称</th><th style="width:80px">状态</th><th style="width:140px">操作</th></tr>
             </thead>
             <tbody>
-              <tr v-for="item in items" :key="item.id">
+              <tr v-for="item in items || []" :key="item.id">
                 <td>{{ item.sortOrder }}</td>
                 <td><code>{{ item.itemCode }}</code></td>
                 <td>{{ item.itemName }}</td>
@@ -60,6 +61,12 @@
                     <n-button size="tiny" type="error" tertiary @click="handleDeleteItem(item.id)">删除</n-button>
                   </n-space>
                 </td>
+              </tr>
+              <tr v-if="items !== null && items.length === 0">
+                <td colspan="5" class="empty-cell">当前字典暂无条目</td>
+              </tr>
+              <tr v-else-if="items === null">
+                <td colspan="5" class="empty-cell">字典条目待确认，请稍后重试。</td>
               </tr>
             </tbody>
           </n-table>
@@ -103,35 +110,46 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, onMounted } from 'vue'
+import { computed, ref, reactive, onMounted } from 'vue'
 import { useMessage } from 'naive-ui'
 import { Plus } from 'lucide-vue-next'
 import request from '@/api/request'
 
 const message = useMessage()
-const dicts = ref<any[]>([])
+const dicts = ref<any[] | null>(null)
 const activeDict = ref<any>(null)
-const items = ref<any[]>([])
+const items = ref<any[] | null>(null)
 const showDictEditor = ref(false)
 const editingDict = ref<any>(null)
 const dictForm = reactive({ code: '', name: '', description: '' })
 const showItemEditor = ref(false)
 const editingItem = ref<any>(null)
 const itemForm = reactive({ code: '', name: '', sortOrder: 0 })
+const dictCountDisplay = computed(() => dicts.value === null ? '-' : dicts.value.length)
+const itemCountDisplay = computed(() => items.value === null ? '-' : items.value.length)
 
 onMounted(loadDicts)
 
 async function loadDicts() {
-  try { const res = await request.get('/api/admin/dict'); dicts.value = (res as any).data || [] }
-  catch (err: any) { message.error(err.message || '加载数据字典失败') }
+  try {
+    const res = await request.get('/api/admin/dict')
+    dicts.value = (res as any).data || []
+  } catch (err: any) {
+    dicts.value = null
+    message.error(err.message || '加载数据字典失败')
+  }
 }
 
 async function selectDict(d: any) {
   activeDict.value = d
+  items.value = null
   try {
     const res = await request.get(`/api/admin/dict/${d.id}/items`)
     items.value = (res as any).data || []
-  } catch (err: any) { items.value = []; message.error(err.message || '加载字典项失败') }
+  } catch (err: any) {
+    items.value = null
+    message.error(err.message || '加载字典项失败')
+  }
 }
 
 async function handleSaveDict() {
@@ -147,7 +165,15 @@ async function handleSaveDict() {
 }
 
 async function handleDeleteDict(id: number) {
-  try { await request.delete(`/api/admin/dict/${id}`); dicts.value = dicts.value.filter(d => d.id !== id); if (activeDict.value?.id === id) activeDict.value = null; message.success('已删除') }
+  try {
+    await request.delete(`/api/admin/dict/${id}`)
+    dicts.value = dicts.value?.filter(d => d.id !== id) || []
+    if (activeDict.value?.id === id) {
+      activeDict.value = null
+      items.value = []
+    }
+    message.success('已删除')
+  }
   catch { message.error('删除失败') }
 }
 
@@ -181,7 +207,11 @@ function normalizeBinaryStatus(value: unknown): boolean | null {
 }
 
 async function handleDeleteItem(id: number) {
-  try { await request.delete(`/api/admin/dict/items/${id}`); items.value = items.value.filter(i => i.id !== id); message.success('已删除') }
+  try {
+    await request.delete(`/api/admin/dict/items/${id}`)
+    items.value = items.value?.filter(i => i.id !== id) || []
+    message.success('已删除')
+  }
   catch { message.error('删除失败') }
 }
 </script>
@@ -202,4 +232,5 @@ async function handleDeleteItem(id: number) {
 .dict-table { background: transparent !important; }
 .dict-table th { background: rgba(255,255,255,0.02) !important; color: #9ca3af !important; font-size: 12px; }
 .dict-table td { color: #e5e7eb; padding: 6px 8px; font-size: 13px; }
+.empty-cell { text-align: center; padding: 24px !important; color: #9ca3af; }
 </style>
