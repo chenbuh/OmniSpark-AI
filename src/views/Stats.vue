@@ -108,17 +108,17 @@
                 transform="rotate(-90 110 110)"
                 stroke-linecap="round"
               />
-              <text x="110" y="104" class="donut-total" text-anchor="middle">{{ overview.taskCount }}</text>
+              <text x="110" y="104" class="donut-total" text-anchor="middle">{{ formatOptionalNumber(overview.taskCount) }}</text>
               <text x="110" y="126" class="donut-label" text-anchor="middle">任务总数</text>
             </svg>
             <div class="legend-col">
               <div class="legend-item">
                 <span class="legend-dot green"></span>
-                <span>图像任务 {{ imageTaskPercent.toFixed(0) }}%</span>
+                <span>图像任务 {{ formatOptionalPercent(imageTaskPercent, 0) }}</span>
               </div>
               <div class="legend-item">
                 <span class="legend-dot amber"></span>
-                <span>视频任务 {{ videoTaskPercent.toFixed(0) }}%</span>
+                <span>视频任务 {{ formatOptionalPercent(videoTaskPercent, 0) }}</span>
               </div>
             </div>
           </div>
@@ -135,9 +135,10 @@
             <div v-for="item in statusCards" :key="item.key" class="status-row">
               <div class="status-meta">
                 <span class="status-name">{{ item.label }}</span>
-                <span class="status-value">{{ item.value }}</span>
+                <span class="status-value">{{ formatOptionalNumber(item.value) }}</span>
               </div>
               <n-progress
+                v-if="item.percent !== null"
                 type="line"
                 :percentage="item.percent"
                 :show-indicator="false"
@@ -145,6 +146,7 @@
                 :color="item.color"
                 rail-color="rgba(255,255,255,0.06)"
               />
+              <span v-else class="pending-text">数据待确认</span>
             </div>
           </div>
         </n-card>
@@ -161,10 +163,10 @@
             </div>
           </template>
           <div v-if="projectRankings.length > 0" class="project-ranking-list">
-            <div v-for="item in projectRankings" :key="item.projectId" class="project-ranking-item">
+            <div v-for="item in projectRankings" :key="item.projectId ?? item.name" class="project-ranking-item">
               <div class="project-row-top">
                 <div class="project-title">
-                  <span class="rank-badge">{{ item.rank }}</span>
+                  <span class="rank-badge">{{ formatOptionalNumber(item.rank) }}</span>
                   <div>
                     <strong>{{ item.name }}</strong>
                     <small>{{ item.description || '暂无项目描述' }}</small>
@@ -173,19 +175,21 @@
                 <span class="project-last-active">{{ formatDateTime(item.lastActiveAt) }}</span>
               </div>
               <div class="project-metrics">
-                <span>任务 {{ item.taskCount }}</span>
-                <span>成功率 {{ item.successRate.toFixed(0) }}%</span>
-                <span>资产 {{ item.assetCount }}</span>
-                <span>额度 {{ item.quotaUsed }}</span>
+                <span>任务 {{ formatOptionalNumber(item.taskCount) }}</span>
+                <span>成功率 {{ formatOptionalPercent(item.successRate, 0) }}</span>
+                <span>资产 {{ formatOptionalNumber(item.assetCount) }}</span>
+                <span>额度 {{ formatOptionalNumber(item.quotaUsed) }}</span>
               </div>
               <n-progress
+                v-if="toOptionalNumber(item.weightPercent) !== null"
                 type="line"
-                :percentage="item.weightPercent"
+                :percentage="toOptionalNumber(item.weightPercent) || 0"
                 :show-indicator="false"
                 :height="8"
                 :color="item.rank === 1 ? '#10b981' : item.rank === 2 ? '#3b82f6' : '#f59e0b'"
                 rail-color="rgba(255,255,255,0.05)"
               />
+              <span v-else class="pending-text">权重数据待确认</span>
             </div>
           </div>
           <n-empty v-else description="暂无项目数据" style="padding: 20px 0;" />
@@ -267,7 +271,7 @@ const scopeDetailLabel = computed(() => {
     return currentProjectName.value
   }
   if (scopeMode.value === 'current') {
-    return '全部项目'
+    return '当前项目'
   }
   return '全部项目'
 })
@@ -278,51 +282,67 @@ const trends = computed<StatsTrendPoint[]>(() => dashboard.value.trends || [])
 const projectRankings = computed<StatsProjectRanking[]>(() => dashboard.value.projectRankings || [])
 const recentActivities = computed<StatsActivity[]>(() => dashboard.value.recentActivities || [])
 
-const failedTaskCount = computed(() => distribution.value.failedTaskCount || 0)
+const failedTaskCount = computed(() => toOptionalNumber(distribution.value.failedTaskCount))
 const successRate = computed(() => {
-  const total = overview.value.taskCount || 0
-  return total > 0 ? ((distribution.value.successTaskCount || 0) / total) * 100 : 0
+  const total = toOptionalNumber(overview.value.taskCount)
+  const success = toOptionalNumber(distribution.value.successTaskCount)
+  if (total === null || success === null) return null
+  return total > 0 ? (success / total) * 100 : 0
 })
 const imageTaskPercent = computed(() => {
-  const total = overview.value.taskCount || 0
-  return total > 0 ? ((distribution.value.imageTaskCount || 0) / total) * 100 : 0
+  const total = toOptionalNumber(overview.value.taskCount)
+  const image = toOptionalNumber(distribution.value.imageTaskCount)
+  if (total === null || image === null) return null
+  return total > 0 ? (image / total) * 100 : 0
 })
 const videoTaskPercent = computed(() => {
-  const total = overview.value.taskCount || 0
-  return total > 0 ? ((distribution.value.videoTaskCount || 0) / total) * 100 : 0
+  const total = toOptionalNumber(overview.value.taskCount)
+  const video = toOptionalNumber(distribution.value.videoTaskCount)
+  if (total === null || video === null) return null
+  return total > 0 ? (video / total) * 100 : 0
 })
 const quotaPercent = computed(() => {
-  const limit = overview.value.quotaLimit || 0
-  return limit > 0 ? (overview.value.quotaUsed / limit) * 100 : 0
+  const limit = toOptionalNumber(overview.value.quotaLimit)
+  const used = toOptionalNumber(overview.value.quotaUsed)
+  if (limit === null || used === null) return null
+  return limit > 0 ? (used / limit) * 100 : 0
 })
 
 const summaryCards = computed(() => [
   {
     key: 'tasks',
     label: '任务总量',
-    value: `${overview.value.taskCount}`,
-    hint: `${scopeDetailLabel.value}内共发起 ${overview.value.taskCount} 次生成`,
+    value: formatOptionalNumber(overview.value.taskCount),
+    hint: toOptionalNumber(overview.value.taskCount) === null
+      ? `${scopeDetailLabel.value}内的任务总量待确认`
+      : `${scopeDetailLabel.value}内共发起 ${overview.value.taskCount} 次生成`,
     color: 'green'
   },
   {
     key: 'success-rate',
     label: '成功率',
-    value: `${successRate.value.toFixed(1)}%`,
-    hint: `${distribution.value.successTaskCount} 成功 / ${failedTaskCount.value} 失败`,
+    value: formatOptionalPercent(successRate.value, 1),
+    hint: toOptionalNumber(distribution.value.successTaskCount) === null || failedTaskCount.value === null
+      ? '任务成功/失败数据待确认'
+      : `${distribution.value.successTaskCount} 成功 / ${failedTaskCount.value} 失败`,
     color: 'blue'
   },
   {
     key: 'assets',
     label: '资产沉淀',
-    value: `${overview.value.assetCount}`,
-    hint: `其中收藏 ${overview.value.favoriteAssetCount} 项`,
+    value: formatOptionalNumber(overview.value.assetCount),
+    hint: toOptionalNumber(overview.value.favoriteAssetCount) === null
+      ? '收藏资产数量待确认'
+      : `其中收藏 ${overview.value.favoriteAssetCount} 项`,
     color: 'purple'
   },
   {
     key: 'quota',
     label: '额度使用率',
-    value: `${quotaPercent.value.toFixed(1)}%`,
-    hint: `已消耗 ${overview.value.quotaUsed} / ${overview.value.quotaLimit}`,
+    value: formatOptionalPercent(quotaPercent.value, 1),
+    hint: toOptionalNumber(overview.value.quotaUsed) === null || toOptionalNumber(overview.value.quotaLimit) === null
+      ? '额度消耗数据待确认'
+      : `已消耗 ${overview.value.quotaUsed} / ${overview.value.quotaLimit}`,
     color: 'amber'
   }
 ])
@@ -334,20 +354,35 @@ const trendDays = computed(() => {
     key: `${item.date}-${index}`,
     label: item.date,
     x: 80 + index * step,
-    taskCount: item.taskCount || 0,
-    quotaUsed: item.quotaUsed || 0
+    taskCount: toOptionalNumber(item.taskCount),
+    quotaUsed: toOptionalNumber(item.quotaUsed)
   }))
 })
 
-const maxTaskDaily = computed(() => Math.max(1, ...trendDays.value.map(item => item.taskCount)))
-const maxQuotaDaily = computed(() => Math.max(1, ...trendDays.value.map(item => item.quotaUsed)))
+const maxTaskDaily = computed(() => {
+  const values = trendDays.value
+    .map(item => item.taskCount)
+    .filter((value): value is number => value !== null)
+  return values.length > 0 ? Math.max(1, ...values) : 1
+})
+const maxQuotaDaily = computed(() => {
+  const values = trendDays.value
+    .map(item => item.quotaUsed)
+    .filter((value): value is number => value !== null)
+  return values.length > 0 ? Math.max(1, ...values) : 1
+})
 
 const taskTrendPoints = computed(() => {
-  return trendDays.value.map((item, index) => ({
-    key: `task-${index}`,
-    x: item.x,
-    y: 220 - (item.taskCount / maxTaskDaily.value) * 150
-  }))
+  return trendDays.value
+    .map((item, index) => {
+      if (item.taskCount === null) return null
+      return {
+        key: `task-${index}`,
+        x: item.x,
+        y: 220 - (item.taskCount / maxTaskDaily.value) * 150
+      }
+    })
+    .filter((item): item is { key: string, x: number, y: number } => item !== null)
 })
 
 const taskTrendPath = computed(() => {
@@ -365,15 +400,18 @@ const taskTrendAreaPath = computed(() => {
 })
 
 const quotaBars = computed(() => {
-  return trendDays.value.map((item, index) => {
-    const height = (item.quotaUsed / maxQuotaDaily.value) * 120
-    return {
-      key: `quota-${index}`,
-      x: item.x,
-      y: 220 - height,
-      height
-    }
-  })
+  return trendDays.value
+    .map((item, index) => {
+      if (item.quotaUsed === null) return null
+      const height = (item.quotaUsed / maxQuotaDaily.value) * 120
+      return {
+        key: `quota-${index}`,
+        x: item.x,
+        y: 220 - height,
+        height
+      }
+    })
+    .filter((item): item is { key: string, x: number, y: number, height: number } => item !== null)
 })
 
 const trendGridLines = computed(() => [0, 1, 2, 3].map(item => ({ key: `grid-${item}`, y: 70 + item * 50 })))
@@ -385,33 +423,36 @@ const yAxisTicks = computed(() => [
 ])
 
 const typeCircumference = 2 * Math.PI * 64
-const typeImageLength = computed(() => (typeCircumference * imageTaskPercent.value) / 100)
-const typeVideoLength = computed(() => (typeCircumference * videoTaskPercent.value) / 100)
+const typeImageLength = computed(() => (typeCircumference * (imageTaskPercent.value ?? 0)) / 100)
+const typeVideoLength = computed(() => (typeCircumference * (videoTaskPercent.value ?? 0)) / 100)
 const typeImageDash = computed(() => `${typeImageLength.value} ${typeCircumference - typeImageLength.value}`)
 const typeVideoDash = computed(() => `${typeVideoLength.value} ${typeCircumference - typeVideoLength.value}`)
 
 const statusCards = computed(() => {
-  const total = Math.max(overview.value.taskCount, 1)
+  const total = toOptionalNumber(overview.value.taskCount)
+  const success = toOptionalNumber(distribution.value.successTaskCount)
+  const running = toOptionalNumber(distribution.value.runningTaskCount)
+  const failed = toOptionalNumber(distribution.value.failedTaskCount)
   return [
     {
       key: 'success',
       label: '成功',
-      value: distribution.value.successTaskCount,
-      percent: (distribution.value.successTaskCount / total) * 100,
+      value: success,
+      percent: total === null || success === null ? null : (total > 0 ? (success / Math.max(total, 1)) * 100 : 0),
       color: '#10b981'
     },
     {
       key: 'running',
       label: '进行中',
-      value: distribution.value.runningTaskCount,
-      percent: (distribution.value.runningTaskCount / total) * 100,
+      value: running,
+      percent: total === null || running === null ? null : (total > 0 ? (running / Math.max(total, 1)) * 100 : 0),
       color: '#3b82f6'
     },
     {
       key: 'failed',
       label: '失败',
-      value: distribution.value.failedTaskCount,
-      percent: (distribution.value.failedTaskCount / total) * 100,
+      value: failed,
+      percent: total === null || failed === null ? null : (total > 0 ? (failed / Math.max(total, 1)) * 100 : 0),
       color: '#ef4444'
     }
   ]
@@ -421,19 +462,19 @@ function createEmptyDashboard(): StatsDashboard {
   return {
     overview: {
       projectCount: 0,
-      taskCount: 0,
-      successTaskCount: 0,
-      assetCount: 0,
-      favoriteAssetCount: 0,
-      quotaUsed: 0,
-      quotaLimit: 100
+      taskCount: null,
+      successTaskCount: null,
+      assetCount: null,
+      favoriteAssetCount: null,
+      quotaUsed: null,
+      quotaLimit: null
     },
     distribution: {
-      imageTaskCount: 0,
-      videoTaskCount: 0,
-      successTaskCount: 0,
-      runningTaskCount: 0,
-      failedTaskCount: 0
+      imageTaskCount: null,
+      videoTaskCount: null,
+      successTaskCount: null,
+      runningTaskCount: null,
+      failedTaskCount: null
     },
     trends: [],
     projectRankings: [],
@@ -443,6 +484,23 @@ function createEmptyDashboard(): StatsDashboard {
 
 function normalizeDateTime(value?: string) {
   return String(value || '').replace('T', ' ').substring(0, 19)
+}
+
+function toOptionalNumber(value: unknown): number | null {
+  if (value === null || value === undefined || value === '') {
+    return null
+  }
+  const num = Number(value)
+  return Number.isFinite(num) ? num : null
+}
+
+function formatOptionalNumber(value: unknown) {
+  const num = toOptionalNumber(value)
+  return num === null ? '-' : `${num}`
+}
+
+function formatOptionalPercent(value?: number | null, digits = 1) {
+  return value == null ? '-' : `${value.toFixed(digits)}%`
 }
 
 function formatDateTime(value?: string) {
@@ -467,19 +525,19 @@ function normalizeDashboard(data?: Partial<StatsDashboard>): StatsDashboard {
     },
     trends: (data?.trends || []).map(item => ({
       date: item.date || '--',
-      taskCount: Number(item.taskCount || 0),
-      quotaUsed: Number(item.quotaUsed || 0)
+      taskCount: toOptionalNumber(item.taskCount),
+      quotaUsed: toOptionalNumber(item.quotaUsed)
     })),
     projectRankings: (data?.projectRankings || []).map(item => ({
       ...item,
-      rank: Number(item.rank || 0),
-      projectId: Number(item.projectId || 0),
-      taskCount: Number(item.taskCount || 0),
-      successTaskCount: Number(item.successTaskCount || 0),
-      successRate: Number(item.successRate || 0),
-      assetCount: Number(item.assetCount || 0),
-      quotaUsed: Number(item.quotaUsed || 0),
-      weightPercent: Number(item.weightPercent || 0),
+      rank: toOptionalNumber(item.rank),
+      projectId: toOptionalNumber(item.projectId),
+      taskCount: toOptionalNumber(item.taskCount),
+      successTaskCount: toOptionalNumber(item.successTaskCount),
+      successRate: toOptionalNumber(item.successRate),
+      assetCount: toOptionalNumber(item.assetCount),
+      quotaUsed: toOptionalNumber(item.quotaUsed),
+      weightPercent: toOptionalNumber(item.weightPercent),
       lastActiveAt: normalizeDateTime(item.lastActiveAt)
     })),
     recentActivities: (data?.recentActivities || []).map(item => ({

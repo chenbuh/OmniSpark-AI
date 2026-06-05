@@ -180,12 +180,16 @@ async function loadComments() {
   }
 }
 
+function rawAuthorName(comment: PublicComment) {
+  return comment.nickname?.trim() || comment.username?.trim() || ''
+}
+
 function authorName(comment: PublicComment) {
-  return comment.nickname || comment.username || '匿名用户'
+  return rawAuthorName(comment) || '未知作者'
 }
 
 function authorInitial(comment: PublicComment) {
-  return authorName(comment).slice(0, 1).toUpperCase()
+  return rawAuthorName(comment).slice(0, 1).toUpperCase() || '?'
 }
 
 function formatTime(value?: string) {
@@ -202,10 +206,11 @@ function canDelete(comment: PublicComment) {
 }
 
 function startReply(comment: PublicComment) {
+  const rawName = rawAuthorName(comment)
   activeReplyRootId.value = comment.parentId || comment.id
   replyTargetId.value = comment.id
   replyTargetLabel.value = authorName(comment)
-  replyDraft.value = `@${authorName(comment)} `
+  replyDraft.value = rawName ? `@${rawName} ` : ''
 }
 
 function cancelReply() {

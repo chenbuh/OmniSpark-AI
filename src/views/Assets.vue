@@ -450,7 +450,7 @@ function formatCompactDate(value: string) {
 function assetTypeLabel(assetType?: string | null) {
   const normalized = String(assetType || '').trim()
   if (!normalized) {
-    return '未分类'
+    return '未提供分类'
   }
   return assetTypeItems.value.find(item => item.itemCode === normalized)?.itemName || normalized
 }

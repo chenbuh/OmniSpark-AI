@@ -308,7 +308,7 @@ function canDelete(post: any) {
 }
 
 function authorLabel(post: any) {
-  return post?.nickname || post?.username || '匿名'
+  return post?.nickname?.trim() || post?.username?.trim() || '未知作者'
 }
 
 function formatInteractionCount(count: number | null | undefined) {

@@ -297,7 +297,7 @@ CREATE TABLE IF NOT EXISTS `community_post` (
   `negative_prompt` text DEFAULT NULL,
   `model_name` varchar(128) DEFAULT NULL,
   `image_url` varchar(1024) DEFAULT NULL,
-  `category` varchar(64) DEFAULT 'uncategorized',
+  `category` varchar(64) DEFAULT NULL,
   `tags` varchar(512) DEFAULT NULL,
   `likes_count` int NOT NULL DEFAULT 0,
   `comments_count` int NOT NULL DEFAULT 0,

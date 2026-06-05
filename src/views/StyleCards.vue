@@ -375,11 +375,11 @@ watch([page, pageSize], () => {
 })
 
 function authorName(card: StyleCard) {
-  return card.nickname || card.username || '匿名用户'
+  return card.nickname?.trim() || card.username?.trim() || '未知作者'
 }
 
 function authorInitial(card: StyleCard) {
-  return authorName(card).slice(0, 1).toUpperCase()
+  return (card.nickname?.trim() || card.username?.trim() || '').slice(0, 1).toUpperCase() || '?'
 }
 
 function formatTime(value?: string) {

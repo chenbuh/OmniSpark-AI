@@ -275,11 +275,11 @@ function handlePageSizeChange(size: number) {
 }
 
 function authorName(tpl: PromptTemplate) {
-  return tpl.nickname || tpl.username || '匿名用户'
+  return tpl.nickname?.trim() || tpl.username?.trim() || '未知作者'
 }
 
 function authorInitial(tpl: PromptTemplate) {
-  return authorName(tpl).slice(0, 1).toUpperCase()
+  return (tpl.nickname?.trim() || tpl.username?.trim() || '').slice(0, 1).toUpperCase() || '?'
 }
 
 function formatTime(value?: string) {

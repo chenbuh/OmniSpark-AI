@@ -1,40 +1,40 @@
 import request from './request'
 
 export interface StatsOverview {
-  projectCount: number
-  taskCount: number
-  successTaskCount: number
-  assetCount: number
-  favoriteAssetCount: number
-  quotaUsed: number
-  quotaLimit: number
+  projectCount?: number | null
+  taskCount?: number | null
+  successTaskCount?: number | null
+  assetCount?: number | null
+  favoriteAssetCount?: number | null
+  quotaUsed?: number | null
+  quotaLimit?: number | null
 }
 
 export interface StatsDistribution {
-  imageTaskCount: number
-  videoTaskCount: number
-  successTaskCount: number
-  runningTaskCount: number
-  failedTaskCount: number
+  imageTaskCount?: number | null
+  videoTaskCount?: number | null
+  successTaskCount?: number | null
+  runningTaskCount?: number | null
+  failedTaskCount?: number | null
 }
 
 export interface StatsTrendPoint {
   date: string
-  taskCount: number
-  quotaUsed: number
+  taskCount?: number | null
+  quotaUsed?: number | null
 }
 
 export interface StatsProjectRanking {
-  rank: number
-  projectId: number
+  rank?: number | null
+  projectId?: number | null
   name: string
   description?: string
-  taskCount: number
-  successTaskCount: number
-  successRate: number
-  assetCount: number
-  quotaUsed: number
-  weightPercent: number
+  taskCount?: number | null
+  successTaskCount?: number | null
+  successRate?: number | null
+  assetCount?: number | null
+  quotaUsed?: number | null
+  weightPercent?: number | null
   lastActiveAt?: string
 }
 
