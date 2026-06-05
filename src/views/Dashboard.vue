@@ -11,6 +11,10 @@
       <template #header>公告待确认</template>
       当前无法确认系统公告，请稍后重试。
     </n-alert>
+    <n-alert v-if="metricsLoadState === 'error'" type="warning" closable class="dashboard-announcement" style="margin-bottom:16px;">
+      <template #header>首页统计待确认</template>
+      当前无法确认任务与资产统计，已保留页面访问，请稍后刷新。
+    </n-alert>
 
     <div class="welcome-header">
       <div class="welcome-copy">
@@ -234,6 +238,7 @@ const loading = ref(true)
 const announcement = ref<any>(null)
 const announcementLoadFailed = ref(false)
 const recommendedTemplates = ref<PromptTemplate[] | null>(null)
+const metricsLoadState = ref<'loading' | 'ready' | 'error'>('loading')
 let dashboardContext: gsap.Context | null = null
 let dashboardMatchMedia: gsap.MatchMedia | null = null
 
@@ -304,6 +309,57 @@ const taskStatusTagType = (status: string) => {
   if (status === 'running') return 'warning'
   if (status === 'failed') return 'error'
   return 'default'
+}
+
+async function loadDashboardData(options?: { loading?: boolean }) {
+  if (options?.loading) {
+    loading.value = true
+  }
+  const activeProjectId = projectStore.activeProjectId
+  if (!activeProjectId) {
+    metricsLoadState.value = 'ready'
+    recommendedTemplates.value = []
+    announcement.value = null
+    announcementLoadFailed.value = false
+    loading.value = false
+    return
+  }
+
+  const [tasksResult, assetsResult, tplResult, annResult] = await Promise.allSettled([
+    taskStore.refresh({ projectId: activeProjectId }),
+    assetStore.refresh({ projectId: activeProjectId }),
+    templateApi.getTemplates({ projectId: activeProjectId, sort: 'likes', page: 1, pageSize: 3 }),
+    request.get('/api/announcements/active')
+  ])
+
+  metricsLoadState.value = tasksResult.status === 'fulfilled' && assetsResult.status === 'fulfilled'
+    ? 'ready'
+    : 'error'
+
+  if (tplResult.status === 'fulfilled') {
+    const records = tplResult.value.data?.records
+    recommendedTemplates.value = Array.isArray(records) ? records : null
+  } else {
+    recommendedTemplates.value = null
+    console.error(tplResult.reason)
+  }
+
+  if (annResult.status === 'fulfilled') {
+    const anns = (annResult.value as any).data
+    if (Array.isArray(anns)) {
+      announcement.value = anns.length > 0 ? anns[0] : null
+      announcementLoadFailed.value = false
+    } else {
+      announcement.value = null
+      announcementLoadFailed.value = true
+    }
+  } else {
+    announcement.value = null
+    announcementLoadFailed.value = true
+    console.error(annResult.reason)
+  }
+
+  loading.value = false
 }
 
 const shouldReduceMotion = () => window.matchMedia('(prefers-reduced-motion: reduce)').matches
@@ -589,44 +645,16 @@ const setupDashboardMotion = async () => {
 
 onMounted(async () => {
   try {
-    const [tplResult, annResult] = await Promise.allSettled([
-      templateApi.getTemplates({ projectId: projectStore.activeProjectId, sort: 'likes', page: 1, pageSize: 3 }),
-      request.get('/api/announcements/active')
-    ])
-    if (tplResult.status === 'fulfilled') {
-      const records = tplResult.value.data?.records
-      recommendedTemplates.value = Array.isArray(records) ? records : null
-    } else {
-      recommendedTemplates.value = null
-      console.error(tplResult.reason)
-    }
-    if (annResult.status === 'fulfilled') {
-      const anns = (annResult.value as any).data
-      if (Array.isArray(anns)) {
-        announcement.value = anns.length > 0 ? anns[0] : null
-        announcementLoadFailed.value = false
-      } else {
-        announcement.value = null
-        announcementLoadFailed.value = true
-      }
-    } else {
-      announcement.value = null
-      announcementLoadFailed.value = true
-      console.error(annResult.reason)
-    }
+    await loadDashboardData({ loading: true })
   } finally {
-    loading.value = false
     void setupDashboardMotion()
   }
 })
 
 watch(() => projectStore.activeProjectId, async () => {
   try {
-    const res = await templateApi.getTemplates({ projectId: projectStore.activeProjectId, sort: 'likes', page: 1, pageSize: 3 })
-    const records = res.data?.records
-    recommendedTemplates.value = Array.isArray(records) ? records : null
+    await loadDashboardData()
   } catch (e) {
-    recommendedTemplates.value = null
     console.error(e)
   }
   void animateMetricRefresh()
@@ -672,8 +700,9 @@ const handleReuse = (task: any) => {
 // 删除任务
 const handleDelete = async (id: number) => {
   try {
+    const previousCount = currentProjectTasks.value.length
     await taskStore.deleteTask(id)
-    if (currentProjectTasks.value.some(task => task.id === id)) {
+    if (currentProjectTasks.value.some(task => task.id === id) || currentProjectTasks.value.length !== Math.max(0, previousCount - 1)) {
       throw new Error('任务删除结果待确认')
     }
     message.success('任务删除成功')

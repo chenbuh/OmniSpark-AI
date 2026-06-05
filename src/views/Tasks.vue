@@ -164,7 +164,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
+import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useMessage } from 'naive-ui'
 import { useProjectStore } from '@/store/project'
@@ -189,6 +189,8 @@ const showDetailDrawer = ref(false)
 const selectedTask = ref<any>(null)
 const selectedIds = ref(new Set<number>())
 const tasksReady = ref(false)
+const providerLoadState = ref<'loading' | 'ready' | 'error'>('loading')
+const assetLoadState = ref<'loading' | 'ready' | 'error'>('loading')
 let autoTimer: ReturnType<typeof setInterval> | null = null
 let isRefreshing = false
 
@@ -213,18 +215,55 @@ function toggleOne(id: number) {
   else selectedIds.value.add(id)
 }
 
-const getProviderName = (id: number) => providerStore.providers.find(p => p.id === id)?.name || '未知'
+const getProviderName = (id: number) => {
+  const provider = providerStore.providers.find(p => p.id === id)
+  if (provider?.name) {
+    return provider.name
+  }
+  return providerLoadState.value === 'error' ? '待确认' : '未知'
+}
 const statusLabel = (s: string) => s === 'pending' ? '排队中' : s === 'running' ? '渲染中' : s === 'success' ? '成功' : s === 'failed' ? '失败' : (s || '未知')
 const taskTypeLabel = (taskType: string) => taskType === 'image' ? '生图' : taskType === 'video' ? '视频' : (taskType || '未知类型')
 const taskTypeTagType = (taskType: string) => taskType === 'image' ? 'success' : taskType === 'video' ? 'warning' : 'default'
 const formatTaskProgress = (progress?: number) => typeof progress === 'number' ? `${progress}%` : '-'
 
+function syncSelectedTaskFromStore() {
+  if (!selectedTask.value) {
+    return
+  }
+  const refreshed = taskStore.tasks.find(task => task.id === selectedTask.value.id) || null
+  selectedTask.value = refreshed
+  if (!refreshed) {
+    showDetailDrawer.value = false
+  }
+}
+
 async function refresh() {
   if (isRefreshing) return
   isRefreshing = true
   try {
-    await taskStore.refresh()
+    const activeProjectId = projectStore.activeProjectId
+    if (!activeProjectId) {
+      tasksReady.value = true
+      providerLoadState.value = 'ready'
+      assetLoadState.value = 'ready'
+      selectedIds.value.clear()
+      selectedTask.value = null
+      showDetailDrawer.value = false
+      return
+    }
+    const [tasksResult, providersResult, assetsResult] = await Promise.allSettled([
+      taskStore.refresh({ projectId: activeProjectId }),
+      providerStore.refresh(activeProjectId),
+      assetStore.refresh({ projectId: activeProjectId })
+    ])
+    if (tasksResult.status !== 'fulfilled') {
+      throw tasksResult.reason
+    }
     tasksReady.value = true
+    providerLoadState.value = providersResult.status === 'fulfilled' ? 'ready' : 'error'
+    assetLoadState.value = assetsResult.status === 'fulfilled' ? 'ready' : 'error'
+    syncSelectedTaskFromStore()
   } catch (err: any) {
     tasksReady.value = false
     message.error(err.message || '加载任务失败')
@@ -262,6 +301,13 @@ onMounted(() => {
 })
 onBeforeUnmount(() => { if (autoTimer) clearInterval(autoTimer) })
 
+watch(() => projectStore.activeProjectId, () => {
+  selectedIds.value.clear()
+  selectedTask.value = null
+  showDetailDrawer.value = false
+  void refresh()
+})
+
 const handleCopyParams = (task: any) => {
   navigator.clipboard.writeText(`Prompt: ${task.prompt}\nModel: ${task.modelName}\nType: ${task.taskType}`)
   message.success('已复制')
@@ -280,6 +326,16 @@ function ensureCurrentProjectTasksRemoved(taskIds: number[]) {
   const remaining = taskIds.filter(id => hasCurrentProjectTask(id))
   if (remaining.length > 0) {
     throw new Error('任务删除结果待确认')
+  }
+}
+
+function currentProjectTaskCount() {
+  return taskStore.getTasksByProject(projectStore.activeProjectId).length
+}
+
+function ensureCurrentProjectTaskCount(expectedCount: number, errorMessage: string) {
+  if (currentProjectTaskCount() !== expectedCount) {
+    throw new Error(errorMessage)
   }
 }
 
@@ -304,10 +360,12 @@ const handleRetry = async (id: number) => {
 
 const handleDelete = async (id: number) => {
   try {
+    const previousCount = currentProjectTaskCount()
     await taskStore.deleteTask(id)
     selectedIds.value.delete(id)
     await refresh()
     ensureCurrentProjectTasksRemoved([id])
+    ensureCurrentProjectTaskCount(Math.max(0, previousCount - 1), '任务删除结果待确认')
     if (selectedTask.value?.id === id) {
       selectedTask.value = null
     }
@@ -320,7 +378,7 @@ const handleDelete = async (id: number) => {
 }
 
 const relatedAssets = computed(() => {
-  if (!selectedTask.value?.resultAssetId) return []
+  if (!selectedTask.value?.resultAssetId || assetLoadState.value !== 'ready') return []
   return assetStore.assets.filter(a => a.taskId === selectedTask.value.id)
 })
 
@@ -348,12 +406,14 @@ const handleBatchDelete = async () => {
   const ids = [...selectedIds.value]
   if (ids.length === 0) return
   try {
+    const previousCount = currentProjectTaskCount()
     for (const id of ids) {
       await taskStore.deleteTask(id)
     }
     selectedIds.value.clear()
     await refresh()
     ensureCurrentProjectTasksRemoved(ids)
+    ensureCurrentProjectTaskCount(Math.max(0, previousCount - ids.length), '批量删除结果待确认')
     if (selectedTask.value && ids.includes(selectedTask.value.id)) {
       selectedTask.value = null
     }
@@ -371,12 +431,14 @@ const handleClearAll = async () => {
     return
   }
   try {
+    const previousCount = currentProjectTaskCount()
     for (const id of ids) {
       await taskStore.deleteTask(id)
     }
     selectedIds.value.clear()
     await refresh()
     ensureCurrentProjectTasksRemoved(ids)
+    ensureCurrentProjectTaskCount(Math.max(0, previousCount - ids.length), '清空结果待确认')
     if (selectedTask.value && ids.includes(selectedTask.value.id)) {
       selectedTask.value = null
     }
