@@ -20,6 +20,11 @@ import java.util.List;
 public class WorkflowController {
     private final WorkflowService workflowService;
 
+    @GetMapping("/meta")
+    public ApiResult<java.util.Map<String, Object>> meta() {
+        return ApiResult.ok(workflowService.meta());
+    }
+
     @GetMapping
     public ApiResult<List<WorkflowVO>> list(@RequestParam(name = "projectId", required = false) Long projectId,
                                             @RequestParam(defaultValue = "100") int limit) {

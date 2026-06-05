@@ -43,7 +43,28 @@ export interface WorkflowRunVO {
   createdAt?: string
 }
 
+export interface WorkflowMetaOption {
+  label: string
+  value: string
+}
+
+export interface WorkflowMetaVO {
+  stepTypes: WorkflowMetaOption[]
+  imageSizes: WorkflowMetaOption[]
+  videoDurations: WorkflowMetaOption[]
+  subtitleLanguages: WorkflowMetaOption[]
+  defaults?: {
+    imageSize?: string
+    videoDuration?: string
+    subtitleLanguage?: string
+  }
+}
+
 export const workflowApi = {
+  async meta() {
+    return request.get('/api/workflows/meta')
+  },
+
   async list(projectId?: number) {
     return request.get('/api/workflows', { params: { projectId } })
   },

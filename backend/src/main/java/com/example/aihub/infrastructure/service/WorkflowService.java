@@ -35,6 +35,27 @@ import java.util.Set;
 @RequiredArgsConstructor
 public class WorkflowService {
     private static final Set<String> SUPPORTED_STEP_TYPES = Set.of("image", "video", "subtitle");
+    private static final String DEFAULT_IMAGE_SIZE = "1024x1024";
+    private static final String DEFAULT_VIDEO_DURATION = "5s";
+    private static final String DEFAULT_SUBTITLE_LANGUAGE = "zh";
+    private static final List<Map<String, String>> STEP_TYPE_OPTIONS = List.of(
+            option("生图步骤", "image"),
+            option("生视频步骤", "video"),
+            option("字幕步骤", "subtitle")
+    );
+    private static final List<Map<String, String>> IMAGE_SIZE_OPTIONS = List.of(
+            option("1024x1024", "1024x1024"),
+            option("1536x1024", "1536x1024"),
+            option("1024x1536", "1024x1536")
+    );
+    private static final List<Map<String, String>> VIDEO_DURATION_OPTIONS = List.of(
+            option("5 秒", "5s"),
+            option("10 秒", "10s")
+    );
+    private static final List<Map<String, String>> SUBTITLE_LANGUAGE_OPTIONS = List.of(
+            option("中文", "zh"),
+            option("英文", "en")
+    );
 
     private final WorkflowMapper workflowMapper;
     private final WorkflowRunMapper runMapper;
@@ -43,6 +64,20 @@ public class WorkflowService {
     private final ObjectMapper objectMapper;
     private final com.example.aihub.common.security.ProjectAccessGuard projectAccessGuard;
     private final UploadAccessSignatureService uploadAccessSignatureService;
+
+    public Map<String, Object> meta() {
+        return Map.of(
+                "stepTypes", STEP_TYPE_OPTIONS,
+                "imageSizes", IMAGE_SIZE_OPTIONS,
+                "videoDurations", VIDEO_DURATION_OPTIONS,
+                "subtitleLanguages", SUBTITLE_LANGUAGE_OPTIONS,
+                "defaults", Map.of(
+                        "imageSize", DEFAULT_IMAGE_SIZE,
+                        "videoDuration", DEFAULT_VIDEO_DURATION,
+                        "subtitleLanguage", DEFAULT_SUBTITLE_LANGUAGE
+                )
+        );
+    }
 
     public List<WorkflowVO> list(Long projectId, int limit) {
         LambdaQueryWrapper<Workflow> wrapper = new LambdaQueryWrapper<>();
@@ -282,7 +317,7 @@ public class WorkflowService {
         dto.setProviderId(providerId);
         dto.setPrompt(prompt);
         dto.setModelName(textValue(stepNode, "modelName"));
-        dto.setDuration(firstNonBlank(textValue(stepNode, "duration"), "5s"));
+        dto.setDuration(firstNonBlank(textValue(stepNode, "duration"), DEFAULT_VIDEO_DURATION));
 
         Long sourceAssetId = longValue(stepNode, "sourceAssetId");
         if (sourceAssetId == null) {
@@ -328,7 +363,7 @@ public class WorkflowService {
         SubtitleGenerateDTO dto = new SubtitleGenerateDTO();
         dto.setAssetId(assetId);
         dto.setProjectId(context.projectId);
-        dto.setLanguage(firstNonBlank(textValue(stepNode, "language"), "zh"));
+        dto.setLanguage(firstNonBlank(textValue(stepNode, "language"), DEFAULT_SUBTITLE_LANGUAGE));
         dto.setPrompt(firstNonBlank(textValue(stepNode, "prompt"), context.lastPrompt));
 
         SubtitleVO subtitle = subtitleService.generate(dto);
@@ -459,6 +494,10 @@ public class WorkflowService {
 
     private WorkflowRunVO toRunVO(WorkflowRun run) {
         return VoMapper.copy(run, WorkflowRunVO.class);
+    }
+
+    private static Map<String, String> option(String label, String value) {
+        return Map.of("label", label, "value", value);
     }
 
     private static class WorkflowExecutionContext {

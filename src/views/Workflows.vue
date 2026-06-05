@@ -310,17 +310,15 @@
         </div>
 
         <div class="add-step-actions">
-          <n-button dashed class="add-step-btn" @click="addStep('image')">
+          <n-button
+            v-for="option in stepTypeOptions"
+            :key="option.value"
+            dashed
+            class="add-step-btn"
+            @click="addStep(option.value as WorkflowStepType)"
+          >
             <template #icon><Plus /></template>
-            添加生图步骤
-          </n-button>
-          <n-button dashed class="add-step-btn" @click="addStep('video')">
-            <template #icon><Plus /></template>
-            添加视频步骤
-          </n-button>
-          <n-button dashed class="add-step-btn" @click="addStep('subtitle')">
-            <template #icon><Plus /></template>
-            添加字幕步骤
+            添加{{ option.label }}
           </n-button>
         </div>
       </n-form>
@@ -343,6 +341,8 @@ import { useModelProviderStore } from '@/store/provider'
 import { useProjectStore } from '@/store/project'
 import {
   workflowApi,
+  type WorkflowMetaOption,
+  type WorkflowMetaVO,
   type WorkflowRunVO,
   type WorkflowStep,
   type WorkflowStepType,
@@ -387,28 +387,15 @@ const editForm = reactive({
   description: ''
 })
 const stepDrafts = ref<WorkflowStep[]>([])
+const workflowMeta = ref<WorkflowMetaVO>(emptyWorkflowMeta())
 
-const stepTypeOptions = [
-  { label: '生图步骤', value: 'image' },
-  { label: '生视频步骤', value: 'video' },
-  { label: '字幕步骤', value: 'subtitle' }
-]
-
-const imageSizeOptions = [
-  { label: '1024x1024', value: '1024x1024' },
-  { label: '1536x1024', value: '1536x1024' },
-  { label: '1024x1536', value: '1024x1536' }
-]
-
-const videoDurationOptions = [
-  { label: '5 秒', value: '5s' },
-  { label: '10 秒', value: '10s' }
-]
-
-const subtitleLanguageOptions = [
-  { label: '中文', value: 'zh' },
-  { label: '英文', value: 'en' }
-]
+const stepTypeOptions = computed(() => workflowMeta.value.stepTypes || [])
+const imageSizeOptions = computed(() => workflowMeta.value.imageSizes || [])
+const videoDurationOptions = computed(() => workflowMeta.value.videoDurations || [])
+const subtitleLanguageOptions = computed(() => workflowMeta.value.subtitleLanguages || [])
+const defaultImageSize = computed(() => workflowMeta.value.defaults?.imageSize || imageSizeOptions.value[0]?.value || '')
+const defaultVideoDuration = computed(() => workflowMeta.value.defaults?.videoDuration || videoDurationOptions.value[0]?.value || '')
+const defaultSubtitleLanguage = computed(() => workflowMeta.value.defaults?.subtitleLanguage || subtitleLanguageOptions.value[0]?.value || '')
 
 const filteredWorkflows = computed(() => {
   const query = searchQuery.value.trim().toLowerCase()
@@ -505,6 +492,23 @@ function stepPromptPlaceholder(type: WorkflowStepType) {
   return '可选，补充品牌词、人名或术语，帮助转写更准确'
 }
 
+function emptyWorkflowMeta(): WorkflowMetaVO {
+  return {
+    stepTypes: [],
+    imageSizes: [],
+    videoDurations: [],
+    subtitleLanguages: [],
+    defaults: {}
+  }
+}
+
+function resolveOptionValue(options: WorkflowMetaOption[], preferredValue: string, fallbackValue = '') {
+  if (preferredValue && options.some(option => option.value === preferredValue)) {
+    return preferredValue
+  }
+  return options[0]?.value || fallbackValue
+}
+
 function defaultStep(type: WorkflowStepType = 'image'): WorkflowStep {
   if (type === 'video') {
     return {
@@ -512,7 +516,7 @@ function defaultStep(type: WorkflowStepType = 'image'): WorkflowStep {
       prompt: '',
       providerId: null,
       modelName: '',
-      duration: '5s',
+      duration: defaultVideoDuration.value || undefined,
       sourceAssetId: null,
       endAssetId: null
     }
@@ -521,21 +525,21 @@ function defaultStep(type: WorkflowStepType = 'image'): WorkflowStep {
     return {
       type,
       prompt: '',
-      language: 'zh',
+      language: defaultSubtitleLanguage.value || undefined,
       voice: false
     }
   }
   return {
     type,
-    prompt: '',
-    providerId: null,
-    modelName: '',
-    negativePrompt: '',
-    size: '1024x1024',
-    count: 1,
-    usePreviousAsReference: false
+      prompt: '',
+      providerId: null,
+      modelName: '',
+      negativePrompt: '',
+      size: defaultImageSize.value || undefined,
+      count: 1,
+      usePreviousAsReference: false
+    }
   }
-}
 
 function sanitizeStep(step: WorkflowStep): WorkflowStep {
   return JSON.parse(JSON.stringify(step))
@@ -570,12 +574,29 @@ async function loadPageData() {
   loading.value = true
   try {
     await Promise.allSettled([
+      loadWorkflowMeta(),
       providerStore.refresh(projectStore.activeProjectId),
       assetStore.refresh(),
       loadWorkflows()
     ])
   } finally {
     loading.value = false
+  }
+}
+
+async function loadWorkflowMeta() {
+  try {
+    const res = await workflowApi.meta()
+    const data = (res as any).data || {}
+    workflowMeta.value = {
+      stepTypes: Array.isArray(data.stepTypes) ? data.stepTypes : [],
+      imageSizes: Array.isArray(data.imageSizes) ? data.imageSizes : [],
+      videoDurations: Array.isArray(data.videoDurations) ? data.videoDurations : [],
+      subtitleLanguages: Array.isArray(data.subtitleLanguages) ? data.subtitleLanguages : [],
+      defaults: data.defaults && typeof data.defaults === 'object' ? data.defaults : {}
+    }
+  } catch {
+    workflowMeta.value = emptyWorkflowMeta()
   }
 }
 
@@ -634,12 +655,16 @@ function openEditEditor(workflow: WorkflowRecord) {
 }
 
 function applyTemplate(template: 'image-only' | 'image-to-video' | 'full-pipeline') {
+  const coverImageSize = resolveOptionValue(imageSizeOptions.value, '1024x1024', defaultImageSize.value)
+  const wideImageSize = resolveOptionValue(imageSizeOptions.value, '1536x1024', defaultImageSize.value)
+  const shortVideoDuration = resolveOptionValue(videoDurationOptions.value, '5s', defaultVideoDuration.value)
+  const chineseSubtitleLanguage = resolveOptionValue(subtitleLanguageOptions.value, 'zh', defaultSubtitleLanguage.value)
   if (template === 'image-only') {
     stepDrafts.value = [
       {
         ...defaultStep('image'),
         prompt: '生成一张高质量封面主视觉',
-        size: '1024x1024',
+        size: coverImageSize || undefined,
         count: 1
       }
     ]
@@ -650,13 +675,13 @@ function applyTemplate(template: 'image-only' | 'image-to-video' | 'full-pipelin
       {
         ...defaultStep('image'),
         prompt: '生成一张适合转视频的主视觉画面',
-        size: '1536x1024',
+        size: wideImageSize || undefined,
         count: 1
       },
       {
         ...defaultStep('video'),
         prompt: '将上一步的图片转成具有镜头推进感的短视频',
-        duration: '5s'
+        duration: shortVideoDuration || undefined
       }
     ]
     return
@@ -665,18 +690,18 @@ function applyTemplate(template: 'image-only' | 'image-to-video' | 'full-pipelin
     {
       ...defaultStep('image'),
       prompt: '生成一张适合品牌宣传的主视觉画面',
-      size: '1536x1024',
+      size: wideImageSize || undefined,
       count: 1
     },
     {
       ...defaultStep('video'),
       prompt: '把上一步主视觉制作成具有动态镜头和光效的短片',
-      duration: '5s'
+      duration: shortVideoDuration || undefined
     },
     {
       ...defaultStep('subtitle'),
       prompt: '',
-      language: 'zh',
+      language: chineseSubtitleLanguage || undefined,
       voice: true
     }
   ]
