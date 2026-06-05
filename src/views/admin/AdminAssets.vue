@@ -146,11 +146,9 @@ async function loadAssets() {
     if (typeFilter.value) params.assetType = typeFilter.value
     if (searchText.value) params.search = searchText.value
     const res = await request.get('/api/admin/assets', { params })
-    const data = (res as any).data || {}
+    const data = (res as any).data
     if (!Array.isArray(data.records)) {
-      assets.value = null
-      total.value = null
-      return
+      throw new Error('资产数据待确认')
     }
     assets.value = data.records
     total.value = typeof data.total === 'number' ? data.total : 0

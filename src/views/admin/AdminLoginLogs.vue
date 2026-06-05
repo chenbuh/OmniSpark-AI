@@ -44,11 +44,9 @@ const total = ref<number | null>(null)
 async function loadLogs() {
   try {
     const res = await request.get('/api/admin/login-logs', { params: { page: page.value, pageSize } })
-    const data = (res as any).data || {}
+    const data = (res as any).data
     if (!Array.isArray(data.records)) {
-      logs.value = null
-      total.value = null
-      return
+      throw new Error('登录日志数据待确认')
     }
     logs.value = data.records
     total.value = typeof data.total === 'number' ? data.total : 0

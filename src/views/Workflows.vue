@@ -772,7 +772,20 @@ async function loadGenerationMeta() {
   generationMetaLoadState.value = 'loading'
   try {
     const res = await generationApi.getMeta()
-    generationMeta.value = ((res as any).data || {}) as GenerationMetaVO
+    const data = (res as any).data
+    if (!data || typeof data !== 'object' || Array.isArray(data)) {
+      throw new Error('图像/视频生成参数待确认')
+    }
+    if (!data.image || typeof data.image !== 'object' || Array.isArray(data.image)) {
+      throw new Error('图像/视频生成参数待确认')
+    }
+    if (!data.video || typeof data.video !== 'object' || Array.isArray(data.video)) {
+      throw new Error('图像/视频生成参数待确认')
+    }
+    if (!Array.isArray(data.image.allowedProviderTypes) || !Array.isArray(data.video.allowedProviderTypes)) {
+      throw new Error('图像/视频生成参数待确认')
+    }
+    generationMeta.value = data as GenerationMetaVO
     generationMetaLoadState.value = 'ready'
   } catch {
     generationMeta.value = {}
@@ -784,12 +797,18 @@ async function loadWorkflowMeta() {
   workflowMetaLoadState.value = 'loading'
   try {
     const res = await workflowApi.meta()
-    const data = (res as any).data || {}
+    const data = (res as any).data
+    if (!data || typeof data !== 'object' || Array.isArray(data)) {
+      throw new Error('工作流步骤模板待确认')
+    }
+    if (!Array.isArray(data.stepTypes) || !Array.isArray(data.imageSizes) || !Array.isArray(data.videoDurations) || !Array.isArray(data.subtitleLanguages)) {
+      throw new Error('工作流步骤模板待确认')
+    }
     workflowMeta.value = {
-      stepTypes: Array.isArray(data.stepTypes) ? data.stepTypes : [],
-      imageSizes: Array.isArray(data.imageSizes) ? data.imageSizes : [],
-      videoDurations: Array.isArray(data.videoDurations) ? data.videoDurations : [],
-      subtitleLanguages: Array.isArray(data.subtitleLanguages) ? data.subtitleLanguages : [],
+      stepTypes: data.stepTypes,
+      imageSizes: data.imageSizes,
+      videoDurations: data.videoDurations,
+      subtitleLanguages: data.subtitleLanguages,
       defaults: data.defaults && typeof data.defaults === 'object' ? data.defaults : {}
     }
     workflowMetaLoadState.value = 'ready'

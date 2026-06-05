@@ -307,10 +307,16 @@ async function loadProviderMeta() {
   providerMetaLoadState.value = 'loading'
   try {
     const res = await providerApi.getMeta()
-    const data = (res as any).data || {}
+    const data = (res as any).data
+    if (!data || typeof data !== 'object' || Array.isArray(data)) {
+      throw new Error('提供商元数据待确认')
+    }
+    if (!Array.isArray(data.providerTypes) || !Array.isArray(data.audioResponseFormats)) {
+      throw new Error('提供商元数据待确认')
+    }
     providerMeta.value = {
-      providerTypes: Array.isArray(data.providerTypes) ? data.providerTypes : [],
-      audioResponseFormats: Array.isArray(data.audioResponseFormats) ? data.audioResponseFormats : [],
+      providerTypes: data.providerTypes,
+      audioResponseFormats: data.audioResponseFormats,
       defaults: data.defaults && typeof data.defaults === 'object' ? data.defaults : {}
     }
     providerMetaLoadState.value = 'ready'

@@ -248,11 +248,9 @@ async function loadUsers() {
     const params: Record<string, any> = { page: page.value, pageSize }
     if (search.value) params.search = search.value
     const res = await request.get('/api/admin/users', { params })
-    const data = (res as any).data || {}
+    const data = (res as any).data
     if (!Array.isArray(data.records)) {
-      users.value = null
-      total.value = null
-      return
+      throw new Error('用户数据待确认')
     }
     users.value = data.records
     total.value = typeof data.total === 'number' ? data.total : 0

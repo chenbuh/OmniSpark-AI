@@ -613,7 +613,17 @@ async function loadGenerationMeta() {
   metaLoadState.value = 'loading'
   try {
     const res = await generationApi.getMeta()
-    generationMeta.value = ((res as any).data || {}) as GenerationMetaVO
+    const data = (res as any).data
+    if (!data || typeof data !== 'object' || Array.isArray(data)) {
+      throw new Error('生图配置待确认')
+    }
+    if (!data.image || typeof data.image !== 'object' || Array.isArray(data.image)) {
+      throw new Error('生图配置待确认')
+    }
+    if (!Array.isArray(data.image.allowedProviderTypes) || !Array.isArray(data.image.resolutionOptions) || !Array.isArray(data.image.qualityOptions)) {
+      throw new Error('生图配置待确认')
+    }
+    generationMeta.value = data as GenerationMetaVO
     metaLoadState.value = 'ready'
   } catch {
     generationMeta.value = {}

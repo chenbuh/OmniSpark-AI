@@ -372,7 +372,17 @@ async function loadGenerationMeta() {
   metaLoadState.value = 'loading'
   try {
     const res = await generationApi.getMeta()
-    generationMeta.value = ((res as any).data || {}) as GenerationMetaVO
+    const data = (res as any).data
+    if (!data || typeof data !== 'object' || Array.isArray(data)) {
+      throw new Error('视频配置待确认')
+    }
+    if (!data.video || typeof data.video !== 'object' || Array.isArray(data.video)) {
+      throw new Error('视频配置待确认')
+    }
+    if (!Array.isArray(data.video.allowedProviderTypes) || !Array.isArray(data.video.durationOptions) || !Array.isArray(data.video.cameraMotionOptions)) {
+      throw new Error('视频配置待确认')
+    }
+    generationMeta.value = data as GenerationMetaVO
     metaLoadState.value = 'ready'
   } catch {
     generationMeta.value = {}
