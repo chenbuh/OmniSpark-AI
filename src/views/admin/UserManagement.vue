@@ -241,6 +241,26 @@ function requireCreatedUserResult(value: unknown) {
   }
 }
 
+function requireUserExportCsv(value: string) {
+  const normalized = value.replace(/^\uFEFF/, '').replace(/\r\n/g, '\n')
+  if (!normalized.includes('# canary,')) {
+    throw new Error('导出结果待确认')
+  }
+  if (!normalized.includes('ID,用户名,昵称,角色,状态')) {
+    throw new Error('导出结果待确认')
+  }
+  const rows = normalized.split('\n').map(line => line.trim()).filter(Boolean)
+  const headerIndex = rows.findIndex(line => line === 'ID,用户名,昵称,角色,状态')
+  if (headerIndex < 0) {
+    throw new Error('导出结果待确认')
+  }
+  const dataRows = rows.slice(headerIndex + 1)
+  if (dataRows.some(line => line.split(',').length < 5)) {
+    throw new Error('导出结果待确认')
+  }
+  return normalized
+}
+
 async function loadRoleOptions() {
   roleOptionsLoadState.value = 'loading'
   try {
@@ -482,7 +502,8 @@ async function handleExport() {
     if (!r.ok) {
       throw new Error(`导出接口返回 ${r.status}`)
     }
-    const blob = await r.blob()
+    const csvText = requireUserExportCsv(await r.text())
+    const blob = new Blob([csvText], { type: 'text/csv;charset=UTF-8' })
     if (blob.size <= 0) {
       throw new Error('导出结果待确认')
     }

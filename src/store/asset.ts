@@ -1,13 +1,13 @@
 import { defineStore } from 'pinia'
 import { assetApi } from '@/api/assets'
-
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8080'
+import { API_BASE_URL } from '@/api/request'
 
 function resolveBackendOrigin(baseUrl: string): string {
+  const browserOrigin = typeof window !== 'undefined' ? window.location.origin : ''
   try {
-    return new URL(baseUrl, window.location.origin).origin
+    return browserOrigin ? new URL(baseUrl, browserOrigin).origin : new URL(baseUrl).origin
   } catch {
-    return 'http://localhost:8080'
+    return browserOrigin
   }
 }
 
@@ -20,9 +20,10 @@ export function resolveAssetUrl(url?: string | null): string {
 
   const backendOrigin = resolveBackendOrigin(API_BASE_URL)
   if (raw.startsWith('/')) {
-    return `${backendOrigin}${raw}`
+    return backendOrigin ? `${backendOrigin}${raw}` : raw
   }
-  return `${backendOrigin}/${raw.replace(/^\.?\//, '')}`
+  const normalizedPath = raw.replace(/^\.?\//, '')
+  return backendOrigin ? `${backendOrigin}/${normalizedPath}` : `/${normalizedPath}`
 }
 
 function formatFileSize(bytes?: number | null): string {

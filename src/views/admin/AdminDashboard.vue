@@ -219,6 +219,23 @@ const areaPath = computed(() => {
   return `M ${lineX(0)},${lineH - 20} L ${pts} L ${lineX(dailyUsersSeries.value.length - 1)},${lineH - 20} Z`
 })
 
+function requireStatsExportCsv(value: string) {
+  const normalized = value.replace(/^\uFEFF/, '').replace(/\r\n/g, '\n')
+  if (!normalized.includes('# canary,')) {
+    throw new Error('报表导出结果待确认')
+  }
+  if (!normalized.includes('指标,数值')) {
+    throw new Error('报表导出结果待确认')
+  }
+  if (!normalized.includes('日期,任务数,注册用户数')) {
+    throw new Error('报表导出结果待确认')
+  }
+  if (!normalized.includes('用户ID,用户名,角色,状态')) {
+    throw new Error('报表导出结果待确认')
+  }
+  return normalized
+}
+
 const handleExportCsv = async () => {
   const token = localStorage.getItem('satoken')
   const href = `${API_BASE_URL}/api/admin/stats/export/csv`
@@ -228,7 +245,8 @@ const handleExportCsv = async () => {
     if (!res.ok) {
       throw new Error(`导出接口返回 ${res.status}`)
     }
-    const blob = await res.blob()
+    const csvText = requireStatsExportCsv(await res.text())
+    const blob = new Blob([csvText], { type: 'text/csv;charset=UTF-8' })
     if (blob.size <= 0) {
       throw new Error('报表导出结果待确认')
     }
