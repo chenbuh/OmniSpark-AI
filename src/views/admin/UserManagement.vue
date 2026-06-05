@@ -405,12 +405,14 @@ function cancelEdit() {
 async function confirmEdit(id: number) {
   if (editingId.value !== id) return
   const name = editNickname.value.trim()
+  const currentUser = users.value?.find(u => Number(u.id) === id) || null
+  const expectedUsername = typeof currentUser?.username === 'string' ? currentUser.username : ''
   editingId.value = null
   try {
     await request.put(`/api/admin/users/${id}/nickname?nickname=${encodeURIComponent(name)}`)
     await loadUsers()
-    const user = users.value?.find(u => Number(u.id) === id)
-    if (user && (user.nickname || '') !== name) {
+    const refreshedUser = users.value?.find(u => Number(u.id) === id) || (expectedUsername ? await loadUserByUsername(expectedUsername) : null)
+    if (!refreshedUser || (refreshedUser.nickname || '') !== name) {
       throw new Error('昵称更新结果待确认')
     }
     message.success('昵称已更新')

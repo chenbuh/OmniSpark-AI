@@ -181,15 +181,9 @@ async function saveProfile() {
     if (data.nickname !== name) {
       throw new Error('昵称更新结果待确认')
     }
-    if (userStore.userInfo) {
-      userStore.setSession({
-        ...userStore.userInfo,
-        nickname: data.nickname,
-        avatar: data.avatar,
-        role: data.role,
-        username: data.username,
-        id: data.id
-      }, userStore.token)
+    const confirmedProfile = await authApi.getMe()
+    if (confirmedProfile.nickname !== name || confirmedProfile.id !== data.id || confirmedProfile.username !== data.username) {
+      throw new Error('昵称更新结果待确认')
     }
     message.success('昵称已更新')
     editingProfile.value = false
