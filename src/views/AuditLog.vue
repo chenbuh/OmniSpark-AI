@@ -132,6 +132,14 @@ const formatAction = (action: string) => {
   return action.replace(/_/g, ' ')
 }
 
+const toOptionalNumber = (value: unknown): number | null => {
+  if (value == null || value === '') {
+    return null
+  }
+  const normalized = Number(value)
+  return Number.isNaN(normalized) ? null : normalized
+}
+
 async function loadLogs() {
   try {
     // 普通用户仅查看本人审计日志，走统一 request 封装
@@ -195,7 +203,11 @@ function handleCleanup() {
       cleaning.value = true
       try {
         const res = await request.delete('/api/audit-logs', { params: { daysOld: cleanupDays.value } })
-        message.success(`已清理 ${(res as any).data ?? 0} 条审计日志`)
+        const deletedCount = toOptionalNumber((res as any).data)
+        if (deletedCount == null) {
+          throw new Error('清理结果待确认')
+        }
+        message.success(`已清理 ${deletedCount} 条审计日志`)
         page.value = 1
         await loadLogs()
       } catch (err: any) {

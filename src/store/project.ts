@@ -57,9 +57,19 @@ export const useProjectStore = defineStore('project', {
       this.activeProjectId = id
     },
     async addProject(name: string, description: string) {
+      const previousProjectIds = new Set(this.projects.map(item => item.id))
       const res = await projectApi.createProject({ name, description })
       await this.refresh()
-      this.activeProjectId = Number(res.data?.id || this.activeProjectId)
+      const createdId = parseRequiredProjectId(res.data?.id)
+      if (createdId == null) {
+        const createdProject = this.projects.find(item => !previousProjectIds.has(item.id) && item.name === name)
+        if (createdProject) {
+          this.activeProjectId = createdProject.id
+          return createdProject
+        }
+        throw new Error('项目创建结果待确认')
+      }
+      this.activeProjectId = createdId
       return res.data
     },
     async updateProject(id: number, name: string, description: string) {
@@ -85,4 +95,9 @@ function parseOptionalNumber(value: unknown): number | null {
   }
   const parsed = Number(value)
   return Number.isNaN(parsed) ? null : parsed
+}
+
+function parseRequiredProjectId(value: unknown): number | null {
+  const parsed = parseOptionalNumber(value)
+  return parsed != null && parsed > 0 ? parsed : null
 }

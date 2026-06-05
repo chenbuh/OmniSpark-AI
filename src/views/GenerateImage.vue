@@ -1709,6 +1709,18 @@ function removeRef(index: number) {
   refImagePreviews.value.splice(index, 1)
 }
 
+function removeRefPlaceholder(placeholderUrl: string) {
+  const assetIndex = selectedRefAssets.value.findIndex(item => item === placeholderUrl)
+  if (assetIndex >= 0) {
+    selectedRefAssets.value.splice(assetIndex, 1)
+  }
+  const previewIndex = refImagePreviews.value.findIndex(item => item === placeholderUrl)
+  if (previewIndex >= 0) {
+    refImagePreviews.value.splice(previewIndex, 1)
+  }
+  URL.revokeObjectURL(placeholderUrl)
+}
+
 // 处理拖拽
 function handleDrop(e: DragEvent) {
   const files = e.dataTransfer?.files
@@ -1717,25 +1729,39 @@ function handleDrop(e: DragEvent) {
       if (file.type.startsWith('image/') && selectedRefAssets.value.filter(Boolean).length < 16) {
         const url = URL.createObjectURL(file)
         addRefAsset(url)
-        uploadRefFile(file)
+        uploadRefFile(file, url)
       }
     }
   }
 }
 
-async function uploadRefFile(file: File) {
+async function uploadRefFile(file: File, placeholderUrl: string) {
   try {
     const formData = new FormData()
     formData.append('projectId', String(projectStore.activeProjectId))
     formData.append('file', file)
     const res = await assetApi.uploadAsset(formData)
-    if ((res as any).data) {
-      const asset = assetStore.normalizeAsset((res as any).data)
-      // 替换占位的 blob URL 为真实的 asset
-      const idx = selectedRefAssets.value.findIndex(a => typeof a === 'string')
-      if (idx >= 0) selectedRefAssets.value[idx] = asset
+    if (!(res as any).data || typeof (res as any).data !== 'object' || Array.isArray((res as any).data)) {
+      throw new Error('参考图上传结果待确认')
     }
-  } catch {}
+    const asset = assetStore.normalizeAsset((res as any).data)
+    if (!asset.id || !(asset.thumbUrl || asset.fileUrl)) {
+      throw new Error('参考图上传结果待确认')
+    }
+    // 替换对应占位的 blob URL 为真实的 asset
+    const idx = selectedRefAssets.value.findIndex(a => a === placeholderUrl)
+    if (idx >= 0) {
+      selectedRefAssets.value[idx] = asset
+      const previewIdx = refImagePreviews.value.findIndex(item => item === placeholderUrl)
+      if (previewIdx >= 0) {
+        refImagePreviews.value[previewIdx] = asset.thumbUrl || asset.fileUrl
+      }
+      URL.revokeObjectURL(placeholderUrl)
+    }
+  } catch (err: any) {
+    removeRefPlaceholder(placeholderUrl)
+    message.error(err.message || '参考图上传失败')
+  }
 }
 
 // 触发图片上传
@@ -1750,7 +1776,7 @@ const handleFileChange = async (e: Event) => {
       if (file.type.startsWith('image/') && selectedRefAssets.value.filter(Boolean).length < 16) {
         const url = URL.createObjectURL(file)
         addRefAsset(url)
-        await uploadRefFile(file)
+        await uploadRefFile(file, url)
       }
     }
     target.value = ''
