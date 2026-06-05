@@ -139,7 +139,7 @@ function requireScheduledTasks(value: unknown) {
   if (!Array.isArray(value)) {
     throw new Error('定时任务数据待确认')
   }
-  return value
+  return value.map(item => normalizeScheduledTaskRecord(item))
 }
 
 function requireScheduledTaskResult(value: unknown, action: 'create' | 'update' | 'toggle') {
@@ -157,6 +157,31 @@ function requireScheduledTaskResult(value: unknown, action: 'create' | 'update' 
   return {
     id,
     enabled: normalizeBinaryStatus((value as any).enabled)
+  }
+}
+
+function normalizeScheduledTaskRecord(value: unknown) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new Error('定时任务数据待确认')
+  }
+  const id = Number((value as any).id)
+  const name = normalizeOptionalText((value as any).name)
+  const taskType = normalizeOptionalText((value as any).taskType)
+  const cron = normalizeOptionalText((value as any).cron)
+  if (!Number.isFinite(id) || id <= 0 || !name || !taskType || !cron) {
+    throw new Error('定时任务数据待确认')
+  }
+  return {
+    ...(value as Record<string, unknown>),
+    id,
+    name,
+    description: normalizeOptionalText((value as any).description),
+    taskType,
+    cron,
+    enabled: normalizeBinaryStatus((value as any).enabled),
+    configJson: typeof (value as any).configJson === 'string' ? (value as any).configJson : '',
+    lastRunAt: typeof (value as any).lastRunAt === 'string' ? (value as any).lastRunAt : '',
+    lastStatus: typeof (value as any).lastStatus === 'string' ? normalizeOptionalText((value as any).lastStatus) : ''
   }
 }
 
@@ -260,6 +285,7 @@ async function handleSave() {
     cleanupDays: form.taskType === 'cleanup' ? cleanupDays.value : null
   }
   try {
+    const previousCount = tasks.value?.length
     if (editingId.value) {
       const currentEditingId = editingId.value
       const res = await request.put(`/api/admin/scheduled-tasks/${currentEditingId}`, payload)
@@ -267,6 +293,9 @@ async function handleSave() {
       await load()
       const refreshed = tasks.value?.find(task => task.id === currentEditingId)
       assertScheduledTaskMatches(refreshed, expected, 'update')
+      if (typeof previousCount === 'number' && tasks.value?.length !== previousCount) {
+        throw new Error('任务更新结果待确认')
+      }
       message.success('任务已更新')
     } else {
       const res = await request.post('/api/admin/scheduled-tasks', payload)
@@ -274,6 +303,9 @@ async function handleSave() {
       await load()
       const refreshed = tasks.value?.find(task => task.id === created.id)
       assertScheduledTaskMatches(refreshed, expected, 'create')
+      if (typeof previousCount === 'number' && typeof tasks.value?.length === 'number' && tasks.value.length < previousCount + 1) {
+        throw new Error('任务创建结果待确认')
+      }
       message.success('任务已创建')
     }
     showEditor.value = false
@@ -282,9 +314,13 @@ async function handleSave() {
 
 async function handleDelete(id: number) {
   try {
+    const previousCount = tasks.value?.length
     await request.delete(`/api/admin/scheduled-tasks/${id}`)
     await load()
     if (tasks.value?.some(task => task.id === id)) {
+      throw new Error('删除结果待确认')
+    }
+    if (typeof previousCount === 'number' && typeof tasks.value?.length === 'number' && tasks.value.length > Math.max(0, previousCount - 1)) {
       throw new Error('删除结果待确认')
     }
     message.success('已删除')
@@ -340,6 +376,9 @@ async function handleRunNow(id: number) {
       throw new Error('任务触发结果待确认')
     }
     if (previousLastRunAt === nextLastRunAt && previousLastStatus === nextLastStatus) {
+      throw new Error('任务触发结果待确认')
+    }
+    if (nextLastStatus !== 'success' && nextLastStatus !== 'failed') {
       throw new Error('任务触发结果待确认')
     }
     message.success('任务已触发')

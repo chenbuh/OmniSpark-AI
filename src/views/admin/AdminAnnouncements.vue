@@ -95,7 +95,27 @@ function requireAnnouncement(value: unknown, action: 'create' | 'update') {
   return {
     id,
     title,
+    content: typeof (value as any).content === 'string' ? (value as any).content.trim() : '',
+    priority: typeof (value as any).priority === 'string' ? (value as any).priority.trim() : '',
     status: normalizeBinaryStatus((value as any).status)
+  }
+}
+
+function normalizeAnnouncementRecord(value: unknown) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new Error('公告数据待确认')
+  }
+  const announcement = requireAnnouncement(value, 'update')
+  if (!announcement.content || !announcement.priority) {
+    throw new Error('公告数据待确认')
+  }
+  return {
+    ...(value as Record<string, unknown>),
+    id: announcement.id,
+    title: announcement.title,
+    content: announcement.content,
+    priority: announcement.priority,
+    status: announcement.status
   }
 }
 
@@ -110,7 +130,7 @@ async function load() {
     if (!Array.isArray(data)) {
       throw new Error('公告数据待确认')
     }
-    list.value = data
+    list.value = data.map((item: unknown) => normalizeAnnouncementRecord(item))
     listLoadState.value = 'ready'
   } catch (err: any) {
     list.value = null
@@ -128,6 +148,7 @@ function editAnnouncement(a: any) {
 async function handleSave() {
   if (!form.title || !form.content) { message.error('标题和内容不能为空'); return }
   try {
+    const previousCount = list.value?.length
     if (editingId.value) {
       const currentEditingId = editingId.value
       const res = await request.put(`/api/admin/announcements/${currentEditingId}?title=${encodeURIComponent(form.title)}&content=${encodeURIComponent(form.content)}&priority=${form.priority}`)
@@ -137,6 +158,9 @@ async function handleSave() {
       if (!refreshed || refreshed.title !== form.title || refreshed.content !== form.content || refreshed.priority !== form.priority) {
         throw new Error('公告更新结果待确认')
       }
+      if (typeof previousCount === 'number' && list.value?.length !== previousCount) {
+        throw new Error('公告更新结果待确认')
+      }
       message.success('已更新')
     } else {
       const res = await request.post(`/api/admin/announcements?title=${encodeURIComponent(form.title)}&content=${encodeURIComponent(form.content)}&priority=${form.priority}`)
@@ -144,6 +168,9 @@ async function handleSave() {
       await load()
       const refreshed = list.value?.find(item => Number(item.id) === created.id)
       if (!refreshed || refreshed.title !== form.title || refreshed.content !== form.content || refreshed.priority !== form.priority) {
+        throw new Error('公告发布结果待确认')
+      }
+      if (typeof previousCount === 'number' && typeof list.value?.length === 'number' && list.value.length < previousCount + 1) {
         throw new Error('公告发布结果待确认')
       }
       message.success('已发布')
@@ -171,9 +198,13 @@ async function handleToggle(id: number) {
 
 async function handleDelete(id: number) {
   try {
+    const previousCount = list.value?.length
     await request.delete(`/api/admin/announcements/${id}`)
     await load()
     if (list.value?.some(item => Number(item.id) === id)) {
+      throw new Error('公告删除结果待确认')
+    }
+    if (typeof previousCount === 'number' && typeof list.value?.length === 'number' && list.value.length > Math.max(0, previousCount - 1)) {
       throw new Error('公告删除结果待确认')
     }
     message.success('已删除')
