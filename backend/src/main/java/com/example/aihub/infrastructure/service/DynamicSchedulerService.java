@@ -3,6 +3,7 @@ package com.example.aihub.infrastructure.service;
 import com.example.aihub.infrastructure.entity.ScheduledTask;
 import com.example.aihub.infrastructure.mapper.ScheduledTaskMapper;
 import com.example.aihub.module.system.AdminCleanupController;
+import com.example.aihub.common.exception.BusinessException;
 import com.example.aihub.common.util.PagingUtil;
 import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
@@ -44,7 +45,9 @@ public class DynamicSchedulerService {
     @Transactional(rollbackFor = Exception.class)
     public ScheduledTask toggle(Long id) {
         ScheduledTask task = taskMapper.selectById(id);
-        if (task == null) return null;
+        if (task == null) {
+            throw new BusinessException("定时任务不存在");
+        }
         task.setEnabled(task.getEnabled() == 1 ? 0 : 1);
         taskMapper.updateById(task);
         return task;
@@ -62,6 +65,10 @@ public class DynamicSchedulerService {
 
     @Transactional(rollbackFor = Exception.class)
     public ScheduledTask update(ScheduledTask task) {
+        ScheduledTask existing = taskMapper.selectById(task.getId());
+        if (existing == null) {
+            throw new BusinessException("定时任务不存在");
+        }
         validateTask(task);
         task.setUpdatedAt(LocalDateTime.now());
         taskMapper.updateById(task);
@@ -70,13 +77,17 @@ public class DynamicSchedulerService {
 
     @Transactional(rollbackFor = Exception.class)
     public void delete(Long id) {
+        ScheduledTask task = taskMapper.selectById(id);
+        if (task == null) {
+            throw new BusinessException("定时任务不存在");
+        }
         taskMapper.deleteById(id);
     }
 
     public void runNow(Long id) {
         ScheduledTask task = taskMapper.selectById(id);
         if (task == null) {
-            throw new com.example.aihub.common.exception.BusinessException("定时任务不存在");
+            throw new BusinessException("定时任务不存在");
         }
         validateTask(task);
         executeTask(task);
@@ -154,11 +165,11 @@ public class DynamicSchedulerService {
 
     private void validateTask(ScheduledTask task) {
         if (task == null) {
-            throw new com.example.aihub.common.exception.BusinessException("任务不能为空");
+            throw new BusinessException("任务不能为空");
         }
         String normalizedType = normalizeTaskType(task.getTaskType());
         if (!isSupportedTaskType(normalizedType)) {
-            throw new com.example.aihub.common.exception.BusinessException("当前仅支持真实可执行的“数据清理”任务类型");
+            throw new BusinessException("当前仅支持真实可执行的“数据清理”任务类型");
         }
         task.setTaskType(normalizedType);
         if ("cleanup".equals(normalizedType) && (task.getConfigJson() == null || task.getConfigJson().isBlank())) {

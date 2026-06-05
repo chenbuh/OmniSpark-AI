@@ -178,6 +178,14 @@ public class TeamService {
             throw new BusinessException("不能移除团队所有者");
         }
 
+        TeamMember member = memberMapper.selectOne(new LambdaQueryWrapper<TeamMember>()
+                .eq(TeamMember::getTeamId, teamId)
+                .eq(TeamMember::getUserId, userId)
+                .eq(TeamMember::getStatus, 1));
+        if (member == null) {
+            throw new BusinessException("团队成员不存在");
+        }
+
         memberMapper.delete(new LambdaQueryWrapper<TeamMember>()
                 .eq(TeamMember::getTeamId, teamId)
                 .eq(TeamMember::getUserId, userId));
@@ -186,10 +194,19 @@ public class TeamService {
     @Transactional(rollbackFor = Exception.class)
     public void leaveTeam(Long teamId) {
         Long userId = SecurityUtil.loginUserId();
-        Team team = teamMapper.selectById(teamId);
-        if (team != null && team.getOwnerId().equals(userId)) {
+        Team team = requireTeam(teamId);
+        if (team.getOwnerId().equals(userId)) {
             throw new BusinessException("团队所有者不能退出，请先转让所有权");
         }
+
+        TeamMember member = memberMapper.selectOne(new LambdaQueryWrapper<TeamMember>()
+                .eq(TeamMember::getTeamId, teamId)
+                .eq(TeamMember::getUserId, userId)
+                .eq(TeamMember::getStatus, 1));
+        if (member == null) {
+            throw new BusinessException("您不在该团队中");
+        }
+
         memberMapper.delete(new LambdaQueryWrapper<TeamMember>()
                 .eq(TeamMember::getTeamId, teamId)
                 .eq(TeamMember::getUserId, userId));
