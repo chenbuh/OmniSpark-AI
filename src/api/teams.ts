@@ -7,7 +7,7 @@ export interface Team {
   ownerId: number
   ownerName?: string
   avatar?: string
-  status: number
+  status: number | null
   memberCount?: number
   createdAt: string
 }
@@ -20,7 +20,7 @@ export interface TeamMember {
   nickname: string
   avatar?: string
   role: string
-  status: number
+  status: number | null
   createdAt: string
 }
 

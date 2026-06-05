@@ -6,7 +6,7 @@ export interface Project {
   userId: number
   name: string
   description?: string
-  status: number
+  status: number | null
   createdAt: string
 }
 
@@ -22,7 +22,7 @@ export const useProjectStore = defineStore('project', {
         userId: Number(project.userId),
         name: project.name || '',
         description: project.description || '',
-        status: Number(project.status ?? 1),
+        status: parseOptionalNumber(project.status),
         createdAt: String(project.createdAt || '').replace('T', ' ').substring(0, 19)
       }
     },
@@ -66,3 +66,11 @@ export const useProjectStore = defineStore('project', {
     }
   }
 })
+
+function parseOptionalNumber(value: unknown): number | null {
+  if (value == null || value === '') {
+    return null
+  }
+  const parsed = Number(value)
+  return Number.isNaN(parsed) ? null : parsed
+}

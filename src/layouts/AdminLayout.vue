@@ -25,7 +25,7 @@
           <n-button size="small" quaternary @click="toggleTheme">
             {{ isDark ? '☀️ 亮色' : '🌙 暗黑' }}
           </n-button>
-          <span class="header-user">{{ userStore.userInfo?.nickname || '管理员' }}</span>
+          <span class="header-user">{{ userStore.userInfo?.nickname || userStore.userInfo?.username || '未登录用户' }}</span>
           <n-button size="small" quaternary @click="handleLogout">退出</n-button>
         </div>
       </n-layout-header>

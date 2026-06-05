@@ -15,7 +15,7 @@ export const useTeamStore = defineStore('team', {
         ownerId: Number(team.ownerId),
         ownerName: team.ownerName || undefined,
         avatar: team.avatar || undefined,
-        status: Number(team.status ?? 1),
+        status: parseOptionalNumber(team.status),
         memberCount: team.memberCount == null ? undefined : Number(team.memberCount),
         createdAt: String(team.createdAt || '').replace('T', ' ').substring(0, 19)
       }
@@ -29,7 +29,7 @@ export const useTeamStore = defineStore('team', {
         nickname: m.nickname || m.username || '',
         avatar: m.avatar || undefined,
         role: typeof m.role === 'string' ? m.role.trim() : '',
-        status: Number(m.status ?? 1),
+        status: parseOptionalNumber(m.status),
         createdAt: String(m.createdAt || '').replace('T', ' ').substring(0, 19)
       }
     },
@@ -64,3 +64,11 @@ export const useTeamStore = defineStore('team', {
     }
   }
 })
+
+function parseOptionalNumber(value: unknown): number | null {
+  if (value == null || value === '') {
+    return null
+  }
+  const parsed = Number(value)
+  return Number.isNaN(parsed) ? null : parsed
+}

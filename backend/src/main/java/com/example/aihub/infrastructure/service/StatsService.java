@@ -159,10 +159,10 @@ public class StatsService {
             StatsActivityVO item = new StatsActivityVO();
             item.setType("video".equals(task.getTaskType()) ? "video" : ("failed".equals(task.getStatus()) ? "error" : "image"));
             item.setTitle(("video".equals(task.getTaskType()) ? "视频" : "图像") + "任务 #" + task.getId());
-            item.setDescription(String.format("%s · %s · %s",
+            item.setDescription(joinNonBlank(
                     statusLabel(task.getStatus()),
                     projectNameMap.getOrDefault(task.getProjectId(), "未知项目"),
-                    firstNonBlank(task.getModelName(), "默认模型")));
+                    task.getModelName()));
             item.setStatus(task.getStatus());
             item.setCreatedAt(task.getCreatedAt());
             items.add(item);
@@ -412,6 +412,20 @@ public class StatsService {
 
     private String firstNonBlank(String value, String fallback) {
         return value == null || value.isBlank() ? fallback : value;
+    }
+
+    private String joinNonBlank(String... values) {
+        StringBuilder builder = new StringBuilder();
+        for (String value : values) {
+            if (value == null || value.isBlank()) {
+                continue;
+            }
+            if (builder.length() > 0) {
+                builder.append(" · ");
+            }
+            builder.append(value.trim());
+        }
+        return builder.toString();
     }
 
     private record StatsScope(
