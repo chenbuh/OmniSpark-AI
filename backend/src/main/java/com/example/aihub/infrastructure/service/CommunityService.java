@@ -22,6 +22,8 @@ import java.util.Set;
 @Service
 @RequiredArgsConstructor
 public class CommunityService {
+    private static final String FALLBACK_CATEGORY = "uncategorized";
+
     private final CommunityPostMapper postMapper;
     private final UserMapper userMapper;
     private final PublicContentInteractionService interactionService;
@@ -106,7 +108,7 @@ public class CommunityService {
         post.setNegativePrompt(dto.getNegativePrompt());
         post.setModelName(dto.getModelName());
         post.setImageUrl(dto.getImageUrl());
-        post.setCategory(dto.getCategory() != null ? dto.getCategory() : "uncategorized");
+        post.setCategory(normalizeCategory(dto.getCategory()));
         post.setTags(dto.getTags());
         post.setLikesCount(0);
         post.setCommentsCount(0);
@@ -130,7 +132,7 @@ public class CommunityService {
         post.setNegativePrompt(dto.getNegativePrompt());
         post.setModelName(dto.getModelName());
         post.setImageUrl(dto.getImageUrl());
-        post.setCategory(dto.getCategory() != null ? dto.getCategory() : "uncategorized");
+        post.setCategory(normalizeCategory(dto.getCategory()));
         post.setTags(dto.getTags());
         postMapper.updateById(post);
         return toVO(post, false);
@@ -153,6 +155,7 @@ public class CommunityService {
                         .eq(CommunityPost::getStatus, 1))
                 .stream()
                 .map(CommunityPost::getCategory)
+                .map(this::normalizeCategory)
                 .filter(c -> c != null && !c.isBlank())
                 .distinct()
                 .toList();
@@ -160,6 +163,7 @@ public class CommunityService {
 
     private CommunityPostVO toVO(CommunityPost post, boolean liked) {
         CommunityPostVO vo = VoMapper.copy(post, CommunityPostVO.class);
+        vo.setCategory(normalizeCategory(vo.getCategory()));
         vo.setImageUrl(uploadAccessSignatureService.signUrl(vo.getImageUrl()));
         vo.setLiked(liked ? 1 : 0);
         return vo;
@@ -175,5 +179,16 @@ public class CommunityService {
             return;
         }
         wrapper.orderByDesc(CommunityPost::getId);
+    }
+
+    private String normalizeCategory(String category) {
+        if (category == null) {
+            return null;
+        }
+        String normalized = category.trim();
+        if (normalized.isBlank() || FALLBACK_CATEGORY.equalsIgnoreCase(normalized)) {
+            return null;
+        }
+        return normalized;
     }
 }

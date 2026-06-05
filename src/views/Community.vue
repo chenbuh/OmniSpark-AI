@@ -45,7 +45,7 @@
         <div class="post-body">
           <div class="post-head">
             <span class="post-title" @click="showDetail(post)">{{ post.title }}</span>
-            <n-tag v-if="post.category && post.category !== 'uncategorized'" size="tiny" round>{{ post.category }}</n-tag>
+            <n-tag v-if="post.category" size="tiny" round>{{ post.category }}</n-tag>
           </div>
           <n-ellipsis :line-clamp="2" class="post-prompt" @click="showDetail(post)">{{ post.prompt }}</n-ellipsis>
           <div class="post-meta">
@@ -195,7 +195,7 @@
           </div>
           <div class="detail-info">
             <span><n-tag size="small">👤 {{ authorLabel(detailPost) }}</n-tag></span>
-            <span><n-tag size="small">🏷 {{ detailPost.category || '未分类' }}</n-tag></span>
+            <span v-if="detailPost.category"><n-tag size="small">🏷 {{ detailPost.category }}</n-tag></span>
             <span v-if="detailPost.modelName"><n-tag size="small">🤖 {{ detailPost.modelName }}</n-tag></span>
             <span><n-tag size="small">❤️ {{ detailPost.likesCount || 0 }}</n-tag></span>
             <span><n-tag size="small">💬 {{ detailPost.commentsCount || 0 }}</n-tag></span>
@@ -274,33 +274,31 @@ const sortOptions = [
 
 const form = reactive({
   title: '', prompt: '', negativePrompt: '', modelName: '',
-  imageUrl: '', category: 'uncategorized', tags: ''
+  imageUrl: '', category: '', tags: ''
 })
 
 const imagePreviewUrl = computed(() => resolveAssetUrl(form.imageUrl))
 
-const categoryLabel = (value: string) => value === 'uncategorized' ? '其他' : value
-
 const categoryTabs = computed(() => {
   return categories.value.map(item => ({
-    label: categoryLabel(item),
+    label: item,
     value: item
   }))
 })
 
 const resetPublishForm = () => {
-  Object.assign(form, { title: '', prompt: '', negativePrompt: '', modelName: '', imageUrl: '', category: 'uncategorized', tags: '' })
+  Object.assign(form, { title: '', prompt: '', negativePrompt: '', modelName: '', imageUrl: '', category: '', tags: '' })
   clearUploadedImage()
   editingPostId.value = null
 }
 
 const categoryOptions = computed(() => {
-  const values = new Set<string>(['uncategorized', ...categories.value])
+  const values = new Set<string>(categories.value)
   if (form.category?.trim()) {
     values.add(form.category.trim())
   }
   return Array.from(values).map(item => ({
-    label: categoryLabel(item),
+    label: item,
     value: item
   }))
 })
@@ -460,7 +458,7 @@ async function handlePublish() {
   try {
     const payload = {
       ...form,
-      category: form.category?.trim() || 'uncategorized'
+      category: form.category?.trim() || undefined
     }
     if (editingPostId.value) {
       await request.put(`/api/community/posts/${editingPostId.value}`, payload)
@@ -483,7 +481,7 @@ function handleEditPost(post: any) {
   form.negativePrompt = post.negativePrompt || ''
   form.modelName = post.modelName || ''
   form.imageUrl = toRelativeUrl(post.imageUrl || '')
-  form.category = post.category || 'uncategorized'
+  form.category = post.category || ''
   form.tags = post.tags || ''
   showUploadModal.value = true
 }
