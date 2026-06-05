@@ -9,17 +9,21 @@ import com.example.aihub.common.util.VoMapper;
 import com.example.aihub.infrastructure.dto.SubtitleGenerateDTO;
 import com.example.aihub.infrastructure.dto.SubtitleUpdateDTO;
 import com.example.aihub.infrastructure.entity.Asset;
+import com.example.aihub.infrastructure.entity.ModelProvider;
 import com.example.aihub.infrastructure.entity.Subtitle;
 import com.example.aihub.infrastructure.mapper.AssetMapper;
+import com.example.aihub.infrastructure.mapper.ModelProviderMapper;
 import com.example.aihub.infrastructure.mapper.SubtitleMapper;
 import com.example.aihub.infrastructure.vo.SubtitleVO;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.Comparator;
 import java.util.List;
 import java.util.UUID;
 
@@ -28,9 +32,12 @@ import java.util.UUID;
 public class SubtitleService {
     private final SubtitleMapper subtitleMapper;
     private final AssetMapper assetMapper;
+    private final ModelProviderMapper modelProviderMapper;
     private final com.example.aihub.common.security.ProjectAccessGuard projectAccessGuard;
     private final UploadAccessSignatureService uploadAccessSignatureService;
     private final UploadStorageResolver uploadStorageResolver;
+    private final OpenAiSpeechClient speechClient;
+    private final ObjectMapper objectMapper;
 
     public List<SubtitleVO> listByAsset(Long assetId, int limit) {
         requireAccessibleAsset(assetId);
@@ -101,18 +108,29 @@ public class SubtitleService {
         }
 
         try {
-            // 模拟 TTS：生成一段沉默的音频占位 + 保存文本标注
-            // 生产环境可接入火山引擎/阿里云 TTS API
+            ModelProvider provider = resolveVoiceProvider(sub.getProjectId());
+            OpenAiSpeechClient.SpeechOptions speechOptions = resolveSpeechOptions(provider, sub.getLanguage());
+            OpenAiSpeechClient.SynthesizedAudio audio = speechClient.synthesize(
+                    provider.getBaseUrl(),
+                    provider.getApiKey(),
+                    provider.getModelName(),
+                    plainText,
+                    speechOptions
+            );
+
             Path ttsDir = uploadStorageResolver.resolve("tts");
             Files.createDirectories(ttsDir);
-            String fileName = "tts_" + UUID.randomUUID().toString().replace("-", "").substring(0, 12) + ".txt";
+            String fileName = "tts_" + UUID.randomUUID().toString().replace("-", "").substring(0, 12) + "." + audio.getExtension();
             Path target = ttsDir.resolve(fileName);
-            Files.writeString(target, plainText, StandardCharsets.UTF_8);
+            Files.write(target, audio.getBytes());
 
+            deleteVoiceFile(sub.getVoiceUrl());
             String voiceUrl = "/uploads/tts/" + fileName;
             sub.setVoiceUrl(voiceUrl);
             subtitleMapper.updateById(sub);
             return toVO(sub);
+        } catch (BusinessException ex) {
+            throw ex;
         } catch (Exception ex) {
             throw new BusinessException("配音生成失败: " + ex.getMessage());
         }
@@ -177,6 +195,112 @@ public class SubtitleService {
             text.append(line.trim()).append(" ");
         }
         return text.toString().trim();
+    }
+
+    private ModelProvider resolveVoiceProvider(Long projectId) {
+        List<ModelProvider> providers = modelProviderMapper.selectList(
+                new LambdaQueryWrapper<ModelProvider>()
+                        .eq(ModelProvider::getProjectId, projectId)
+                        .eq(ModelProvider::getEnabled, 1)
+                        .orderByDesc(ModelProvider::getIsDefault)
+                        .orderByDesc(ModelProvider::getId));
+        return providers.stream()
+                .filter(provider -> voiceProviderScore(provider) > 0)
+                .max(Comparator.comparingInt(this::voiceProviderScore))
+                .orElseThrow(() -> new BusinessException("未找到可用的语音模型提供商，请先在模型配置中心添加并启用一个“语音/TTS”提供商"));
+    }
+
+    private int voiceProviderScore(ModelProvider provider) {
+        int score = 0;
+        String type = provider.getType() == null ? "" : provider.getType().trim().toLowerCase();
+        if ("audio".equals(type)) {
+            score += 100;
+        } else if ("openai".equals(type)) {
+            score += 60;
+        } else if ("custom".equals(type)) {
+            score += 40;
+        }
+        if (provider.getIsDefault() != null && provider.getIsDefault() == 1) {
+            score += 15;
+        }
+        if (looksLikeSpeechModel(provider.getModelName())) {
+            score += 20;
+        }
+        if (configLooksLikeSpeech(provider.getConfigJson())) {
+            score += 10;
+        }
+        return score;
+    }
+
+    private boolean looksLikeSpeechModel(String modelName) {
+        if (modelName == null || modelName.isBlank()) {
+            return false;
+        }
+        String value = modelName.trim().toLowerCase();
+        return value.contains("tts")
+                || value.contains("speech")
+                || value.contains("voice")
+                || value.contains("audio");
+    }
+
+    private boolean configLooksLikeSpeech(String configJson) {
+        if (configJson == null || configJson.isBlank()) {
+            return false;
+        }
+        try {
+            JsonNode node = objectMapper.readTree(configJson);
+            return node.hasNonNull("voice")
+                    || node.hasNonNull("responseFormat")
+                    || node.hasNonNull("speed")
+                    || node.hasNonNull("instructions");
+        } catch (Exception ignored) {
+            return false;
+        }
+    }
+
+    private OpenAiSpeechClient.SpeechOptions resolveSpeechOptions(ModelProvider provider, String language) {
+        String voice = null;
+        String responseFormat = "mp3";
+        Double speed = null;
+        String instructions = null;
+        if (provider.getConfigJson() != null && !provider.getConfigJson().isBlank()) {
+            try {
+                JsonNode node = objectMapper.readTree(provider.getConfigJson());
+                voice = textOrNull(node, "voice");
+                String configuredFormat = textOrNull(node, "responseFormat");
+                if (configuredFormat != null) {
+                    responseFormat = configuredFormat;
+                }
+                if (node.hasNonNull("speed") && node.get("speed").isNumber()) {
+                    speed = node.get("speed").asDouble();
+                }
+                instructions = textOrNull(node, "instructions");
+            } catch (Exception ignored) {
+            }
+        }
+        if (voice == null || voice.isBlank()) {
+            voice = defaultVoiceForLanguage(language);
+        }
+        return new OpenAiSpeechClient.SpeechOptions(voice, responseFormat, speed, instructions);
+    }
+
+    private String textOrNull(JsonNode node, String fieldName) {
+        if (node == null || !node.hasNonNull(fieldName)) {
+            return null;
+        }
+        String value = node.get(fieldName).asText();
+        return value == null || value.isBlank() ? null : value.trim();
+    }
+
+    private String defaultVoiceForLanguage(String language) {
+        if (language == null || language.isBlank()) {
+            return "alloy";
+        }
+        String normalized = language.trim().toLowerCase();
+        if (normalized.startsWith("zh")) {
+            return "alloy";
+        }
+        return "alloy";
     }
 
     private void deleteVoiceFile(String voiceUrl) {

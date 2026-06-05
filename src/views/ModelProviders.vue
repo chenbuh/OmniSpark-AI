@@ -2,7 +2,7 @@
   <div class="providers-container">
     <div class="page-header">
       <h2>模型配置中心 (Model Providers)</h2>
-      <p class="subtitle">管理并隔离当前项目空间下的 AI 模型提供商。您可以自由接入 OpenAI 兼容的第三方提供商或 Sora 官方 API。</p>
+      <p class="subtitle">管理并隔离当前项目空间下的 AI 模型提供商，支持图像、视频和真实 TTS 配音接口。</p>
     </div>
 
     <!-- 列表操作卡 -->
@@ -138,8 +138,43 @@
         </n-form-item>
 
         <n-form-item label="模型具体名称 (Model Name)">
-          <n-input v-model:value="form.modelName" placeholder="例如: dall-e-3, sora-1, claude-3" />
+          <n-input v-model:value="form.modelName" :placeholder="form.type === 'audio' ? '例如: tts-1, gpt-4o-mini-tts' : '例如: dall-e-3, sora-1, claude-3'" />
         </n-form-item>
+
+        <template v-if="form.type === 'audio'">
+          <n-row :gutter="12">
+            <n-col :span="12">
+              <n-form-item label="语音音色 (Voice)">
+                <n-input v-model:value="form.voice" placeholder="例如: alloy, nova, shimmer" />
+              </n-form-item>
+            </n-col>
+            <n-col :span="12">
+              <n-form-item label="输出格式">
+                <n-select v-model:value="form.responseFormat" :options="responseFormatOptions" />
+              </n-form-item>
+            </n-col>
+          </n-row>
+
+          <n-row :gutter="12">
+            <n-col :span="12">
+              <n-form-item label="语速 (可选)">
+                <n-input v-model:value="form.speed" placeholder="例如: 1 或 1.1" />
+              </n-form-item>
+            </n-col>
+            <n-col :span="12">
+              <div class="field-hint inline-hint">不填则按服务端默认语速生成。</div>
+            </n-col>
+          </n-row>
+
+          <n-form-item label="朗读指令 (可选)">
+            <n-input
+              v-model:value="form.instructions"
+              type="textarea"
+              :autosize="{ minRows: 2, maxRows: 4 }"
+              placeholder="例如: 用自然温和的中文女声朗读，语气平稳。"
+            />
+          </n-form-item>
+        </template>
 
         <n-row :gutter="12">
           <n-col :span="12">
@@ -178,19 +213,32 @@ const testingId = ref<number | null>(null)
 
 const form = reactive({
   name: '',
-  type: 'image' as 'image' | 'video' | 'openai' | 'custom',
+  type: 'image' as 'image' | 'video' | 'audio' | 'openai' | 'custom',
   baseUrl: '',
   apiKey: '',
   modelName: '',
   enabled: true,
-  isDefault: false
+  isDefault: false,
+  configJson: '',
+  voice: '',
+  responseFormat: 'mp3',
+  speed: '',
+  instructions: ''
 })
 
 const typeOptions = [
   { label: '图像生成模型 (Image)', value: 'image' },
   { label: '视频生成模型 (Video)', value: 'video' },
+  { label: '语音配音模型 (Audio / TTS)', value: 'audio' },
   { label: 'OpenAI 兼容接口 (OpenAI)', value: 'openai' },
   { label: '自定义复杂接口 (Custom)', value: 'custom' }
+]
+
+const responseFormatOptions = [
+  { label: 'MP3', value: 'mp3' },
+  { label: 'WAV', value: 'wav' },
+  { label: 'OGG', value: 'ogg' },
+  { label: 'FLAC', value: 'flac' }
 ]
 
 const currentProviders = computed(() => {
@@ -209,6 +257,7 @@ watch(() => projectStore.activeProjectId, () => { page.value = 1 })
 const getTypeTag = (type: string) => {
   if (type === 'image') return 'success'
   if (type === 'video') return 'warning'
+  if (type === 'audio') return 'info'
   if (type === 'openai') return 'info'
   return 'default'
 }
@@ -216,6 +265,7 @@ const getTypeTag = (type: string) => {
 const getTypeLabel = (type: string) => {
   if (type === 'image') return '生图'
   if (type === 'video') return '生视频'
+  if (type === 'audio') return '配音'
   if (type === 'openai') return 'OpenAI'
   return '自定义'
 }
@@ -235,7 +285,7 @@ const handleTestConnection = async (provider: ModelProvider) => {
   message.loading(`正在测试连接提供商 ${provider.name} 中...`)
   try {
     await providerApi.testConnection(provider.id)
-    message.success(`${provider.name} 连接测试成功！延迟: 124ms`)
+    message.success(`${provider.name} 连接测试成功`)
   } catch (err: any) {
     message.error(err.message || '连接失败')
   } finally {
@@ -253,10 +303,16 @@ const handleOpenAddModal = () => {
   form.modelName = ''
   form.enabled = true
   form.isDefault = false
+  form.configJson = ''
+  form.voice = ''
+  form.responseFormat = 'mp3'
+  form.speed = ''
+  form.instructions = ''
   showModal.value = true
 }
 
 const handleOpenEditModal = (provider: ModelProvider) => {
+  const config = parseConfigJson(provider.configJson)
   isEditMode.value = true
   editingId.value = provider.id
   form.name = provider.name
@@ -266,6 +322,11 @@ const handleOpenEditModal = (provider: ModelProvider) => {
   form.modelName = provider.modelName
   form.enabled = provider.enabled
   form.isDefault = provider.isDefault
+  form.configJson = provider.configJson || ''
+  form.voice = config.voice || ''
+  form.responseFormat = config.responseFormat || 'mp3'
+  form.speed = config.speed ? String(config.speed) : ''
+  form.instructions = config.instructions || ''
   showModal.value = true
 }
 
@@ -275,6 +336,8 @@ const handleSave = async () => {
     return false
   }
 
+  const configJson = buildConfigJson()
+
   if (isEditMode.value && editingId.value !== null) {
     await providerStore.updateProvider(editingId.value, {
       name: form.name,
@@ -283,7 +346,8 @@ const handleSave = async () => {
       apiKey: form.apiKey,
       modelName: form.modelName,
       enabled: form.enabled,
-      isDefault: form.isDefault
+      isDefault: form.isDefault,
+      configJson
     })
     message.success('模型提供商配置更新成功')
   } else {
@@ -295,7 +359,8 @@ const handleSave = async () => {
       apiKey: form.apiKey,
       modelName: form.modelName,
       enabled: form.enabled,
-      isDefault: form.isDefault
+      isDefault: form.isDefault,
+      configJson
     })
     message.success('新模型提供商配置已注入当前空间')
   }
@@ -305,6 +370,34 @@ const handleSave = async () => {
 const handleDelete = async (id: number) => {
   await providerStore.deleteProvider(id)
   message.success('模型提供商配置已删除')
+}
+
+const parseConfigJson = (value?: string) => {
+  if (!value) {
+    return {} as Record<string, any>
+  }
+  try {
+    return JSON.parse(value)
+  } catch {
+    return {} as Record<string, any>
+  }
+}
+
+const buildConfigJson = () => {
+  if (form.type !== 'audio') {
+    return form.configJson || ''
+  }
+  const payload: Record<string, any> = {}
+  if (form.voice.trim()) payload.voice = form.voice.trim()
+  if (form.responseFormat.trim()) payload.responseFormat = form.responseFormat.trim()
+  if (form.speed.trim()) {
+    const speedValue = Number(form.speed)
+    if (!Number.isNaN(speedValue) && speedValue > 0) {
+      payload.speed = speedValue
+    }
+  }
+  if (form.instructions.trim()) payload.instructions = form.instructions.trim()
+  return Object.keys(payload).length ? JSON.stringify(payload) : ''
 }
 </script>
 
@@ -355,6 +448,10 @@ const handleDelete = async (id: number) => {
   margin-top: 8px;
   font-size: 12px;
   color: #9ca3af;
+}
+
+.inline-hint {
+  padding-top: 36px;
 }
 
 /* 表格样式 */

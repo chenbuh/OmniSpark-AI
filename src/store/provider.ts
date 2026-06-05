@@ -5,12 +5,13 @@ export interface ModelProvider {
   id: number
   projectId: number
   name: string
-  type: 'openai' | 'image' | 'video' | 'custom'
+  type: 'openai' | 'image' | 'video' | 'audio' | 'custom'
   baseUrl: string
   apiKey: string
   modelName: string
   enabled: boolean
   isDefault: boolean
+  configJson?: string
 }
 
 export const useModelProviderStore = defineStore('modelProvider', {
@@ -28,7 +29,8 @@ export const useModelProviderStore = defineStore('modelProvider', {
         apiKey: provider.apiKey || '',
         modelName: provider.modelName || '',
         enabled: Number(provider.enabled ?? 1) !== 0,
-        isDefault: Number(provider.isDefault ?? 0) !== 0
+        isDefault: Number(provider.isDefault ?? 0) !== 0,
+        configJson: provider.configJson || ''
       }
     },
     setProviders(providers: any[]) {
