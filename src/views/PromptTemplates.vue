@@ -9,11 +9,7 @@
       <div class="filter-row">
         <n-tabs v-model:value="activeTag" type="segment" class="filter-tabs">
           <n-tab name="all">全部类型</n-tab>
-          <n-tab name="写实/人像">写实/人像</n-tab>
-          <n-tab name="动漫">二次元动漫</n-tab>
-          <n-tab name="赛博朋克">赛博朋克</n-tab>
-          <n-tab name="科幻">宇宙科幻</n-tab>
-          <n-tab name="3D渲染">3D 渲染</n-tab>
+          <n-tab v-for="tag in templateTags" :key="tag" :name="tag">{{ tag }}</n-tab>
         </n-tabs>
         <n-space>
           <n-select v-model:value="sortBy" :options="sortOptions" style="width: 136px;" size="small" />
@@ -31,7 +27,7 @@
       <div v-for="tpl in templates" :key="tpl.id" class="tpl-card glass-card">
         <div class="tpl-header">
           <span class="tpl-name">{{ tpl.name }}</span>
-          <n-tag type="warning" size="mini" round>{{ tpl.tag }}</n-tag>
+          <n-tag v-if="tpl.tag" type="warning" size="mini" round>{{ tpl.tag }}</n-tag>
         </div>
         <p class="tpl-content">{{ tpl.content }}</p>
         <div class="tpl-author">
@@ -105,7 +101,13 @@
         <n-row :gutter="12">
           <n-col :span="12">
             <n-form-item label="分类标签">
-              <n-select v-model:value="form.tag" filterable :options="tagOptions" placeholder="请选择或输入标签" />
+              <n-select
+                v-model:value="form.tag"
+                filterable
+                tag
+                :options="tagOptions"
+                placeholder="请选择或输入标签"
+              />
             </n-form-item>
           </n-col>
           <n-col :span="12">
@@ -152,7 +154,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, onMounted, onBeforeUnmount, watch } from 'vue'
+import { computed, ref, reactive, onMounted, onBeforeUnmount, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useMessage, useDialog } from 'naive-ui'
 import { useProjectStore } from '@/store/project'
@@ -174,6 +176,7 @@ const showCommentDrawer = ref(false)
 const editingId = ref<number | null>(null)
 const saving = ref(false)
 const templates = ref<PromptTemplate[]>([])
+const templateTags = ref<string[]>([])
 const selectedTemplate = ref<PromptTemplate | null>(null)
 const currentUserId = ref<number | null>(null)
 const totalTemplates = ref(0)
@@ -183,15 +186,16 @@ const pageSize = ref(12)
 const pageSizeOptions = [12, 24, 48, 96]
 
 const form = reactive({
-  name: '', tag: '写实/人像', content: '', negativePrompt: '', modelName: ''
+  name: '', tag: '', content: '', negativePrompt: '', modelName: ''
 })
 
-const tagOptions = [
-  { label: '写实/人像', value: '写实/人像' }, { label: '二次元动漫', value: '动漫' },
-  { label: '赛博朋克', value: '赛博朋克' }, { label: '科幻', value: '科幻' },
-  { label: '3D渲染', value: '3D渲染' }, { label: '奇幻', value: '奇幻' },
-  { label: '插画', value: '插画' }, { label: '建筑设计', value: '建筑设计' }
-]
+const tagOptions = computed(() => {
+  const values = new Set<string>(templateTags.value)
+  if (form.tag?.trim()) {
+    values.add(form.tag.trim())
+  }
+  return Array.from(values).map(item => ({ label: item, value: item }))
+})
 const sortOptions = [
   { label: '最新发布', value: 'newest' },
   { label: '最多点赞', value: 'likes' },
@@ -216,6 +220,21 @@ async function loadTemplates() {
   }
 }
 
+async function loadTemplateTags() {
+  try {
+    const res = await templateApi.getTags()
+    const values = Array.isArray((res as any).data) ? (res as any).data : []
+    templateTags.value = values
+      .map((item: unknown) => typeof item === 'string' ? item.trim() : '')
+      .filter((item: string) => !!item)
+    if (activeTag.value !== 'all' && !templateTags.value.includes(activeTag.value)) {
+      activeTag.value = 'all'
+    }
+  } catch {
+    templateTags.value = []
+  }
+}
+
 function scheduleLoadTemplates(delay = 180) {
   if (searchTimer) {
     clearTimeout(searchTimer)
@@ -230,6 +249,7 @@ onMounted(() => {
     const info = JSON.parse(localStorage.getItem('userInfo') || '{}')
     currentUserId.value = info.id || null
   } catch {}
+  loadTemplateTags()
   loadTemplates()
 })
 onBeforeUnmount(() => {
@@ -246,7 +266,7 @@ watch([page, pageSize], () => {
 })
 
 const resetForm = () => {
-  Object.assign(form, { name: '', tag: '写实/人像', content: '', negativePrompt: '', modelName: '' })
+  Object.assign(form, { name: '', tag: '', content: '', negativePrompt: '', modelName: '' })
   editingId.value = null
 }
 function handlePageSizeChange(size: number) {
@@ -324,7 +344,7 @@ async function handleCopyPrompt(tpl: PromptTemplate) {
 const handleEdit = (tpl: PromptTemplate) => {
   editingId.value = tpl.id
   form.name = tpl.name
-  form.tag = tpl.tag || '写实/人像'
+  form.tag = tpl.tag || ''
   form.content = tpl.content
   form.negativePrompt = tpl.negativePrompt || ''
   form.modelName = tpl.modelName || ''
@@ -342,7 +362,7 @@ const handleSave = async () => {
       await templateApi.update(editingId.value, {
         projectId: projectStore.activeProjectId,
         name: form.name,
-        tag: form.tag,
+        tag: form.tag.trim() || undefined,
         content: form.content,
         negativePrompt: form.negativePrompt || undefined,
         modelName: form.modelName || undefined
@@ -352,14 +372,14 @@ const handleSave = async () => {
       await templateApi.createTemplate({
         projectId: projectStore.activeProjectId,
         name: form.name,
-        tag: form.tag,
+        tag: form.tag.trim() || undefined,
         content: form.content,
         negativePrompt: form.negativePrompt || undefined,
         modelName: form.modelName || undefined
       })
       message.success('新提示词模板已收录！')
     }
-    await loadTemplates()
+    await Promise.all([loadTemplateTags(), loadTemplates()])
     resetForm()
     showAddModal.value = false
   } catch (err: any) {
@@ -378,7 +398,7 @@ const handleDelete = async (id: number) => {
     onPositiveClick: async () => {
       try {
         await templateApi.deleteTemplate(id)
-        await loadTemplates()
+        await Promise.all([loadTemplateTags(), loadTemplates()])
         message.success('已删除')
       } catch (err: any) {
         message.error(err.message || '删除失败')

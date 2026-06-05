@@ -51,6 +51,11 @@ public class PromptTemplateController {
         ));
     }
 
+    @GetMapping("/tags")
+    public ApiResult<List<String>> tags() {
+        return ApiResult.ok(templateService.tags());
+    }
+
     @PostMapping
     public ApiResult<PromptTemplateVO> create(@Valid @RequestBody PromptTemplateSaveDTO dto) {
         return ApiResult.ok(templateService.create(dto));

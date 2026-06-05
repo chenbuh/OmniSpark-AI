@@ -104,6 +104,18 @@ public class PromptTemplateService {
         templateMapper.deleteById(id);
     }
 
+    public List<String> tags() {
+        return templateMapper.selectList(new LambdaQueryWrapper<PromptTemplate>()
+                        .eq(PromptTemplate::getStatus, 1))
+                .stream()
+                .map(PromptTemplate::getTag)
+                .filter(tag -> tag != null && !tag.isBlank())
+                .map(String::trim)
+                .distinct()
+                .sorted(String.CASE_INSENSITIVE_ORDER)
+                .toList();
+    }
+
     private PromptTemplateVO toVO(PromptTemplate template, boolean liked) {
         PromptTemplateVO vo = VoMapper.copy(template, PromptTemplateVO.class);
         vo.setLiked(liked ? 1 : 0);

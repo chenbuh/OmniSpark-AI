@@ -25,6 +25,16 @@ export interface PromptTemplate {
   createdAt?: string
 }
 
+export interface PromptTemplatePayload {
+  projectId: number
+  name: string
+  content: string
+  negativePrompt?: string
+  modelName?: string
+  tag?: string
+  status?: number
+}
+
 export const templateApi = {
   // 获取提示词模板列表
   async getTemplates(params?: {
@@ -47,13 +57,17 @@ export const templateApi = {
     })
   },
 
+  async getTags() {
+    return request.get<string[]>('/api/prompt-templates/tags')
+  },
+
   // 新增模板
-  async createTemplate(params: Omit<PromptTemplate, 'id' | 'status'>) {
+  async createTemplate(params: PromptTemplatePayload) {
     return request.post('/api/prompt-templates', params)
   },
 
   // 更新模板
-  async update(id: number, params: Partial<PromptTemplate>) {
+  async update(id: number, params: Partial<PromptTemplatePayload>) {
     return request.put(`/api/prompt-templates/${id}`, params)
   },
 
