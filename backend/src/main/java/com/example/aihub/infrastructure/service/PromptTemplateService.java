@@ -55,6 +55,18 @@ public class PromptTemplateService {
         return new PageResult<>(result.getTotal(), result.getPages(), records);
     }
 
+    public PromptTemplateVO get(Long id, Long currentUserId) {
+        PromptTemplate template = templateMapper.selectById(id);
+        if (template == null || template.getStatus() == null || template.getStatus() != 1) {
+            throw new BusinessException("模板不存在");
+        }
+        return toVO(template, interactionService.isLiked(
+                PublicContentInteractionService.RESOURCE_PROMPT_TEMPLATE,
+                id,
+                currentUserId
+        ));
+    }
+
     @Transactional(rollbackFor = Exception.class)
     public PromptTemplateVO create(PromptTemplateSaveDTO dto) {
         User currentUser = requireCurrentUser();

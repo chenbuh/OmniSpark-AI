@@ -51,6 +51,11 @@ public class PromptTemplateController {
         ));
     }
 
+    @GetMapping("/{id}")
+    public ApiResult<PromptTemplateVO> get(@PathVariable Long id) {
+        return ApiResult.ok(templateService.get(id, StpUtil.getLoginIdAsLong()));
+    }
+
     @GetMapping("/tags")
     public ApiResult<List<String>> tags() {
         return ApiResult.ok(templateService.tags());

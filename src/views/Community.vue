@@ -322,10 +322,6 @@ function formatInteractionCount(count: number | null | undefined) {
   return typeof count === 'number' ? count : '-'
 }
 
-function updateKnownCount(count: number | null | undefined, delta: number) {
-  return typeof count === 'number' ? Math.max(0, count + delta) : count
-}
-
 function requireCommunityPageData(value: unknown) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
     throw new Error('社区内容待确认')
@@ -351,6 +347,17 @@ function requireCommunityPostResult(value: unknown, action: 'create' | 'update')
   if (!Number.isFinite(id) || id <= 0 || !title || !prompt) {
     throw new Error(action === 'create' ? '发布结果待确认' : '更新结果待确认')
   }
+  const likesCount = Number((value as any).likesCount)
+  const commentsCount = Number((value as any).commentsCount)
+  let liked: boolean | null = null
+  if ((value as any).liked === 1 || (value as any).liked === '1' || (value as any).liked === true || (value as any).liked === 'true') {
+    liked = true
+  } else if ((value as any).liked === 0 || (value as any).liked === '0' || (value as any).liked === false || (value as any).liked === 'false') {
+    liked = false
+  }
+  if (!Number.isFinite(likesCount) || likesCount < 0 || !Number.isFinite(commentsCount) || commentsCount < 0 || liked === null) {
+    throw new Error(action === 'create' ? '发布结果待确认' : '更新结果待确认')
+  }
   return {
     id,
     title,
@@ -359,7 +366,10 @@ function requireCommunityPostResult(value: unknown, action: 'create' | 'update')
     modelName: typeof (value as any).modelName === 'string' ? (value as any).modelName : '',
     imageUrl: typeof (value as any).imageUrl === 'string' ? (value as any).imageUrl : '',
     category: typeof (value as any).category === 'string' ? (value as any).category : '',
-    tags: typeof (value as any).tags === 'string' ? (value as any).tags : ''
+    tags: typeof (value as any).tags === 'string' ? (value as any).tags : '',
+    likesCount,
+    commentsCount,
+    liked
   }
 }
 
@@ -500,6 +510,23 @@ async function loadPostDetail(id: number) {
   return requireCommunityPostResult((res as any).data, 'update')
 }
 
+function syncCommunityPostState(post: ReturnType<typeof requireCommunityPostResult>) {
+  const resolvedPost = {
+    ...post,
+    imageUrl: resolveAssetUrl(post.imageUrl)
+  }
+  const target = posts.value?.find((item: any) => item.id === post.id)
+  if (target) {
+    Object.assign(target, resolvedPost)
+  }
+  if (detailPost.value?.id === post.id) {
+    detailPost.value = {
+      ...detailPost.value,
+      ...resolvedPost
+    }
+  }
+}
+
 function normalizeOptionalText(value: unknown) {
   return typeof value === 'string' ? value.trim() : ''
 }
@@ -636,8 +663,15 @@ async function handleLike(post: any) {
   try {
     const res = await request.post(`/api/community/posts/${post.id}/like`)
     const liked = requireLikeToggleResult((res as any).data)
-    post.liked = liked
-    post.likesCount = updateKnownCount(post.likesCount, liked ? 1 : -1)
+    await loadPosts()
+    if (!posts.value) {
+      throw new Error('点赞结果待确认')
+    }
+    const refreshed = await loadPostDetail(post.id)
+    if (refreshed.liked !== liked) {
+      throw new Error('点赞结果待确认')
+    }
+    syncCommunityPostState(refreshed)
   } catch (err: any) { message.error(err.message || '操作失败，请先登录') }
 }
 

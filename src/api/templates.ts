@@ -57,6 +57,10 @@ export const templateApi = {
     })
   },
 
+  async get(id: number) {
+    return request.get<PromptTemplate>(`/api/prompt-templates/${id}`)
+  },
+
   async getTags() {
     return request.get<string[]>('/api/prompt-templates/tags')
   },

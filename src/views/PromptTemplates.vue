@@ -246,6 +246,20 @@ function requireTemplateResult(value: unknown, action: 'create' | 'update') {
   }
 }
 
+function requireTemplateDetail(value: unknown, action: 'create' | 'update') {
+  const base = requireTemplateResult(value, action)
+  const record = value as Record<string, unknown>
+  return {
+    ...base,
+    tag: normalizeOptionalText(record.tag),
+    negativePrompt: normalizeOptionalText(record.negativePrompt),
+    modelName: normalizeOptionalText(record.modelName),
+    likesCount: normalizeInteractionCount(record.likesCount, action),
+    commentsCount: normalizeInteractionCount(record.commentsCount, action),
+    liked: normalizeLikedState(record.liked, action)
+  }
+}
+
 function requireLikeToggleResult(value: unknown) {
   if (value === 1 || value === '1' || value === true || value === 'true') {
     return 1
@@ -254,6 +268,28 @@ function requireLikeToggleResult(value: unknown) {
     return 0
   }
   throw new Error('点赞结果待确认')
+}
+
+function normalizeOptionalText(value: unknown) {
+  return typeof value === 'string' ? value.trim() : ''
+}
+
+function normalizeInteractionCount(value: unknown, action: 'create' | 'update') {
+  const parsed = Number(value)
+  if (!Number.isFinite(parsed) || parsed < 0) {
+    throw new Error(action === 'create' ? '模板创建结果待确认' : '模板更新结果待确认')
+  }
+  return parsed
+}
+
+function normalizeLikedState(value: unknown, action: 'create' | 'update') {
+  if (value === 1 || value === '1' || value === true || value === 'true') {
+    return 1
+  }
+  if (value === 0 || value === '0' || value === false || value === 'false') {
+    return 0
+  }
+  throw new Error(action === 'create' ? '模板创建结果待确认' : '模板更新结果待确认')
 }
 
 async function loadTemplates() {
@@ -357,10 +393,6 @@ function formatInteractionCount(count?: number | null) {
   return typeof count === 'number' ? count : '-'
 }
 
-function updateKnownCount(count: number | undefined, delta: number): number | undefined {
-  return typeof count === 'number' ? Math.max(0, count + delta) : undefined
-}
-
 function canManage(tpl: PromptTemplate) {
   return !!tpl.userId && !!currentUserId.value && tpl.userId === currentUserId.value
 }
@@ -385,8 +417,24 @@ async function handleLike(tpl: PromptTemplate) {
   try {
     const res = await request.post(`/api/prompt-templates/${tpl.id}/like`)
     const liked = requireLikeToggleResult((res as any).data)
-    tpl.liked = liked
-    tpl.likesCount = updateKnownCount(tpl.likesCount, liked ? 1 : -1)
+    await loadTemplates()
+    if (!templates.value) {
+      throw new Error('点赞结果待确认')
+    }
+    const refreshed = requireTemplateDetail((await templateApi.get(tpl.id) as any).data, 'update')
+    if (refreshed.liked !== liked) {
+      throw new Error('点赞结果待确认')
+    }
+    const target = templates.value.find(item => item.id === tpl.id)
+    if (target) {
+      Object.assign(target, refreshed)
+    }
+    if (selectedTemplate.value?.id === tpl.id) {
+      selectedTemplate.value = {
+        ...selectedTemplate.value,
+        ...refreshed
+      }
+    }
   } catch (err: any) {
     message.error(err.message || '点赞失败')
   }

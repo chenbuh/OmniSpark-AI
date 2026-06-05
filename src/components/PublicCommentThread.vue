@@ -166,6 +166,21 @@ try {
   currentUserId.value = info.id || null
 } catch {}
 
+function requireCreatedCommentResult(value: unknown) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new Error('评论结果待确认')
+  }
+  const id = Number((value as any).id)
+  const content = typeof (value as any).content === 'string' ? (value as any).content.trim() : ''
+  if (!Number.isFinite(id) || id <= 0 || !content) {
+    throw new Error('评论结果待确认')
+  }
+  return {
+    id,
+    content
+  }
+}
+
 function requireDeletedCommentCount(value: unknown) {
   const parsed = Number(value)
   if (!Number.isFinite(parsed) || parsed <= 0) {
@@ -174,11 +189,11 @@ function requireDeletedCommentCount(value: unknown) {
   return parsed
 }
 
-async function loadComments() {
+async function loadComments(silent = false): Promise<PublicComment[] | null> {
   if (!commentEndpoint.value) {
     comments.value = []
     emit('countChange', 0)
-    return
+    return comments.value
   }
   loading.value = true
   try {
@@ -189,9 +204,13 @@ async function loadComments() {
     const loadedComments = (res as any).data as PublicComment[]
     comments.value = loadedComments
     emit('countChange', totalComments(loadedComments))
+    return loadedComments
   } catch (err: any) {
     comments.value = null
-    message.error(err.message || '加载评论失败')
+    if (!silent) {
+      message.error(err.message || '加载评论失败')
+    }
+    return null
   } finally {
     loading.value = false
   }
@@ -216,6 +235,19 @@ function formatTime(value?: string) {
 
 function totalComments(items: PublicComment[]) {
   return items.reduce((sum, item) => sum + 1 + (item.replies?.length || 0), 0)
+}
+
+function findCommentById(items: PublicComment[], id: number): PublicComment | null {
+  for (const item of items) {
+    if (item.id === id) {
+      return item
+    }
+    const reply = item.replies?.find(child => child.id === id)
+    if (reply) {
+      return reply
+    }
+  }
+  return null
 }
 
 function canDelete(comment: PublicComment) {
@@ -248,16 +280,28 @@ async function submitComment(parentId?: number) {
   }
   submitting.value = true
   try {
-    await request.post(commentEndpoint.value, {
+    const previousCount = comments.value ? totalComments(comments.value) : null
+    const res = await request.post(commentEndpoint.value, {
       parentId,
       content
     })
+    const created = requireCreatedCommentResult((res as any).data)
+    const refreshedComments = await loadComments(true)
+    if (!refreshedComments) {
+      throw new Error('评论结果待确认')
+    }
+    const confirmedComment = findCommentById(refreshedComments, created.id)
+    if (!confirmedComment || confirmedComment.content.trim() !== created.content) {
+      throw new Error('评论结果待确认')
+    }
+    if (previousCount !== null && totalComments(refreshedComments) < previousCount + 1) {
+      throw new Error('评论结果待确认')
+    }
     if (parentId) {
       cancelReply()
     } else {
       draft.value = ''
     }
-    await loadComments()
     emit('submitted')
   } catch (err: any) {
     message.error(err.message || '评论失败')
@@ -277,10 +321,11 @@ async function removeComment(comment: PublicComment) {
     if (replyTargetId.value === comment.id || activeReplyRootId.value === comment.id || comment.parentId === activeReplyRootId.value) {
       cancelReply()
     }
-    await loadComments()
-    const stillExists = comments.value?.some(item =>
-      item.id === comment.id || item.replies?.some(reply => reply.id === comment.id)
-    )
+    const refreshedComments = await loadComments(true)
+    if (!refreshedComments) {
+      throw new Error('评论删除结果待确认')
+    }
+    const stillExists = !!findCommentById(refreshedComments, comment.id)
     if (stillExists) {
       throw new Error('评论删除结果待确认')
     }

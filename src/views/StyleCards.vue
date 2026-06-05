@@ -351,10 +351,14 @@ function requireStyleCardResult(value: unknown, action: 'create' | 'update') {
 function requireStyleCardDetail(value: unknown, action: 'create' | 'update') {
   const base = requireStyleCardResult(value, action)
   const record = value as Record<string, unknown>
-  const type = record.type
-  if (type !== 'style' && type !== 'character') {
+  const rawType = record.type
+  if (rawType !== 'style' && rawType !== 'character') {
     throw new Error(action === 'create' ? '卡片创建结果待确认' : '卡片更新结果待确认')
   }
+  const type: 'style' | 'character' = rawType
+  const likesCount = normalizeInteractionCount(record.likesCount, action)
+  const commentsCount = normalizeInteractionCount(record.commentsCount, action)
+  const liked = normalizeInteractionLiked(record.liked, action)
   return {
     ...base,
     type,
@@ -364,7 +368,10 @@ function requireStyleCardDetail(value: unknown, action: 'create' | 'update') {
     steps: normalizeOptionalNumber(record.steps),
     size: normalizeOptionalText(record.size),
     tag: normalizeOptionalText(record.tag),
-    previewUrl: toRelativeUrl(typeof record.previewUrl === 'string' ? record.previewUrl : '')
+    previewUrl: toRelativeUrl(typeof record.previewUrl === 'string' ? record.previewUrl : ''),
+    likesCount,
+    commentsCount,
+    liked
   }
 }
 
@@ -380,6 +387,24 @@ function normalizeOptionalNumber(value: unknown) {
   return Number.isFinite(parsed) ? parsed : null
 }
 
+function normalizeInteractionCount(value: unknown, action: 'create' | 'update') {
+  const parsed = Number(value)
+  if (!Number.isFinite(parsed) || parsed < 0) {
+    throw new Error(action === 'create' ? '卡片创建结果待确认' : '卡片更新结果待确认')
+  }
+  return parsed
+}
+
+function normalizeInteractionLiked(value: unknown, action: 'create' | 'update') {
+  if (value === 1 || value === '1' || value === true || value === 'true') {
+    return 1
+  }
+  if (value === 0 || value === '0' || value === false || value === 'false') {
+    return 0
+  }
+  throw new Error(action === 'create' ? '卡片创建结果待确认' : '卡片更新结果待确认')
+}
+
 function buildStyleCardExpectation(payload: StyleCardPayload) {
   return {
     name: payload.name.trim(),
@@ -392,6 +417,19 @@ function buildStyleCardExpectation(payload: StyleCardPayload) {
     size: normalizeOptionalText(payload.size),
     tag: normalizeOptionalText(payload.tag),
     previewUrl: toRelativeUrl(payload.previewUrl || '')
+  }
+}
+
+function toStyleCardState(detail: ReturnType<typeof requireStyleCardDetail>): Partial<StyleCard> {
+  return {
+    ...detail,
+    negativePrompt: detail.negativePrompt || undefined,
+    modelName: detail.modelName || undefined,
+    cfg: detail.cfg ?? undefined,
+    steps: detail.steps ?? undefined,
+    size: detail.size || undefined,
+    tag: detail.tag || undefined,
+    previewUrl: detail.previewUrl || undefined
   }
 }
 
@@ -539,10 +577,6 @@ function formatTime(value?: string) {
 
 function formatInteractionCount(count?: number | null) {
   return typeof count === 'number' ? count : '-'
-}
-
-function updateKnownCount(count: number | undefined, delta: number): number | undefined {
-  return typeof count === 'number' ? Math.max(0, count + delta) : undefined
 }
 
 function canManage(card: StyleCard) {
@@ -714,8 +748,25 @@ async function handleLike(card: StyleCard) {
   try {
     const res = await request.post(`/api/style-cards/${card.id}/like`)
     const liked = requireStyleCardLikeResult((res as any).data)
-    card.liked = liked
-    card.likesCount = updateKnownCount(card.likesCount, liked ? 1 : -1)
+    await loadCards()
+    if (!cards.value) {
+      throw new Error('点赞结果待确认')
+    }
+    const refreshed = requireStyleCardDetail((await styleCardApi.get(card.id) as any).data, 'update')
+    if (refreshed.liked !== liked) {
+      throw new Error('点赞结果待确认')
+    }
+    const refreshedState = toStyleCardState(refreshed)
+    const target = cards.value.find(item => item.id === card.id)
+    if (target) {
+      Object.assign(target, refreshedState)
+    }
+    if (selectedCard.value?.id === card.id) {
+      selectedCard.value = {
+        ...selectedCard.value,
+        ...refreshedState
+      }
+    }
   } catch (err: any) {
     message.error(err.message || '点赞失败')
   }
