@@ -311,6 +311,51 @@ function requireSavedProvider(provider: ModelProvider, action: 'create' | 'updat
   return provider
 }
 
+function requireEnabledState(provider: ModelProvider, enabled: boolean) {
+  if (provider.enabled !== enabled) {
+    throw new Error(enabled ? '模型启用状态待确认' : '模型禁用状态待确认')
+  }
+  return provider
+}
+
+function requireDefaultState(provider: ModelProvider, expectedType?: string) {
+  if (provider.isDefault !== true) {
+    throw new Error('默认提供商状态待确认')
+  }
+  if (expectedType && provider.type !== expectedType) {
+    throw new Error('默认提供商类型待确认')
+  }
+  return provider
+}
+
+function requireConnectionTestResult(result: boolean) {
+  if (result !== true) {
+    throw new Error('连接测试结果待确认')
+  }
+}
+
+function requireDeletedProvider(id: number) {
+  if (providerStore.providers.some(item => item.id === id)) {
+    throw new Error('模型提供商删除结果待确认')
+  }
+}
+
+function requireSavedProviderState(
+  provider: ModelProvider,
+  expected: {
+    enabled?: boolean
+    isDefault?: boolean
+  }
+) {
+  if (typeof expected.enabled === 'boolean' && provider.enabled !== expected.enabled) {
+    throw new Error('模型提供商启用状态待确认')
+  }
+  if (typeof expected.isDefault === 'boolean' && provider.isDefault !== expected.isDefault) {
+    throw new Error(expected.isDefault ? '默认提供商状态待确认' : '模型提供商默认状态待确认')
+  }
+  return provider
+}
+
 async function loadProviderMeta() {
   providerMetaLoadState.value = 'loading'
   try {
@@ -335,12 +380,16 @@ async function loadProviderMeta() {
 }
 
 const handleToggleEnable = async (provider: ModelProvider, enabled: boolean) => {
-  await providerStore.updateProvider(provider.id, { enabled })
+  requireEnabledState(await providerStore.updateProvider(provider.id, { enabled }), enabled)
   message.info(enabled ? `模型 ${provider.name} 已启用` : `模型 ${provider.name} 已禁用`)
 }
 
 const handleSetDefault = async (provider: ModelProvider) => {
   await providerStore.setDefaultProvider(provider.id)
+  requireDefaultState(
+    providerStore.providers.find(item => item.id === provider.id) || provider,
+    provider.type
+  )
   message.success(`已成功将 ${provider.name} 设为当前空间默认 [${getTypeLabel(provider.type)}] 提供商`)
 }
 
@@ -372,7 +421,7 @@ const handleTestConnection = async (provider: ModelProvider) => {
   testingId.value = provider.id
   message.loading(`正在测试连接提供商 ${provider.name} 中...`)
   try {
-    await providerApi.testConnection(provider.id)
+    requireConnectionTestResult(await providerStore.testConnection(provider.id))
     message.success(`${provider.name} 连接测试成功`)
   } catch (err: any) {
     message.error(err.message || '连接失败')
@@ -459,20 +508,34 @@ const handleSave = async () => {
     if (!preserveUnknownDefault.value || defaultTouched.value) {
       payload.isDefault = form.isDefault
     }
-    requireSavedProvider(await providerStore.updateProvider(editingId.value, payload), 'update')
+    const expectedEnabled = typeof payload.enabled === 'boolean' ? payload.enabled : undefined
+    const expectedDefault = typeof payload.isDefault === 'boolean' ? payload.isDefault : undefined
+    requireSavedProviderState(
+      requireSavedProvider(await providerStore.updateProvider(editingId.value, payload), 'update'),
+      {
+        enabled: expectedEnabled,
+        isDefault: expectedDefault
+      }
+    )
     message.success('模型提供商配置更新成功')
   } else {
-    requireSavedProvider(await providerStore.addProvider({
-      projectId: projectStore.activeProjectId,
-      name: form.name,
-      type: form.type,
-      baseUrl: form.baseUrl,
-      apiKey: form.apiKey,
-      modelName: form.modelName,
-      enabled: form.enabled,
-      isDefault: form.isDefault,
-      configJson
-    }), 'create')
+    requireSavedProviderState(
+      requireSavedProvider(await providerStore.addProvider({
+        projectId: projectStore.activeProjectId,
+        name: form.name,
+        type: form.type,
+        baseUrl: form.baseUrl,
+        apiKey: form.apiKey,
+        modelName: form.modelName,
+        enabled: form.enabled,
+        isDefault: form.isDefault,
+        configJson
+      }), 'create'),
+      {
+        enabled: form.enabled,
+        isDefault: form.isDefault
+      }
+    )
     message.success('新模型提供商配置已注入当前空间')
   }
   showModal.value = false
@@ -480,6 +543,7 @@ const handleSave = async () => {
 
 const handleDelete = async (id: number) => {
   await providerStore.deleteProvider(id)
+  requireDeletedProvider(id)
   message.success('模型提供商配置已删除')
 }
 
