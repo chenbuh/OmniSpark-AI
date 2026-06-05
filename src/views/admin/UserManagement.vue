@@ -22,7 +22,7 @@
             <template #icon><Upload class="s-icon" /></template>导入
           </n-button>
           <span class="count">共 {{ total }} 个用户</span>
-          <n-button type="primary" size="small" @click="showCreate = true">
+          <n-button type="primary" size="small" @click="openCreateDialog">
             <template #icon><Plus /></template>创建用户
           </n-button>
         </n-space>
@@ -190,7 +190,7 @@ const editNickname = ref('')
 // --- 创建 ---
 const showCreate = ref(false)
 const creating = ref(false)
-const createForm = ref({ username: '', password: '', nickname: '', role: 'user' })
+const createForm = ref({ username: '', password: '', nickname: '', role: '' })
 
 // --- 生命周期 ---
 onMounted(async () => {
@@ -204,14 +204,25 @@ async function loadRoleOptions() {
     const options = Array.isArray((res as any).data) ? (res as any).data : []
     roleOptions.value = options
     if (!roleOptions.value.some(item => item.value === createForm.value.role)) {
-      createForm.value.role = roleOptions.value[0]?.value || 'user'
+      createForm.value.role = defaultCreateRole()
     }
   } catch {
-    roleOptions.value = [
-      { label: '管理员', value: 'admin' },
-      { label: '普通用户', value: 'user' }
-    ]
+    roleOptions.value = []
+    createForm.value.role = defaultCreateRole()
   }
+}
+
+function defaultCreateRole() {
+  return roleOptions.value.find(item => item.value === 'user')?.value || roleOptions.value[0]?.value || ''
+}
+
+function resetCreateForm() {
+  createForm.value = { username: '', password: '', nickname: '', role: defaultCreateRole() }
+}
+
+function openCreateDialog() {
+  resetCreateForm()
+  showCreate.value = true
 }
 
 async function loadUsers() {
@@ -265,7 +276,7 @@ async function handleCreate() {
     } else {
       message.success('用户已创建')
     }
-    createForm.value = { username: '', password: '', nickname: '', role: 'user' }
+    resetCreateForm()
     await loadUsers()
   } catch (err: any) {
     message.error(err.message || '创建失败')

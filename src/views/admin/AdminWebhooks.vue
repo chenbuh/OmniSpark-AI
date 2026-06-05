@@ -8,7 +8,7 @@
     <n-card class="glass-card" :bordered="false">
       <div class="toolbar">
         <span class="count">共 {{ list.length }} 个 Webhook</span>
-        <n-button type="primary" @click="showEditor = true; editingId = null; resetForm()">
+        <n-button type="primary" @click="openCreateEditor">
           <template #icon><Plus /></template>新建
         </n-button>
       </div>
@@ -69,7 +69,7 @@ const list = ref<any[]>([])
 const showEditor = ref(false)
 const editingId = ref<number | null>(null)
 const eventOptions = ref<{ label: string; value: string }[]>([])
-const form = reactive({ name: '', url: '', events: ['task.completed'] as string[], secret: '' })
+const form = reactive({ name: '', url: '', events: [] as string[], secret: '' })
 const eventLabelMap = computed(() => Object.fromEntries(eventOptions.value.map(item => [item.value, item.label])))
 
 onMounted(async () => {
@@ -87,19 +87,29 @@ async function loadEventOptions() {
     const res = await request.get('/api/admin/webhooks/meta')
     const options = Array.isArray((res as any).data) ? (res as any).data : []
     eventOptions.value = options
-    if (options.length > 0 && form.events.length === 0) {
-      form.events = [options[0].value]
+    if (form.events.length === 0) {
+      form.events = defaultEvents()
     }
   } catch {
-    eventOptions.value = [
-      { label: '任务开始', value: 'task.started' },
-      { label: '任务完成', value: 'task.completed' },
-      { label: '任务失败', value: 'task.failed' }
-    ]
+    eventOptions.value = []
   }
 }
 
-function resetForm() { Object.assign(form, { name: '', url: '', events: ['task.completed'], secret: '' }) }
+function defaultEvents() {
+  const preferred = eventOptions.value.find(item => item.value === 'task.completed')?.value
+  if (preferred) {
+    return [preferred]
+  }
+  return eventOptions.value[0]?.value ? [eventOptions.value[0].value] : []
+}
+
+function resetForm() { Object.assign(form, { name: '', url: '', events: defaultEvents(), secret: '' }) }
+
+function openCreateEditor() {
+  editingId.value = null
+  resetForm()
+  showEditor.value = true
+}
 
 function normalizeEvents(events: unknown): string[] {
   if (Array.isArray(events)) {
