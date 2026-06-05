@@ -22,7 +22,7 @@
             <td><code>#{{ w.id }}</code></td>
             <td>{{ w.name }}</td>
             <td><n-ellipsis :line-clamp="1" :tooltip="true" style="max-width:300px;">{{ w.url }}</n-ellipsis></td>
-            <td><n-tag size="small">{{ w.events }}</n-tag></td>
+            <td><n-tag size="small">{{ eventLabels(w.events) }}</n-tag></td>
             <td><n-switch :value="w.status === 1" @update:value="toggleStatus(w)" /></td>
             <td>
               <n-space>
@@ -59,7 +59,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, onMounted } from 'vue'
+import { computed, ref, reactive, onMounted } from 'vue'
 import { useMessage } from 'naive-ui'
 import { Plus } from 'lucide-vue-next'
 import request from '@/api/request'
@@ -68,31 +68,70 @@ const message = useMessage()
 const list = ref<any[]>([])
 const showEditor = ref(false)
 const editingId = ref<number | null>(null)
-const form = reactive({ name: '', url: '', events: 'task.completed', secret: '' })
+const eventOptions = ref<{ label: string; value: string }[]>([])
+const form = reactive({ name: '', url: '', events: ['task.completed'] as string[], secret: '' })
+const eventLabelMap = computed(() => Object.fromEntries(eventOptions.value.map(item => [item.value, item.label])))
 
-const eventOptions = [
-  { label: '任务完成', value: 'task.completed' },
-  { label: '任务失败', value: 'task.failed' },
-  { label: '任务开始', value: 'task.started' }
-]
-
-onMounted(load)
+onMounted(async () => {
+  await loadEventOptions()
+  await load()
+})
 
 async function load() {
   try { const res = await request.get('/api/admin/webhooks'); list.value = (res as any).data || [] }
   catch (err: any) { message.error(err.message || '加载 Webhook 列表失败') }
 }
 
-function resetForm() { Object.assign(form, { name: '', url: '', events: 'task.completed', secret: '' }) }
+async function loadEventOptions() {
+  try {
+    const res = await request.get('/api/admin/webhooks/meta')
+    const options = Array.isArray((res as any).data) ? (res as any).data : []
+    eventOptions.value = options
+    if (options.length > 0 && form.events.length === 0) {
+      form.events = [options[0].value]
+    }
+  } catch {
+    eventOptions.value = [
+      { label: '任务开始', value: 'task.started' },
+      { label: '任务完成', value: 'task.completed' },
+      { label: '任务失败', value: 'task.failed' }
+    ]
+  }
+}
+
+function resetForm() { Object.assign(form, { name: '', url: '', events: ['task.completed'], secret: '' }) }
+
+function normalizeEvents(events: unknown): string[] {
+  if (Array.isArray(events)) {
+    return events.map(item => String(item).trim()).filter(Boolean)
+  }
+  if (typeof events === 'string') {
+    return events.split(',').map(item => item.trim()).filter(Boolean)
+  }
+  return []
+}
+
+function eventLabels(events: unknown) {
+  return normalizeEvents(events)
+    .map(value => eventLabelMap.value[value] || value)
+    .join(' / ')
+}
 
 function editWebhook(w: any) {
-  editingId.value = w.id; form.name = w.name; form.url = w.url; form.events = w.events; form.secret = w.secret || ''; showEditor.value = true
+  editingId.value = w.id
+  form.name = w.name
+  form.url = w.url
+  form.events = normalizeEvents(w.events)
+  form.secret = w.secret || ''
+  showEditor.value = true
 }
 
 async function handleSave() {
   if (!form.name || !form.url) { message.error('名称和 URL 为必填'); return }
+  if (form.events.length === 0) { message.error('请至少选择一个触发事件'); return }
+  const eventsValue = form.events.join(',')
   try {
-    const params = `name=${encodeURIComponent(form.name)}&url=${encodeURIComponent(form.url)}&events=${encodeURIComponent(form.events)}&secret=${encodeURIComponent(form.secret)}`
+    const params = `name=${encodeURIComponent(form.name)}&url=${encodeURIComponent(form.url)}&events=${encodeURIComponent(eventsValue)}&secret=${encodeURIComponent(form.secret)}`
     if (editingId.value) {
       await request.put(`/api/admin/webhooks/${editingId.value}?${params}`)
       message.success('已更新')
@@ -106,7 +145,7 @@ async function handleSave() {
 
 async function toggleStatus(w: any) {
   try {
-    await request.put(`/api/admin/webhooks/${w.id}?name=${encodeURIComponent(w.name)}&url=${encodeURIComponent(w.url)}&events=${encodeURIComponent(w.events)}&status=${w.status === 1 ? 0 : 1}`)
+    await request.put(`/api/admin/webhooks/${w.id}?name=${encodeURIComponent(w.name)}&url=${encodeURIComponent(w.url)}&events=${encodeURIComponent(Array.isArray(w.events) ? w.events.join(',') : w.events)}&status=${w.status === 1 ? 0 : 1}`)
     w.status = w.status === 1 ? 0 : 1
   } catch { message.error('操作失败') }
 }

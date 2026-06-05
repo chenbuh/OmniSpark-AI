@@ -233,6 +233,9 @@ public class GenerationService {
         task.setModelName(modelName);
         task.setRequestJson(cn.hutool.json.JSONUtil.toJsonStr(buildRequestPayload(taskType, projectId, providerId, prompt, modelName, negativePrompt, size, count, options, referenceAssetIds, sourceAssetId)));
         taskMapper.insert(task);
+        try {
+            webhookService.trigger("task.started", task.getId(), taskType, task.getStatus(), task.getPrompt());
+        } catch (Exception ignored) {}
         return task;
     }
 

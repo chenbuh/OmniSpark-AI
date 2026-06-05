@@ -15,13 +15,17 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.time.Duration;
+import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 @Service
 @RequiredArgsConstructor
 public class WebhookService {
+    private static final Set<String> SUPPORTED_EVENTS = Set.of("task.started", "task.completed", "task.failed");
     private final WebhookMapper webhookMapper;
     private final ObjectMapper objectMapper;
     private final HttpClient httpClient = HttpClient.newBuilder()
@@ -45,7 +49,7 @@ public class WebhookService {
         Webhook wh = new Webhook();
         wh.setName(name);
         wh.setUrl(url);
-        wh.setEvents(events != null ? events : "task.completed");
+        wh.setEvents(normalizeEvents(events));
         wh.setSecret(secret);
         wh.setStatus(1);
         webhookMapper.insert(wh);
@@ -58,7 +62,7 @@ public class WebhookService {
         if (wh == null) throw new BusinessException("Webhook 不存在");
         if (name != null) wh.setName(name);
         if (url != null) wh.setUrl(url);
-        if (events != null) wh.setEvents(events);
+        if (events != null) wh.setEvents(normalizeEvents(events));
         wh.setSecret(secret);
         if (status != null) wh.setStatus(status);
         webhookMapper.updateById(wh);
@@ -68,6 +72,19 @@ public class WebhookService {
     @Transactional(rollbackFor = Exception.class)
     public void delete(Long id) {
         webhookMapper.deleteById(id);
+    }
+
+    public List<Map<String, String>> supportedEvents() {
+        List<Map<String, String>> result = new ArrayList<>();
+        for (String event : SUPPORTED_EVENTS.stream()
+                .sorted(Comparator.comparingInt(this::eventSortOrder))
+                .toList()) {
+            Map<String, String> item = new LinkedHashMap<>();
+            item.put("value", event);
+            item.put("label", eventLabel(event));
+            result.add(item);
+        }
+        return result;
     }
 
     /**
@@ -98,5 +115,48 @@ public class WebhookService {
                 httpClient.sendAsync(request, HttpResponse.BodyHandlers.discarding());
             } catch (Exception ignored) {}
         }
+    }
+
+    private String normalizeEvents(String events) {
+        List<String> normalized = parseEvents(events);
+        if (normalized.isEmpty()) {
+            throw new BusinessException("至少选择一个受支持的事件");
+        }
+        return String.join(",", normalized);
+    }
+
+    private List<String> parseEvents(String events) {
+        if (events == null || events.isBlank()) {
+            return List.of("task.completed");
+        }
+        return java.util.Arrays.stream(events.split(","))
+                .map(String::trim)
+                .filter(item -> !item.isBlank())
+                .distinct()
+                .peek(item -> {
+                    if (!SUPPORTED_EVENTS.contains(item)) {
+                        throw new BusinessException("不支持的 Webhook 事件: " + item);
+                    }
+                })
+                .sorted(Comparator.comparingInt(this::eventSortOrder))
+                .toList();
+    }
+
+    private int eventSortOrder(String event) {
+        return switch (event) {
+            case "task.started" -> 10;
+            case "task.completed" -> 20;
+            case "task.failed" -> 30;
+            default -> 100;
+        };
+    }
+
+    private String eventLabel(String event) {
+        return switch (event) {
+            case "task.started" -> "任务开始";
+            case "task.completed" -> "任务完成";
+            case "task.failed" -> "任务失败";
+            default -> event;
+        };
     }
 }

@@ -24,6 +24,11 @@ public class WebhookController {
         return ApiResult.ok(webhookService.list(PagingUtil.clampLimit(limit, 100, 100)));
     }
 
+    @GetMapping("/meta")
+    public ApiResult<List<java.util.Map<String, String>>> meta() {
+        return ApiResult.ok(webhookService.supportedEvents());
+    }
+
     @GetMapping("/{id}")
     public ApiResult<Webhook> get(@PathVariable Long id) {
         return ApiResult.ok(webhookService.get(id));
