@@ -229,6 +229,50 @@ function hasValidTeamId(team: Team | null | undefined) {
   return !!team && Number.isFinite(team.id) && team.id > 0
 }
 
+function normalizeOptionalText(value: unknown) {
+  return typeof value === 'string' ? value.trim() : ''
+}
+
+function requireTeamRecord(value: unknown, errorMessage: string) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new Error(errorMessage)
+  }
+  const team = teamStore.normalizeTeam(value)
+  if (!hasValidTeamId(team) || !normalizeOptionalText(team.name) || !Number.isFinite(team.ownerId) || team.ownerId <= 0) {
+    throw new Error(errorMessage)
+  }
+  return team
+}
+
+function requireMemberRecord(value: unknown, errorMessage: string) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new Error(errorMessage)
+  }
+  const member = teamStore.normalizeMember(value)
+  if (
+    !Number.isFinite(member.id) || member.id <= 0
+    || !Number.isFinite(member.teamId) || member.teamId <= 0
+    || !Number.isFinite(member.userId) || member.userId <= 0
+    || !normalizeOptionalText(member.username)
+    || !normalizeOptionalText(member.role)
+  ) {
+    throw new Error(errorMessage)
+  }
+  return member
+}
+
+function assertMembersMatchTeam(teamId: number, expectedMemberCount?: number) {
+  for (const member of teamStore.currentMembers) {
+    const normalizedMember = requireMemberRecord(member, '成员数据待确认')
+    if (normalizedMember.teamId !== teamId) {
+      throw new Error('成员数据待确认')
+    }
+  }
+  if (typeof expectedMemberCount === 'number' && teamStore.currentMembers.length !== expectedMemberCount) {
+    throw new Error('成员数据待确认')
+  }
+}
+
 async function loadTeams() {
   teamsLoading.value = true
   try {
@@ -255,6 +299,7 @@ async function loadMembers(teamId: number) {
   membersReady.value = false
   try {
     await teamStore.refreshMembers(teamId)
+    assertMembersMatchTeam(teamId)
     membersReady.value = true
   } catch (err: any) {
     membersReady.value = false
@@ -278,10 +323,16 @@ const handleCreateTeam = async () => {
     const expectedName = createForm.value.name.trim()
     const expectedDescription = (createForm.value.description || '').trim()
     const createdTeam = await teamStore.createTeam(createForm.value.name, createForm.value.description)
-    if (!hasValidTeamId(createdTeam)) {
-      throw new Error('团队创建结果待确认')
-    }
-    if (createdTeam.name.trim() !== expectedName || (createdTeam.description || '').trim() !== expectedDescription) {
+    const teamDetail = requireTeamRecord((await teamApi.getTeam(createdTeam.id) as any).data, '团队创建结果待确认')
+    if (
+      !hasValidTeamId(createdTeam)
+      || normalizeOptionalText(createdTeam.name) !== expectedName
+      || normalizeOptionalText(createdTeam.description) !== expectedDescription
+      || teamDetail.id !== createdTeam.id
+      || normalizeOptionalText(teamDetail.name) !== expectedName
+      || normalizeOptionalText(teamDetail.description) !== expectedDescription
+      || teamDetail.ownerId !== createdTeam.ownerId
+    ) {
       throw new Error('团队创建结果待确认')
     }
     teamsReady.value = true
@@ -322,10 +373,21 @@ const handleTeamAction = (key: string, team: Team) => {
 
 const handleEditTeam = async () => {
   try {
+    const expectedName = normalizeOptionalText(editForm.value.name)
+    const expectedDescription = normalizeOptionalText(editForm.value.description)
     await teamApi.updateTeam(editForm.value.id, { name: editForm.value.name, description: editForm.value.description })
     await loadTeams()
-    const refreshedTeam = teamStore.teams.find(t => t.id === editForm.value.id)
-    if (!refreshedTeam || refreshedTeam.name !== editForm.value.name || (refreshedTeam.description || '') !== (editForm.value.description || '')) {
+    const refreshedTeam = requireTeamRecord(teamStore.teams.find(t => t.id === editForm.value.id), '团队更新结果待确认')
+    const teamDetail = requireTeamRecord((await teamApi.getTeam(editForm.value.id) as any).data, '团队更新结果待确认')
+    if (
+      normalizeOptionalText(refreshedTeam.name) !== expectedName
+      || normalizeOptionalText(refreshedTeam.description) !== expectedDescription
+      || teamDetail.id !== refreshedTeam.id
+      || normalizeOptionalText(teamDetail.name) !== expectedName
+      || normalizeOptionalText(teamDetail.description) !== expectedDescription
+      || teamDetail.ownerId !== refreshedTeam.ownerId
+      || teamDetail.memberCount !== refreshedTeam.memberCount
+    ) {
       throw new Error('团队更新结果待确认')
     }
     if (selectedTeam.value?.id === editForm.value.id) {
@@ -345,20 +407,36 @@ const handleInviteMember = async () => {
     const selectedTeamId = selectedTeam.value.id
     const previousMemberCount = teamStore.teams.find(team => team.id === selectedTeamId)?.memberCount
     const invitedRes = await teamApi.inviteMember({ teamId: selectedTeam.value.id, username: invitedUsername, role: inviteForm.value.role })
-    const invitedMember = (invitedRes as any).data
-    if (!invitedMember || typeof invitedMember !== 'object' || Array.isArray(invitedMember)) {
+    const invitedMember = requireMemberRecord((invitedRes as any).data, '邀请结果待确认')
+    if (
+      invitedMember.teamId !== selectedTeamId
+      || normalizeOptionalText(invitedMember.username) !== invitedUsername
+      || normalizeOptionalText(invitedMember.role) !== invitedRole
+    ) {
       throw new Error('邀请结果待确认')
     }
     await Promise.all([loadMembers(selectedTeamId), loadTeams()])
-    const matchedMember = teamStore.currentMembers.find(member => member.username === invitedUsername)
-    if (!matchedMember || matchedMember.teamId !== selectedTeamId || matchedMember.role !== invitedRole || !Number.isFinite(matchedMember.userId) || matchedMember.userId <= 0) {
+    const matchedMember = teamStore.currentMembers.find(member => member.userId === invitedMember.userId)
+      || teamStore.currentMembers.find(member => normalizeOptionalText(member.username) === invitedUsername)
+    if (!matchedMember) {
       throw new Error('邀请结果待确认')
     }
-    const refreshedTeam = teamStore.teams.find(team => team.id === selectedTeamId)
-    if (!refreshedTeam) {
+    const confirmedMember = requireMemberRecord(matchedMember, '邀请结果待确认')
+    const refreshedTeam = requireTeamRecord(teamStore.teams.find(team => team.id === selectedTeamId), '邀请结果待确认')
+    assertMembersMatchTeam(selectedTeamId, refreshedTeam.memberCount)
+    if (
+      confirmedMember.teamId !== selectedTeamId
+      || normalizeOptionalText(confirmedMember.username) !== invitedUsername
+      || normalizeOptionalText(confirmedMember.role) !== invitedRole
+      || confirmedMember.userId !== invitedMember.userId
+    ) {
       throw new Error('邀请结果待确认')
     }
-    if (typeof previousMemberCount === 'number' && typeof refreshedTeam.memberCount === 'number' && refreshedTeam.memberCount < previousMemberCount + 1) {
+    if (
+      typeof previousMemberCount === 'number'
+      && typeof refreshedTeam.memberCount === 'number'
+      && refreshedTeam.memberCount !== previousMemberCount + 1
+    ) {
       throw new Error('邀请结果待确认')
     }
     syncSelectedTeamFromStore()
@@ -380,16 +458,19 @@ const handleRemoveMember = async (member: any) => {
       try {
         const selectedTeamId = selectedTeam.value!.id
         const previousMemberCount = teamStore.teams.find(team => team.id === selectedTeamId)?.memberCount
+        const removingMember = requireMemberRecord(member, '成员移除结果待确认')
         await teamApi.removeMember(selectedTeamId, member.userId)
         await Promise.all([loadMembers(selectedTeamId), loadTeams()])
-        if (teamStore.currentMembers.some(item => item.userId === member.userId)) {
+        if (teamStore.currentMembers.some(item => item.userId === removingMember.userId || item.id === removingMember.id)) {
           throw new Error('成员移除结果待确认')
         }
-        const refreshedTeam = teamStore.teams.find(team => team.id === selectedTeamId)
-        if (!refreshedTeam) {
-          throw new Error('成员移除结果待确认')
-        }
-        if (typeof previousMemberCount === 'number' && typeof refreshedTeam.memberCount === 'number' && refreshedTeam.memberCount > Math.max(0, previousMemberCount - 1)) {
+        const refreshedTeam = requireTeamRecord(teamStore.teams.find(team => team.id === selectedTeamId), '成员移除结果待确认')
+        assertMembersMatchTeam(selectedTeamId, refreshedTeam.memberCount)
+        if (
+          typeof previousMemberCount === 'number'
+          && typeof refreshedTeam.memberCount === 'number'
+          && refreshedTeam.memberCount !== Math.max(0, previousMemberCount - 1)
+        ) {
           throw new Error('成员移除结果待确认')
         }
         syncSelectedTeamFromStore()

@@ -229,7 +229,7 @@ import { authApi } from '@/api/auth'
 import { useUserStore } from '@/store/user'
 import { useProjectStore } from '@/store/project'
 import { useTeamStore } from '@/store/team'
-import { projectShareApi } from '@/api/projectShares'
+import { projectShareApi, type ProjectShare } from '@/api/projectShares'
 import { providerApi } from '@/api/providers'
 import request, { API_BASE_URL } from '@/api/request'
 import { templateApi } from '@/api/templates'
@@ -262,7 +262,7 @@ const addProjectForm = reactive({
 
 // 项目共享状态
 const showShareModal = ref(false)
-const shares = ref<any[] | null>(null)
+const shares = ref<ProjectShare[] | null>(null)
 const newShareTeamId = ref<number | null>(null)
 const newSharePermission = ref('view')
 const sharesLoadState = ref<'loading' | 'ready' | 'error'>('ready')
@@ -294,6 +294,57 @@ function requireProjectShare(value: unknown) {
     projectId,
     teamId,
     permission
+  }
+}
+
+function normalizeProjectShareRecord(value: unknown, expectedProjectId?: number): ProjectShare {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new Error('共享列表待确认')
+  }
+  const item = value as Record<string, unknown>
+  const base = requireProjectShare(item)
+  const projectName = typeof item.projectName === 'string' ? item.projectName.trim() : ''
+  const teamName = typeof item.teamName === 'string' ? item.teamName.trim() : ''
+  const createdAt = typeof item.createdAt === 'string' ? item.createdAt.trim() : ''
+  if (typeof expectedProjectId === 'number' && base.projectId !== expectedProjectId) {
+    throw new Error('共享列表待确认')
+  }
+  if (!teamName) {
+    throw new Error('共享列表待确认')
+  }
+  return {
+    id: base.id,
+    projectId: base.projectId,
+    projectName: projectName || undefined,
+    teamId: base.teamId,
+    teamName,
+    permission: base.permission,
+    createdAt
+  }
+}
+
+function normalizeProjectShareList(value: unknown, expectedProjectId: number) {
+  if (!Array.isArray(value)) {
+    throw new Error('共享列表待确认')
+  }
+  const normalized = value.map(item => normalizeProjectShareRecord(item, expectedProjectId))
+  const shareIds = new Set<number>()
+  for (const share of normalized) {
+    if (shareIds.has(share.id)) {
+      throw new Error('共享列表待确认')
+    }
+    shareIds.add(share.id)
+  }
+  return normalized
+}
+
+function assertShareMatchesTeam(share: ProjectShare, expected: { projectId: number; teamId: number; permission: string }) {
+  if (share.projectId !== expected.projectId || share.teamId !== expected.teamId || share.permission !== expected.permission) {
+    throw new Error('共享结果待确认')
+  }
+  const matchedTeam = teamStore.teams.find(team => team.id === expected.teamId)
+  if (!matchedTeam || !matchedTeam.name?.trim() || share.teamName?.trim() !== matchedTeam.name.trim()) {
+    throw new Error('共享结果待确认')
   }
 }
 
@@ -669,14 +720,16 @@ const loadTeamOptions = async () => {
 }
 
 const loadShares = async () => {
-  if (!projectStore.activeProjectId) return
+  if (!projectStore.activeProjectId) {
+    shares.value = []
+    sharesLoadState.value = 'ready'
+    return
+  }
   sharesLoadState.value = 'loading'
   try {
-    const res = await projectShareApi.getShares(projectStore.activeProjectId)
-    if (!Array.isArray(res.data)) {
-      throw new Error('共享列表待确认')
-    }
-    shares.value = res.data
+    const activeProjectId = projectStore.activeProjectId
+    const res = await projectShareApi.getShares(activeProjectId)
+    shares.value = normalizeProjectShareList((res as any).data, activeProjectId)
     sharesLoadState.value = 'ready'
   } catch {
     shares.value = null
@@ -694,20 +747,29 @@ const handleAddShare = async () => {
     const activeProjectId = projectStore.activeProjectId
     const shareTeamId = newShareTeamId.value
     const sharePermission = newSharePermission.value
+    const previousShareIds = new Set((shares.value || []).map(share => Number(share.id)))
     const res = await projectShareApi.createShare({
       projectId: activeProjectId,
       teamId: shareTeamId,
       permission: sharePermission
     })
     const created = requireProjectShare((res as any).data)
-    await loadShares()
+    await Promise.all([loadTeamOptions(), loadShares()])
     const createdShare = shares.value?.find(share => Number(share.id) === created.id)
       || shares.value?.find(share =>
         Number(share.projectId) === activeProjectId
         && Number(share.teamId) === shareTeamId
         && String(share.permission) === sharePermission
       )
-    if (!createdShare || Number(createdShare.projectId) !== activeProjectId || Number(createdShare.teamId) !== shareTeamId || String(createdShare.permission) !== sharePermission) {
+    if (!createdShare) {
+      throw new Error('共享结果待确认')
+    }
+    assertShareMatchesTeam(createdShare, {
+      projectId: activeProjectId,
+      teamId: shareTeamId,
+      permission: sharePermission
+    })
+    if (!previousShareIds.has(createdShare.id) && createdShare.id !== created.id) {
       throw new Error('共享结果待确认')
     }
     message.success('共享成功')
@@ -722,11 +784,20 @@ const handleUpdateShare = async (shareId: number, permission: string) => {
     const currentShare = shares.value?.find(share => Number(share.id) === shareId)
     const expectedProjectId = Number(currentShare?.projectId || projectStore.activeProjectId)
     const expectedTeamId = Number(currentShare?.teamId)
+    const previousShareCount = shares.value?.length
     const res = await projectShareApi.updatePermission(shareId, permission)
     requireProjectShare((res as any).data)
-    await loadShares()
+    await Promise.all([loadTeamOptions(), loadShares()])
     const updatedShare = shares.value?.find(share => Number(share.id) === shareId)
-    if (!updatedShare || Number(updatedShare.projectId) !== expectedProjectId || Number(updatedShare.teamId) !== expectedTeamId || String(updatedShare.permission) !== permission) {
+    if (!updatedShare) {
+      throw new Error('共享权限待确认')
+    }
+    assertShareMatchesTeam(updatedShare, {
+      projectId: expectedProjectId,
+      teamId: expectedTeamId,
+      permission
+    })
+    if (typeof previousShareCount === 'number' && shares.value?.length !== previousShareCount) {
       throw new Error('共享权限待确认')
     }
     message.success('权限已更新')
@@ -737,9 +808,24 @@ const handleUpdateShare = async (shareId: number, permission: string) => {
 
 const handleRemoveShare = async (shareId: number) => {
   try {
+    const previousShare = shares.value?.find(share => Number(share.id) === shareId)
+    const previousShareCount = shares.value?.length
     await projectShareApi.removeShare(shareId)
-    await loadShares()
+    await Promise.all([loadTeamOptions(), loadShares()])
     if (shares.value?.some(share => Number(share.id) === shareId)) {
+      throw new Error('取消共享结果待确认')
+    }
+    if (
+      previousShare
+      && shares.value?.some(share =>
+        Number(share.projectId) === previousShare.projectId
+        && Number(share.teamId) === previousShare.teamId
+        && String(share.permission) === previousShare.permission
+      )
+    ) {
+      throw new Error('取消共享结果待确认')
+    }
+    if (typeof previousShareCount === 'number' && shares.value && shares.value.length > Math.max(0, previousShareCount - 1)) {
       throw new Error('取消共享结果待确认')
     }
     message.success('已取消共享')
