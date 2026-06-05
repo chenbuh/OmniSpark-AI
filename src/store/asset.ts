@@ -25,8 +25,8 @@ export function resolveAssetUrl(url?: string | null): string {
   return `${backendOrigin}/${raw.replace(/^\.?\//, '')}`
 }
 
-function formatFileSize(bytes: number): string {
-  if (!Number.isFinite(bytes) || bytes <= 0) return '--'
+function formatFileSize(bytes?: number | null): string {
+  if (!Number.isFinite(bytes) || !bytes || bytes <= 0) return '--'
   if (bytes < 1024) return `${bytes} B`
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(bytes >= 100 * 1024 ? 0 : 1)} KB`
   if (bytes < 1024 * 1024 * 1024) {
@@ -45,7 +45,7 @@ export interface Asset {
   thumbUrl: string
   mimeType: string
   fileSize: string
-  fileSizeBytes: number
+  fileSizeBytes?: number
   favorite: boolean
   prompt?: string
   modelName?: string
@@ -58,7 +58,7 @@ export const useAssetStore = defineStore('asset', {
   }),
   actions: {
     normalizeAsset(asset: any): Asset {
-      const fileSizeBytes = Number(asset.fileSize || 0)
+      const fileSizeBytes = parseOptionalFileSize(asset.fileSize)
       return {
         id: Number(asset.id),
         projectId: Number(asset.projectId),
@@ -69,7 +69,7 @@ export const useAssetStore = defineStore('asset', {
         thumbUrl: resolveAssetUrl(asset.thumbUrl || asset.fileUrl),
         mimeType: asset.mimeType || '',
         fileSize: formatFileSize(fileSizeBytes),
-        fileSizeBytes,
+        fileSizeBytes: fileSizeBytes == null ? undefined : fileSizeBytes,
         favorite: Number(asset.favorite ?? 0) !== 0,
         prompt: asset.prompt || undefined,
         modelName: asset.modelName || undefined,
@@ -105,3 +105,11 @@ export const useAssetStore = defineStore('asset', {
     }
   }
 })
+
+function parseOptionalFileSize(value: unknown): number | null {
+  if (value == null || value === '') {
+    return null
+  }
+  const parsed = Number(value)
+  return Number.isFinite(parsed) ? parsed : null
+}

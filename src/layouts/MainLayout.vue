@@ -71,7 +71,7 @@
           <!-- 通知中心 -->
           <n-popover trigger="click" placement="bottom-end" :width="360">
             <template #trigger>
-              <n-badge :value="unreadCount" :max="99">
+              <n-badge :value="unreadBadgeValue" :max="99">
                 <n-button circle secondary class="notify-btn">
                   <template #icon>
                     <Bell />
@@ -82,8 +82,8 @@
 
             <div class="notif-popover">
               <div class="notif-header">
-                <span class="notif-title">通知 ({{ unreadCount }} 未读)</span>
-                <n-button v-if="unreadCount > 0" size="tiny" text type="primary" @click="handleMarkAllRead">
+                <span class="notif-title">通知 ({{ unreadCountLabel }})</span>
+                <n-button v-if="hasUnreadNotifications" size="tiny" text type="primary" @click="handleMarkAllRead">
                   全部已读
                 </n-button>
               </div>
@@ -535,8 +535,12 @@ const handleExportProject = async () => {
 
 // ===== 通知系统 =====
 const notifications = ref<any[]>([])
-const unreadCount = ref(0)
+const unreadCount = ref<number | null>(null)
 let stompClient: any = null
+
+const unreadBadgeValue = computed(() => unreadCount.value == null ? false : unreadCount.value)
+const unreadCountLabel = computed(() => unreadCount.value == null ? '未读待确认' : `${unreadCount.value} 未读`)
+const hasUnreadNotifications = computed(() => (unreadCount.value ?? 0) > 0)
 
 const loadNotifications = async () => {
   try {
@@ -548,9 +552,12 @@ const loadNotifications = async () => {
     ])
     const unreadJson = await unreadRes.json()
     const allJson = await allRes.json()
-    unreadCount.value = unreadJson.data?.length || 0
-    notifications.value = allJson.data || []
-  } catch { /* ignore */ }
+    unreadCount.value = Array.isArray(unreadJson.data) ? unreadJson.data.length : null
+    notifications.value = Array.isArray(allJson.data) ? allJson.data : []
+  } catch {
+    unreadCount.value = null
+    notifications.value = []
+  }
 }
 
 const connectWebSocket = async () => {
@@ -569,7 +576,7 @@ const connectWebSocket = async () => {
           try {
             const notif = JSON.parse(msg.body)
             notifications.value.unshift(notif)
-            if (!notif.isRead) unreadCount.value++
+            if (!notif.isRead) unreadCount.value = (unreadCount.value ?? 0) + 1
           } catch {}
         })
       }
@@ -611,7 +618,7 @@ const handleMarkRead = async (n: any) => {
       headers: { 'satoken': localStorage.getItem('satoken') || '' }
     })
     n.isRead = 1
-    unreadCount.value = Math.max(0, unreadCount.value - 1)
+    unreadCount.value = unreadCount.value == null ? null : Math.max(0, unreadCount.value - 1)
   } catch {}
 }
 
