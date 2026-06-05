@@ -19,6 +19,7 @@ export interface GenerationTask {
   requestJson?: string
   responseJson?: string
   createdAt: string
+  finishedAt?: string
 }
 
 export const useTaskStore = defineStore('task', {
@@ -26,26 +27,8 @@ export const useTaskStore = defineStore('task', {
     tasks: [] as GenerationTask[]
   }),
   actions: {
-    normalizeTask(task: any): GenerationTask {
-      const normalizedProgress = normalizeProgress(task.progress)
-      return {
-        id: Number(task.id),
-        projectId: Number(task.projectId),
-        providerId: Number(task.providerId),
-        taskType: task.taskType,
-        prompt: task.prompt || '',
-        negativePrompt: task.negativePrompt || undefined,
-        status: task.status,
-        progress: normalizedProgress == null ? undefined : normalizedProgress,
-        progressText: task.progressText || '',
-        modelName: task.modelName || '',
-        options: task.options,
-        errorMessage: task.errorMessage || undefined,
-        resultAssetId: task.resultAssetId == null ? undefined : Number(task.resultAssetId),
-        requestJson: task.requestJson || undefined,
-        responseJson: task.responseJson || undefined,
-        createdAt: String(task.createdAt || '').replace('T', ' ').substring(0, 19)
-      }
+    normalizeTask(task: unknown): GenerationTask {
+      return normalizeTaskPayload(task)
     },
     setTasks(tasks: any[]) {
       this.tasks = tasks.map(task => this.normalizeTask(task))
@@ -72,13 +55,27 @@ export const useTaskStore = defineStore('task', {
       return this.tasks.filter(t => t.projectId === projectId)
     },
     async retryTask(id: number) {
-      await taskApi.retryTask(id)
-      await this.refresh()
-      await useAssetStore().refresh()
+      const res = await taskApi.retryTask(id)
+      const retried = this.upsertTask((res as any).data)
+      await this.refresh({ projectId: retried.projectId })
+      await useAssetStore().refresh({ projectId: retried.projectId })
+      const confirmed = this.tasks.find(task => task.id === retried.id)
+      if (!confirmed) {
+        throw new Error('重试结果待确认')
+      }
+      return confirmed
     },
     async deleteTask(id: number) {
+      const existing = this.tasks.find(task => task.id === id)
       await taskApi.deleteTask(id)
-      this.tasks = this.tasks.filter(t => t.id !== id)
+      if (existing?.projectId) {
+        await this.refresh({ projectId: existing.projectId })
+      } else {
+        await this.refresh()
+      }
+      if (this.tasks.some(task => task.id === id)) {
+        throw new Error('删除结果待确认')
+      }
     },
     clear() {
       this.tasks = []
@@ -95,4 +92,52 @@ function normalizeProgress(value: unknown): number | null {
     return null
   }
   return Math.max(0, Math.min(100, parsed))
+}
+
+function normalizeTaskPayload(task: unknown): GenerationTask {
+  if (!isPlainObject(task)) {
+    throw new Error('任务结果待确认')
+  }
+
+  const taskType = typeof task.taskType === 'string' ? task.taskType : ''
+  if (taskType !== 'image' && taskType !== 'video') {
+    throw new Error('任务结果待确认')
+  }
+
+  const status = typeof task.status === 'string' ? task.status : ''
+  if (status !== 'pending' && status !== 'running' && status !== 'success' && status !== 'failed') {
+    throw new Error('任务结果待确认')
+  }
+
+  return {
+    id: parseRequiredNumber(task.id),
+    projectId: parseRequiredNumber(task.projectId),
+    providerId: parseRequiredNumber(task.providerId),
+    taskType,
+    prompt: typeof task.prompt === 'string' ? task.prompt : '',
+    negativePrompt: typeof task.negativePrompt === 'string' && task.negativePrompt ? task.negativePrompt : undefined,
+    status,
+    progress: normalizeProgress(task.progress) ?? undefined,
+    progressText: typeof task.progressText === 'string' ? task.progressText : '',
+    modelName: typeof task.modelName === 'string' ? task.modelName : '',
+    options: task.options,
+    errorMessage: typeof task.errorMessage === 'string' && task.errorMessage ? task.errorMessage : undefined,
+    resultAssetId: task.resultAssetId == null ? undefined : parseRequiredNumber(task.resultAssetId),
+    requestJson: typeof task.requestJson === 'string' && task.requestJson ? task.requestJson : undefined,
+    responseJson: typeof task.responseJson === 'string' && task.responseJson ? task.responseJson : undefined,
+    createdAt: String(task.createdAt || '').replace('T', ' ').substring(0, 19),
+    finishedAt: task.finishedAt == null ? undefined : String(task.finishedAt).replace('T', ' ').substring(0, 19)
+  }
+}
+
+function parseRequiredNumber(value: unknown): number {
+  const parsed = Number(value)
+  if (!Number.isFinite(parsed)) {
+    throw new Error('任务结果待确认')
+  }
+  return parsed
+}
+
+function isPlainObject(value: unknown): value is Record<string, any> {
+  return !!value && typeof value === 'object' && !Array.isArray(value)
 }

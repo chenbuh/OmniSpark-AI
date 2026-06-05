@@ -296,6 +296,7 @@ import { useProjectStore } from '@/store/project'
 import { useModelProviderStore } from '@/store/provider'
 import { useTaskStore } from '@/store/task'
 import { useAssetStore, type Asset } from '@/store/asset'
+import { assetApi } from '@/api/assets'
 import { generationApi, type GenerationMetaOption, type GenerationMetaVO } from '@/api/generation'
 import { taskApi } from '@/api/tasks'
 import {
@@ -331,6 +332,7 @@ const assetPickerMode = ref<'start' | 'end'>('start')
 const activeTaskId = ref<number | null>(null)
 let taskPollingTimer: ReturnType<typeof setInterval> | null = null
 let taskSyncing = false
+let pendingFetchAsset: Promise<Asset | null> | null = null
 
 const form = reactive({
   providerId: null as number | null,
@@ -572,17 +574,58 @@ const finishGeneratingState = () => {
   stopTaskPolling()
 }
 
+const upsertAsset = (asset: Asset) => {
+  const index = assetStore.assets.findIndex(item => item.id === asset.id)
+  if (index === -1) {
+    assetStore.assets.unshift(asset)
+  } else {
+    assetStore.assets[index] = asset
+  }
+}
+
+const findTaskResultAsset = (task: { id: number; resultAssetId?: number }) => {
+  if (task.resultAssetId) {
+    const exact = assetStore.assets.find(asset => asset.id === task.resultAssetId)
+    if (exact) return exact
+  }
+  return assetStore.assets.find(asset => asset.taskId === task.id) || null
+}
+
+const ensureTaskResultAssetLoaded = async (task: { id: number; resultAssetId?: number }) => {
+  const existing = findTaskResultAsset(task)
+  if (existing) return existing
+  if (!pendingFetchAsset) {
+    pendingFetchAsset = (async () => {
+      const res = await assetApi.getAssets({ taskId: task.id, projectId: projectStore.activeProjectId })
+      const data = (res as any).data
+      if (!Array.isArray(data)) {
+        throw new Error('视频结果待确认')
+      }
+      for (const item of data) {
+        upsertAsset(assetStore.normalizeAsset(item))
+      }
+      return findTaskResultAsset(task)
+    })().finally(() => {
+      pendingFetchAsset = null
+    })
+  }
+  const asset = await pendingFetchAsset
+  if (!asset) {
+    throw new Error('视频结果待确认')
+  }
+  return asset
+}
+
 const syncTaskStatus = async (taskId: number) => {
   const detail = await taskApi.getTask(taskId)
   const task = taskStore.upsertTask(detail.data)
   activeTaskId.value = task.id
   if (task.status === 'success') {
-    await Promise.all([
-      taskStore.refresh({ projectId: projectStore.activeProjectId }),
-      assetStore.refresh({ projectId: projectStore.activeProjectId })
-    ])
+    await taskStore.refresh({ projectId: projectStore.activeProjectId })
+    await ensureTaskResultAssetLoaded(task)
     finishGeneratingState()
     message.success('视频生成完成')
+    assetStore.refresh({ projectId: projectStore.activeProjectId }).catch(() => {})
     return task
   }
   if (task.status === 'failed') {
@@ -717,11 +760,11 @@ const handleStartGenerate = async () => {
     activeTaskId.value = task.id
 
     if (task.status === 'success') {
-      await Promise.all([
-        taskStore.refresh({ projectId: projectStore.activeProjectId }),
-        assetStore.refresh({ projectId: projectStore.activeProjectId })
-      ])
+      await taskStore.refresh({ projectId: projectStore.activeProjectId })
+      await ensureTaskResultAssetLoaded(task)
+      finishGeneratingState()
       message.success('视频生成完成')
+      assetStore.refresh({ projectId: projectStore.activeProjectId }).catch(() => {})
     } else if (task.status === 'failed') {
       message.error(task.errorMessage || '视频生成失败')
     } else {
@@ -741,34 +784,58 @@ const handleDeleteTask = async (taskId: number) => {
     await taskStore.deleteTask(taskId)
     if (activeTaskId.value === taskId) { activeTaskId.value = null }
     message.success('已删除')
-  } catch { message.error('删除失败') }
+  } catch (err: any) {
+    message.error(err.message || '删除失败')
+  }
 }
 
 const handleBatchClear = async () => {
   const ids = taskHistory.value.filter(t => t.status === 'success' || t.status === 'failed').map(t => t.id)
+  if (ids.length === 0) {
+    message.info('当前没有可清空的视频历史')
+    return
+  }
   try {
-    await Promise.all(ids.map(id => taskStore.deleteTask(id)))
+    for (const id of ids) {
+      await taskStore.deleteTask(id)
+    }
     activeTaskId.value = null
     message.success('历史记录已清空')
-  } catch { message.error('清空失败') }
+  } catch (err: any) {
+    message.error(err.message || '清空失败')
+  }
 }
 
 const handleSelectHistory = (task: any) => {
   activeTaskId.value = task.id
 }
 
-const handleInspectHistoryTask = (task: any) => {
+const handleInspectHistoryTask = async (task: any) => {
   if (task.status !== 'success' || !task.resultAssetId) {
     message.error(task.errorMessage || '该任务生成失败，没有可查看的视频结果')
     return
   }
-  handleSelectHistory(task)
+  try {
+    await ensureTaskResultAssetLoaded(task)
+    handleSelectHistory(task)
+  } catch (err: any) {
+    message.error(err.message || '该任务的视频结果待确认')
+  }
 }
 
 const handleToggleFavorite = async () => {
   if (currentAsset.value) {
-    const updated = await assetStore.toggleFavorite(currentAsset.value.id)
-    message.success(updated.favorite ? '视频已收藏！' : '已取消收藏')
+    try {
+      const updated = await assetStore.toggleFavorite(currentAsset.value.id)
+      await assetStore.refresh({ projectId: projectStore.activeProjectId })
+      const confirmed = assetStore.assets.find(asset => asset.id === updated.id)
+      if (!confirmed || confirmed.favorite !== updated.favorite) {
+        throw new Error('收藏状态待确认')
+      }
+      message.success(confirmed.favorite ? '视频已收藏！' : '已取消收藏')
+    } catch (err: any) {
+      message.error(err.message || '收藏状态更新失败')
+    }
   }
 }
 

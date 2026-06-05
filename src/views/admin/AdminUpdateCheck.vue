@@ -101,6 +101,7 @@
 
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
+import { useMessage } from 'naive-ui'
 import { RefreshCw } from 'lucide-vue-next'
 import request from '@/api/request'
 
@@ -133,6 +134,7 @@ interface UpdateCheckInfo {
   error?: string
 }
 
+const message = useMessage()
 const version = ref<VersionInfo | null>(null)
 const updateCheck = ref<UpdateCheckInfo | null>(null)
 const checking = ref(false)
@@ -143,15 +145,12 @@ async function loadVersion() {
   versionLoadState.value = 'loading'
   try {
     const res = await request.get<VersionInfo>('/api/admin/version')
-    const data = (res as any).data
-    if (!data || typeof data !== 'object' || Array.isArray(data)) {
-      throw new Error('当前版本信息待确认')
-    }
-    version.value = data
+    version.value = normalizeVersionInfo((res as any).data)
     versionLoadState.value = 'ready'
-  } catch {
+  } catch (err: any) {
     version.value = null
     versionLoadState.value = 'error'
+    message.error(err.message || '当前版本信息待确认')
   }
 }
 
@@ -162,15 +161,12 @@ async function checkUpdate() {
     const res = await request.get<UpdateCheckInfo>('/api/admin/version/check', {
       params: { refresh: true }
     })
-    const data = (res as any).data
-    if (!data || typeof data !== 'object' || Array.isArray(data)) {
-      throw new Error('更新信息待确认')
-    }
-    updateCheck.value = data
+    updateCheck.value = normalizeUpdateCheckInfo((res as any).data)
     updateCheckLoadState.value = 'ready'
-  } catch {
+  } catch (err: any) {
     updateCheck.value = null
     updateCheckLoadState.value = 'error'
+    message.error(err.message || '更新信息待确认')
   } finally {
     checking.value = false
   }
@@ -186,6 +182,70 @@ function formatDateTime(value?: string) {
   if (!value) return '-'
   const date = new Date(value)
   return Number.isNaN(date.getTime()) ? value : date.toLocaleString()
+}
+
+function normalizeVersionInfo(payload: unknown): VersionInfo {
+  if (!isPlainObject(payload)) {
+    throw new Error('当前版本信息待确认')
+  }
+  if (
+    typeof payload.currentVersion !== 'string'
+    || typeof payload.buildTime !== 'string'
+    || typeof payload.serverTime !== 'string'
+    || typeof payload.javaVersion !== 'string'
+    || typeof payload.osName !== 'string'
+    || typeof payload.osArch !== 'string'
+    || typeof payload.updateSource !== 'string'
+  ) {
+    throw new Error('当前版本信息待确认')
+  }
+
+  return {
+    currentVersion: payload.currentVersion,
+    buildTime: payload.buildTime,
+    serverTime: payload.serverTime,
+    javaVersion: payload.javaVersion,
+    osName: payload.osName,
+    osArch: payload.osArch,
+    updateSource: payload.updateSource,
+    defaultBranch: typeof payload.defaultBranch === 'string' ? payload.defaultBranch : '',
+    repositoryUrl: typeof payload.repositoryUrl === 'string' ? payload.repositoryUrl : ''
+  }
+}
+
+function normalizeUpdateCheckInfo(payload: unknown): UpdateCheckInfo {
+  if (!isPlainObject(payload)) {
+    throw new Error('更新信息待确认')
+  }
+  if (
+    typeof payload.currentVersion !== 'string'
+    || typeof payload.sourceType !== 'string'
+    || typeof payload.sourceLabel !== 'string'
+    || typeof payload.checkTime !== 'string'
+  ) {
+    throw new Error('更新信息待确认')
+  }
+
+  return {
+    currentVersion: payload.currentVersion,
+    latestVersion: typeof payload.latestVersion === 'string' ? payload.latestVersion : '',
+    sourceType: payload.sourceType,
+    sourceLabel: payload.sourceLabel,
+    checkTime: payload.checkTime,
+    releasePublishedAt: typeof payload.releasePublishedAt === 'string' ? payload.releasePublishedAt : '',
+    latestCommitShortSha: typeof payload.latestCommitShortSha === 'string' ? payload.latestCommitShortSha : '',
+    latestCommitMessage: typeof payload.latestCommitMessage === 'string' ? payload.latestCommitMessage : '',
+    hasUpdate: typeof payload.hasUpdate === 'boolean' ? payload.hasUpdate : false,
+    releaseUrl: typeof payload.releaseUrl === 'string' ? payload.releaseUrl : '',
+    repositoryUrl: typeof payload.repositoryUrl === 'string' ? payload.repositoryUrl : '',
+    releaseNotes: typeof payload.releaseNotes === 'string' ? payload.releaseNotes : '',
+    downloadUrl: typeof payload.downloadUrl === 'string' ? payload.downloadUrl : '',
+    error: typeof payload.error === 'string' ? payload.error : ''
+  }
+}
+
+function isPlainObject(value: unknown): value is Record<string, any> {
+  return !!value && typeof value === 'object' && !Array.isArray(value)
 }
 
 onMounted(() => {

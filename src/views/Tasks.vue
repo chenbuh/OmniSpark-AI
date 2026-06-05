@@ -272,8 +272,34 @@ const handleViewAsset = (task: any) => {
   else message.error('无关联资产')
 }
 
-const handleRetry = async (id: number) => { await taskStore.retryTask(id); await refresh(); message.success('已重试') }
-const handleDelete = async (id: number) => { await taskStore.deleteTask(id); selectedIds.value.delete(id); await refresh(); message.success('已删除') }
+const handleRetry = async (id: number) => {
+  try {
+    const retried = await taskStore.retryTask(id)
+    await refresh()
+    if (retried.status === 'failed') {
+      message.error(retried.errorMessage || '任务重试后执行失败')
+      return false
+    }
+    message.success(retried.status === 'success' ? '任务已重试并完成' : '任务已重新提交')
+    return true
+  } catch (err: any) {
+    message.error(err.message || '任务重试失败')
+    return false
+  }
+}
+
+const handleDelete = async (id: number) => {
+  try {
+    await taskStore.deleteTask(id)
+    selectedIds.value.delete(id)
+    await refresh()
+    message.success('已删除')
+    return true
+  } catch (err: any) {
+    message.error(err.message || '删除失败')
+    return false
+  }
+}
 
 const relatedAssets = computed(() => {
   if (!selectedTask.value?.resultAssetId) return []
@@ -283,24 +309,56 @@ const relatedAssets = computed(() => {
 const formatJson = (s: string) => { try { return JSON.stringify(JSON.parse(s), null, 2) } catch { return s } }
 
 const handleOpenDetail = (task: any) => { selectedTask.value = task; showDetailDrawer.value = true }
-const handleRetryFromDetail = async () => { if (!selectedTask.value) return; await handleRetry(selectedTask.value.id); showDetailDrawer.value = false }
-const handleDeleteFromDetail = async () => { if (!selectedTask.value) return; await handleDelete(selectedTask.value.id); showDetailDrawer.value = false; selectedTask.value = null }
+const handleRetryFromDetail = async () => {
+  if (!selectedTask.value) return
+  const ok = await handleRetry(selectedTask.value.id)
+  if (ok) {
+    showDetailDrawer.value = false
+  }
+}
+const handleDeleteFromDetail = async () => {
+  if (!selectedTask.value) return
+  const ok = await handleDelete(selectedTask.value.id)
+  if (ok) {
+    showDetailDrawer.value = false
+    selectedTask.value = null
+  }
+}
 const handlePreviewAsset = (asset: any) => { showDetailDrawer.value = false; router.push({ path: '/assets', query: { assetId: String(asset.id) } }) }
 
 const handleBatchDelete = async () => {
   const ids = [...selectedIds.value]
-  await Promise.all(ids.map(id => taskStore.deleteTask(id)))
-  selectedIds.value.clear()
-  await refresh()
-  message.success(`已删除 ${ids.length} 项`)
+  if (ids.length === 0) return
+  try {
+    for (const id of ids) {
+      await taskStore.deleteTask(id)
+    }
+    selectedIds.value.clear()
+    await refresh()
+    message.success(`已删除 ${ids.length} 项`)
+  } catch (err: any) {
+    await refresh()
+    message.error(err.message || '批量删除失败')
+  }
 }
 
 const handleClearAll = async () => {
   const ids = filteredTasks.value.filter(t => t.status==='success'||t.status==='failed').map(t => t.id)
-  await Promise.all(ids.map(id => taskStore.deleteTask(id)))
-  selectedIds.value.clear()
-  await refresh()
-  message.success('已清空')
+  if (ids.length === 0) {
+    message.info('当前没有可清空的已完成任务')
+    return
+  }
+  try {
+    for (const id of ids) {
+      await taskStore.deleteTask(id)
+    }
+    selectedIds.value.clear()
+    await refresh()
+    message.success('已清空')
+  } catch (err: any) {
+    await refresh()
+    message.error(err.message || '清空失败')
+  }
 }
 </script>
 
