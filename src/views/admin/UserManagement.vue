@@ -181,6 +181,7 @@ const loading = ref(true)
 const page = ref(1)
 const pageSize = 10
 const total = ref(0)
+const roleOptions = ref<{ label: string; value: string }[]>([])
 
 // --- 内联编辑 ---
 const editingId = ref<number | null>(null)
@@ -191,13 +192,27 @@ const showCreate = ref(false)
 const creating = ref(false)
 const createForm = ref({ username: '', password: '', nickname: '', role: 'user' })
 
-const roleOptions = [
-  { label: '管理员', value: 'admin' },
-  { label: '普通用户', value: 'user' }
-]
-
 // --- 生命周期 ---
-onMounted(loadUsers)
+onMounted(async () => {
+  await loadRoleOptions()
+  await loadUsers()
+})
+
+async function loadRoleOptions() {
+  try {
+    const res = await request.get('/api/admin/users/roles')
+    const options = Array.isArray((res as any).data) ? (res as any).data : []
+    roleOptions.value = options
+    if (!roleOptions.value.some(item => item.value === createForm.value.role)) {
+      createForm.value.role = roleOptions.value[0]?.value || 'user'
+    }
+  } catch {
+    roleOptions.value = [
+      { label: '管理员', value: 'admin' },
+      { label: '普通用户', value: 'user' }
+    ]
+  }
+}
 
 async function loadUsers() {
   loading.value = true

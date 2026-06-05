@@ -11,7 +11,9 @@ import com.example.aihub.common.security.CanaryTokenService;
 import com.example.aihub.common.util.PagingUtil;
 import com.example.aihub.common.util.PasswordUtil;
 import com.example.aihub.common.util.SecurityUtil;
+import com.example.aihub.infrastructure.entity.Role;
 import com.example.aihub.infrastructure.entity.User;
+import com.example.aihub.infrastructure.mapper.RoleMapper;
 import com.example.aihub.infrastructure.mapper.UserMapper;
 import com.example.aihub.infrastructure.service.PasswordEncryptionService;
 import com.example.aihub.infrastructure.vo.UserVO;
@@ -21,10 +23,10 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 
 @RestController
 @RequiredArgsConstructor
@@ -32,12 +34,23 @@ import java.util.Set;
 @SaCheckLogin
 @SaCheckRole("admin")
 public class UserAdminController {
-    /** 允许的角色白名单，防止写入非法角色。 */
-    private static final Set<String> ALLOWED_ROLES = Set.of("admin", "user");
-
     private final UserMapper userMapper;
+    private final RoleMapper roleMapper;
     private final PasswordEncryptionService passwordEncryptionService;
     private final CanaryTokenService canaryTokenService;
+
+    @GetMapping("/roles")
+    public ApiResult<List<Map<String, String>>> roles() {
+        List<Map<String, String>> records = loadActiveRoles().stream()
+                .map(role -> {
+                    Map<String, String> item = new LinkedHashMap<>();
+                    item.put("value", role.getRoleCode());
+                    item.put("label", role.getRoleName());
+                    return item;
+                })
+                .toList();
+        return ApiResult.ok(records);
+    }
 
     @GetMapping
     public ApiResult<PageResult<UserVO>> list(
@@ -69,8 +82,8 @@ public class UserAdminController {
 
     @PutMapping("/{id}/role")
     public ApiResult<Void> updateRole(@PathVariable Long id, @RequestParam String role) {
-        if (!ALLOWED_ROLES.contains(role)) {
-            return ApiResult.fail("非法的角色，仅允许 admin 或 user");
+        if (!isAllowedRole(role)) {
+            return ApiResult.fail("非法的角色，角色必须存在于角色表且处于启用状态");
         }
         if (id.equals(SecurityUtil.loginUserId())) {
             return ApiResult.fail("不能修改自己的角色");
@@ -101,9 +114,10 @@ public class UserAdminController {
                                      @RequestParam(required = false) String password,
                                      @RequestParam(required = false) String encryptedPassword,
                                      @RequestParam(required = false, defaultValue = "") String nickname,
-                                     @RequestParam(required = false, defaultValue = "user") String role) {
-        if (!ALLOWED_ROLES.contains(role)) {
-            return ApiResult.fail("非法的角色，仅允许 admin 或 user");
+                                     @RequestParam(required = false) String role) {
+        String resolvedRole = defaultIfBlank(role, resolveDefaultRoleCode());
+        if (!isAllowedRole(resolvedRole)) {
+            return ApiResult.fail("非法的角色，角色必须存在于角色表且处于启用状态");
         }
         Long exists = userMapper.selectCount(
                 new LambdaQueryWrapper<User>()
@@ -127,7 +141,7 @@ public class UserAdminController {
         user.setUsername(username);
         user.setPassword(PasswordUtil.encode(rawPassword));
         user.setNickname(nickname.isBlank() ? username : nickname);
-        user.setRole(role);
+        user.setRole(resolvedRole);
         user.setStatus(1);
         userMapper.insert(user);
 
@@ -276,11 +290,11 @@ public class UserAdminController {
                             ? defaultIfBlank(safePart(parts, 2), username)
                             : defaultIfBlank(safePart(parts, 2), username);
                     String role = exportedRow
-                            ? defaultIfBlank(safePart(parts, 3), "user")
-                            : defaultIfBlank(safePart(parts, 3), "user");
+                            ? defaultIfBlank(safePart(parts, 3), resolveDefaultRoleCode())
+                            : defaultIfBlank(safePart(parts, 3), resolveDefaultRoleCode());
                     int status = exportedRow ? parseStatus(safePart(parts, 4)) : 1;
-                    if (!ALLOWED_ROLES.contains(role)) {
-                        errors.add("用户 " + username + " 角色非法，仅允许 admin 或 user");
+                    if (!isAllowedRole(role)) {
+                        errors.add("用户 " + username + " 角色非法，角色必须存在于角色表且处于启用状态");
                         failed++;
                         continue;
                     }
@@ -346,5 +360,40 @@ public class UserAdminController {
 
     private static int parseStatus(String value) {
         return "0".equals(value) ? 0 : 1;
+    }
+
+    private List<Role> loadActiveRoles() {
+        return roleMapper.selectList(new LambdaQueryWrapper<Role>()
+                        .eq(Role::getStatus, 1))
+                .stream()
+                .filter(role -> role.getRoleCode() != null && !role.getRoleCode().isBlank())
+                .sorted(Comparator.comparingInt(this::roleSortOrder)
+                        .thenComparing(Role::getRoleName, Comparator.nullsLast(String::compareToIgnoreCase)))
+                .toList();
+    }
+
+    private boolean isAllowedRole(String roleCode) {
+        if (roleCode == null || roleCode.isBlank()) {
+            return false;
+        }
+        return loadActiveRoles().stream().anyMatch(role -> roleCode.equals(role.getRoleCode()));
+    }
+
+    private String resolveDefaultRoleCode() {
+        List<Role> roles = loadActiveRoles();
+        return roles.stream()
+                .map(Role::getRoleCode)
+                .filter("user"::equals)
+                .findFirst()
+                .or(() -> roles.stream().map(Role::getRoleCode).findFirst())
+                .orElse("user");
+    }
+
+    private int roleSortOrder(Role role) {
+        return switch (role.getRoleCode()) {
+            case "admin" -> 10;
+            case "user" -> 20;
+            default -> 100;
+        };
     }
 }
