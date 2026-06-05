@@ -41,12 +41,18 @@ export const useTeamStore = defineStore('team', {
     },
     async refresh() {
       const res = await teamApi.getTeams()
-      this.setTeams(res.data || [])
+      if (!Array.isArray(res.data)) {
+        throw new Error('团队数据待确认')
+      }
+      this.setTeams(res.data)
       return this.teams
     },
     async refreshMembers(teamId: number) {
       const res = await teamApi.getMembers(teamId)
-      this.setMembers(res.data || [])
+      if (!Array.isArray(res.data)) {
+        throw new Error('成员数据待确认')
+      }
+      this.setMembers(res.data)
       return this.currentMembers
     },
     async createTeam(name: string, description?: string) {

@@ -559,6 +559,9 @@ async function loadStatsData() {
       headers: { 'x-no-cache': '1' }
     })
     dashboard.value = normalizeDashboard(res.data)
+  } catch (err: any) {
+    dashboard.value = createEmptyDashboard()
+    console.error(err)
   } finally {
     loading.value = false
   }
@@ -575,6 +578,9 @@ async function refreshPageData() {
       headers: { 'x-no-cache': '1' }
     })
     dashboard.value = normalizeDashboard(res.data)
+  } catch (err: any) {
+    dashboard.value = createEmptyDashboard()
+    console.error(err)
   } finally {
     suppressAutoReload.value = false
     loading.value = false
@@ -585,17 +591,21 @@ watch([scopeMode, () => projectStore.activeProjectId], () => {
   if (suppressAutoReload.value) {
     return
   }
-  loadStatsData()
+  void loadStatsData()
 })
 
 onMounted(async () => {
-  await projectStore.refresh()
+  try {
+    await projectStore.refresh()
+  } catch (err) {
+    console.error(err)
+  }
   await loadStatsData()
   // 每 15 秒自动刷新，让数据保持最新
   refreshTimer = window.setInterval(() => {
     if (document.visibilityState === 'visible') {
       clearCache('stats/dashboard')
-      loadStatsData()
+      void loadStatsData()
     }
   }, 15000)
 })

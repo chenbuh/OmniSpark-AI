@@ -39,7 +39,10 @@ export const useProjectStore = defineStore('project', {
     },
     async refresh() {
       const res = await projectApi.getProjects()
-      this.setProjects(res.data || [])
+      if (!Array.isArray(res.data)) {
+        throw new Error('项目数据待确认')
+      }
+      this.setProjects(res.data)
       return this.projects
     },
     setActiveProject(id: number) {

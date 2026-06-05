@@ -81,7 +81,10 @@ export const useAssetStore = defineStore('asset', {
     },
     async refresh(params?: { projectId?: number; assetType?: string; taskId?: number; limit?: number }) {
       const res = await assetApi.getAssets(params)
-      this.setAssets(res.data || [])
+      if (!Array.isArray(res.data)) {
+        throw new Error('资产数据待确认')
+      }
+      this.setAssets(res.data)
       return this.assets
     },
     getAssetsByProject(projectId: number) {

@@ -38,7 +38,10 @@ export const useModelProviderStore = defineStore('modelProvider', {
     },
     async refresh(projectId?: number) {
       const res = await providerApi.getProviders(projectId)
-      this.setProviders(res.data || [])
+      if (!Array.isArray(res.data)) {
+        throw new Error('模型提供商数据待确认')
+      }
+      this.setProviders(res.data)
       return this.providers
     },
     getProvidersByProject(projectId: number) {
