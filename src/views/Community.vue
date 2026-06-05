@@ -383,6 +383,39 @@ function requireLikeToggleResult(value: unknown) {
   throw new Error('点赞结果待确认')
 }
 
+function findLoadedPost(id: number) {
+  return posts.value?.find((item: any) => Number(item?.id) === id) || null
+}
+
+function assertCommunityLikeConfirmed(
+  previous: { liked: boolean; likesCount: number; commentsCount: number },
+  refreshed: ReturnType<typeof requireCommunityPostResult>,
+  expectedLiked: boolean
+) {
+  if (previous.liked === expectedLiked) {
+    throw new Error('点赞结果待确认')
+  }
+  if (refreshed.liked !== expectedLiked) {
+    throw new Error('点赞结果待确认')
+  }
+  const expectedLikesCount = Math.max(0, previous.likesCount + (expectedLiked ? 1 : -1))
+  if (refreshed.likesCount !== expectedLikesCount) {
+    throw new Error('点赞结果待确认')
+  }
+  if (refreshed.commentsCount !== previous.commentsCount) {
+    throw new Error('点赞结果待确认')
+  }
+}
+
+async function expectCommunityPostDeleted(id: number) {
+  try {
+    await loadPostDetail(id)
+  } catch {
+    return
+  }
+  throw new Error('删除结果待确认')
+}
+
 let searchTimer: any = null
 function debounceSearch() {
   clearTimeout(searchTimer)
@@ -661,6 +694,12 @@ function handleEditPost(post: any) {
 
 async function handleLike(post: any) {
   try {
+    const previousLiked = !!post?.liked
+    const previousLikesCount = Number(post?.likesCount)
+    const previousCommentsCount = Number(post?.commentsCount)
+    if (!Number.isFinite(previousLikesCount) || previousLikesCount < 0 || !Number.isFinite(previousCommentsCount) || previousCommentsCount < 0) {
+      throw new Error('点赞结果待确认')
+    }
     const res = await request.post(`/api/community/posts/${post.id}/like`)
     const liked = requireLikeToggleResult((res as any).data)
     await loadPosts()
@@ -668,7 +707,16 @@ async function handleLike(post: any) {
       throw new Error('点赞结果待确认')
     }
     const refreshed = await loadPostDetail(post.id)
-    if (refreshed.liked !== liked) {
+    assertCommunityLikeConfirmed({
+      liked: previousLiked,
+      likesCount: previousLikesCount,
+      commentsCount: previousCommentsCount
+    }, refreshed, liked)
+    const loaded = findLoadedPost(post.id)
+    if (!loaded) {
+      throw new Error('点赞结果待确认')
+    }
+    if (!!loaded.liked !== liked || Number(loaded.likesCount) !== refreshed.likesCount || Number(loaded.commentsCount) !== refreshed.commentsCount) {
       throw new Error('点赞结果待确认')
     }
     syncCommunityPostState(refreshed)
@@ -682,6 +730,10 @@ async function handleDelete(id: number) {
     await loadPosts()
     if (posts.value?.some((post: any) => post.id === id)) {
       throw new Error('删除结果待确认')
+    }
+    await expectCommunityPostDeleted(id)
+    if (detailPost.value?.id === id) {
+      detailPost.value = null
     }
     message.success('已删除')
   } catch (err: any) { message.error(err.message || '删除失败') }
