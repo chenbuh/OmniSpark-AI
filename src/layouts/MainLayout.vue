@@ -230,6 +230,7 @@ import { useUserStore } from '@/store/user'
 import { useProjectStore } from '@/store/project'
 import { useTeamStore } from '@/store/team'
 import { projectShareApi } from '@/api/projectShares'
+import { API_BASE_URL } from '@/api/request'
 import { formatUserRole } from '@/utils/role'
 import {
   LayoutDashboard, Image, Video, ClipboardList, Library,
@@ -272,6 +273,38 @@ const currentProjectName = computed(() => {
   const p = projectStore.projects.find(p => p.id === projectStore.activeProjectId)
   return p?.name || ''
 })
+
+function requireProjectShare(value: unknown) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new Error('共享结果待确认')
+  }
+  const id = Number((value as any).id)
+  const teamId = Number((value as any).teamId)
+  const permission = typeof (value as any).permission === 'string' ? (value as any).permission.trim() : ''
+  if (!Number.isFinite(id) || id <= 0 || !Number.isFinite(teamId) || teamId <= 0 || !permission) {
+    throw new Error('共享结果待确认')
+  }
+  return {
+    id,
+    teamId,
+    permission
+  }
+}
+
+function requireImportedProjectId(value: unknown) {
+  const parsed = Number(value)
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    throw new Error('项目导入结果待确认')
+  }
+  return parsed
+}
+
+function requireExportPayload(value: unknown) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new Error('项目导出结果待确认')
+  }
+  return value
+}
 
 const teamOptions = computed(() => {
   return teamStore.teams.map(t => ({ label: t.name, value: t.id }))
@@ -421,11 +454,21 @@ const handleAddProject = async () => {
     message.error('项目名称不能为空')
     return false
   }
-  await projectStore.addProject(addProjectForm.name, addProjectForm.description)
-  message.success('新项目空间创建成功！')
-  addProjectForm.name = ''
-  addProjectForm.description = ''
-  showAddProjectModal.value = false
+  try {
+    const createdProject = await projectStore.addProject(addProjectForm.name, addProjectForm.description)
+    const createdId = Number((createdProject as any)?.id ?? projectStore.activeProjectId)
+    if (!Number.isFinite(createdId) || createdId <= 0 || !projectStore.projects.some(project => project.id === createdId)) {
+      throw new Error('项目创建结果待确认')
+    }
+    message.success('新项目空间创建成功！')
+    addProjectForm.name = ''
+    addProjectForm.description = ''
+    showAddProjectModal.value = false
+    return true
+  } catch (err: any) {
+    message.error(err.message || '项目创建失败')
+    return false
+  }
 }
 
 // 打开共享弹窗时加载数据
@@ -482,14 +525,21 @@ const handleAddShare = async () => {
   }
   if (!newShareTeamId.value || !projectStore.activeProjectId) return
   try {
-    await projectShareApi.createShare({
+    const shareTeamId = newShareTeamId.value
+    const sharePermission = newSharePermission.value
+    const res = await projectShareApi.createShare({
       projectId: projectStore.activeProjectId,
-      teamId: newShareTeamId.value,
-      permission: newSharePermission.value
+      teamId: shareTeamId,
+      permission: sharePermission
     })
+    requireProjectShare((res as any).data)
+    await loadShares()
+    const createdShare = shares.value?.find(share => Number(share.teamId) === shareTeamId && String(share.permission) === sharePermission)
+    if (!createdShare) {
+      throw new Error('共享结果待确认')
+    }
     message.success('共享成功')
     newShareTeamId.value = null
-    await loadShares()
   } catch (err: any) {
     message.error(err.message || '共享失败')
   }
@@ -497,9 +547,14 @@ const handleAddShare = async () => {
 
 const handleUpdateShare = async (shareId: number, permission: string) => {
   try {
-    await projectShareApi.updatePermission(shareId, permission)
-    message.success('权限已更新')
+    const res = await projectShareApi.updatePermission(shareId, permission)
+    requireProjectShare((res as any).data)
     await loadShares()
+    const updatedShare = shares.value?.find(share => Number(share.id) === shareId)
+    if (!updatedShare || String(updatedShare.permission) !== permission) {
+      throw new Error('共享权限待确认')
+    }
+    message.success('权限已更新')
   } catch (err: any) {
     message.error(err.message || '更新失败')
   }
@@ -508,8 +563,11 @@ const handleUpdateShare = async (shareId: number, permission: string) => {
 const handleRemoveShare = async (shareId: number) => {
   try {
     await projectShareApi.removeShare(shareId)
-    message.success('已取消共享')
     await loadShares()
+    if (shares.value?.some(share => Number(share.id) === shareId)) {
+      throw new Error('取消共享结果待确认')
+    }
+    message.success('已取消共享')
   } catch (err: any) {
     message.error(err.message || '操作失败')
   }
@@ -536,22 +594,26 @@ const handleProjectAction = async (key: string) => {
     input.type = 'file'
     input.accept = '.json'
     input.onchange = async (e: any) => {
-      const file = e.target?.files?.[0]
-      if (!file) return
-      try {
-        const text = await file.text()
-        const data = JSON.parse(text)
-        const base = 'http://localhost:8080'
-        const token = localStorage.getItem('satoken') || ''
-        const res = await fetch(`${base}/api/projects/import`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'satoken': token },
-          body: JSON.stringify(data)
+        const file = e.target?.files?.[0]
+        if (!file) return
+        try {
+          const text = await file.text()
+          const data = JSON.parse(text)
+          const base = API_BASE_URL
+          const token = localStorage.getItem('satoken') || ''
+          const res = await fetch(`${base}/api/projects/import`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'satoken': token },
+            body: JSON.stringify(data)
         })
         const json = await res.json()
         if (json.code === 200) {
-          message.success('项目导入成功！')
+          const importedProjectId = requireImportedProjectId(json.data?.projectId)
           await projectStore.refresh()
+          if (!projectStore.projects.some(project => project.id === importedProjectId)) {
+            throw new Error('项目导入结果待确认')
+          }
+          message.success('项目导入成功！')
         } else {
           message.error(json.message || '导入失败')
         }
@@ -569,8 +631,12 @@ const handleDeleteProject = async () => {
     return false
   }
   try {
+    const deletingProjectId = projectStore.activeProjectId
     const deletingProjectName = currentProjectName.value || `项目 ${projectStore.activeProjectId}`
-    await projectStore.deleteProject(projectStore.activeProjectId)
+    await projectStore.deleteProject(deletingProjectId)
+    if (projectStore.projects.some(project => project.id === deletingProjectId)) {
+      throw new Error('项目删除结果待确认')
+    }
     showDeleteProjectModal.value = false
     message.success(`项目空间“${deletingProjectName}”已删除`)
     if (route.path.startsWith('/admin/')) {
@@ -588,7 +654,7 @@ const handleExportProject = async () => {
     return
   }
   try {
-    const base = 'http://localhost:8080'
+    const base = API_BASE_URL
     const token = localStorage.getItem('satoken') || ''
     const res = await fetch(`${base}/api/projects/${projectStore.activeProjectId}/export`, {
       method: 'POST',
@@ -596,6 +662,7 @@ const handleExportProject = async () => {
     })
     const json = await res.json()
     if (json.code === 200) {
+      const exportPayload = requireExportPayload(json.data)
       const blob = new Blob([JSON.stringify(json.data, null, 2)], { type: 'application/json' })
       const url = URL.createObjectURL(blob)
       const a = document.createElement('a')
@@ -603,6 +670,7 @@ const handleExportProject = async () => {
       a.download = `project_${projectStore.activeProjectId}_${Date.now()}.json`
       a.click()
       URL.revokeObjectURL(url)
+      void exportPayload
       message.success('项目导出成功！')
     } else {
       message.error(json.message || '导出失败')

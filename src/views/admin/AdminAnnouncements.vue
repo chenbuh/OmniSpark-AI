@@ -83,6 +83,22 @@ const form = reactive({ title: '', content: '', priority: 'normal' })
 const listLoadState = ref<'loading' | 'ready' | 'error'>('loading')
 const listCountDisplay = computed(() => list.value === null ? '-' : list.value.length)
 
+function requireAnnouncement(value: unknown, action: 'create' | 'update') {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new Error(action === 'create' ? '公告发布结果待确认' : '公告更新结果待确认')
+  }
+  const id = Number((value as any).id)
+  const title = typeof (value as any).title === 'string' ? (value as any).title.trim() : ''
+  if (!Number.isFinite(id) || id <= 0 || !title) {
+    throw new Error(action === 'create' ? '公告发布结果待确认' : '公告更新结果待确认')
+  }
+  return {
+    id,
+    title,
+    status: normalizeBinaryStatus((value as any).status)
+  }
+}
+
 onMounted(load)
 
 async function load() {
@@ -113,23 +129,56 @@ async function handleSave() {
   if (!form.title || !form.content) { message.error('标题和内容不能为空'); return }
   try {
     if (editingId.value) {
-      await request.put(`/api/admin/announcements/${editingId.value}?title=${encodeURIComponent(form.title)}&content=${encodeURIComponent(form.content)}&priority=${form.priority}`)
+      const currentEditingId = editingId.value
+      const res = await request.put(`/api/admin/announcements/${currentEditingId}?title=${encodeURIComponent(form.title)}&content=${encodeURIComponent(form.content)}&priority=${form.priority}`)
+      requireAnnouncement((res as any).data, 'update')
+      await load()
+      const refreshed = list.value?.find(item => Number(item.id) === currentEditingId)
+      if (!refreshed || refreshed.title !== form.title || refreshed.content !== form.content || refreshed.priority !== form.priority) {
+        throw new Error('公告更新结果待确认')
+      }
       message.success('已更新')
     } else {
-      await request.post(`/api/admin/announcements?title=${encodeURIComponent(form.title)}&content=${encodeURIComponent(form.content)}&priority=${form.priority}`)
+      const res = await request.post(`/api/admin/announcements?title=${encodeURIComponent(form.title)}&content=${encodeURIComponent(form.content)}&priority=${form.priority}`)
+      const created = requireAnnouncement((res as any).data, 'create')
+      await load()
+      const refreshed = list.value?.find(item => Number(item.id) === created.id)
+      if (!refreshed || refreshed.title !== form.title || refreshed.content !== form.content || refreshed.priority !== form.priority) {
+        throw new Error('公告发布结果待确认')
+      }
       message.success('已发布')
     }
-    showEditor.value = false; await load()
-  } catch { message.error('操作失败') }
+    showEditor.value = false
+  } catch (err: any) { message.error(err.message || '操作失败') }
 }
 
 async function handleToggle(id: number) {
-  try { await request.post(`/api/admin/announcements/${id}/toggle`); await load() } catch { message.error('操作失败') }
+  const currentAnnouncement = list.value?.find(item => Number(item.id) === id)
+  const currentStatus = normalizeBinaryStatus(currentAnnouncement?.status)
+  if (currentStatus === null) {
+    message.error('公告状态尚未明确，暂时无法切换')
+    return
+  }
+  try {
+    await request.post(`/api/admin/announcements/${id}/toggle`)
+    await load()
+    const refreshed = list.value?.find(item => Number(item.id) === id)
+    if (!refreshed || normalizeBinaryStatus(refreshed.status) !== !currentStatus) {
+      throw new Error('公告状态待确认')
+    }
+  } catch (err: any) { message.error(err.message || '操作失败') }
 }
 
 async function handleDelete(id: number) {
-  try { await request.delete(`/api/admin/announcements/${id}`); list.value = list.value?.filter(a => a.id !== id) || []; message.success('已删除') }
-  catch { message.error('删除失败') }
+  try {
+    await request.delete(`/api/admin/announcements/${id}`)
+    await load()
+    if (list.value?.some(item => Number(item.id) === id)) {
+      throw new Error('公告删除结果待确认')
+    }
+    message.success('已删除')
+  }
+  catch (err: any) { message.error(err.message || '删除失败') }
 }
 
 function normalizeBinaryStatus(value: unknown): boolean | null {

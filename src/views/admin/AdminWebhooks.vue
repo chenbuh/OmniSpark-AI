@@ -89,6 +89,22 @@ const form = reactive({ name: '', url: '', events: [] as string[], secret: '' })
 const eventLabelMap = computed(() => Object.fromEntries(eventOptions.value.map(item => [item.value, item.label])))
 const listCountDisplay = computed(() => list.value === null ? '-' : list.value.length)
 
+function requireWebhook(value: unknown, action: 'create' | 'update') {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new Error(action === 'create' ? 'Webhook 创建结果待确认' : 'Webhook 更新结果待确认')
+  }
+  const id = Number((value as any).id)
+  const name = typeof (value as any).name === 'string' ? (value as any).name.trim() : ''
+  const url = typeof (value as any).url === 'string' ? (value as any).url.trim() : ''
+  if (!Number.isFinite(id) || id <= 0 || !name || !url) {
+    throw new Error(action === 'create' ? 'Webhook 创建结果待确认' : 'Webhook 更新结果待确认')
+  }
+  return {
+    id,
+    status: normalizeBinaryStatus((value as any).status)
+  }
+}
+
 onMounted(async () => {
   await loadEventOptions()
   await load()
@@ -178,28 +194,54 @@ async function handleSave() {
   try {
     const params = `name=${encodeURIComponent(form.name)}&url=${encodeURIComponent(form.url)}&events=${encodeURIComponent(eventsValue)}&secret=${encodeURIComponent(form.secret)}`
     if (editingId.value) {
-      await request.put(`/api/admin/webhooks/${editingId.value}?${params}`)
+      const currentEditingId = editingId.value
+      const res = await request.put(`/api/admin/webhooks/${currentEditingId}?${params}`)
+      requireWebhook((res as any).data, 'update')
+      await load()
+      const refreshed = list.value?.find(item => Number(item.id) === currentEditingId)
+      if (!refreshed || refreshed.name !== form.name || refreshed.url !== form.url || normalizeEvents(refreshed.events).join(',') !== eventsValue) {
+        throw new Error('Webhook 更新结果待确认')
+      }
       message.success('已更新')
     } else {
-      await request.post(`/api/admin/webhooks?${params}`)
+      const res = await request.post(`/api/admin/webhooks?${params}`)
+      const created = requireWebhook((res as any).data, 'create')
+      await load()
+      const refreshed = list.value?.find(item => Number(item.id) === created.id)
+      if (!refreshed || refreshed.name !== form.name || refreshed.url !== form.url || normalizeEvents(refreshed.events).join(',') !== eventsValue) {
+        throw new Error('Webhook 创建结果待确认')
+      }
       message.success('已创建')
     }
-    showEditor.value = false; await load()
-  } catch { message.error('操作失败') }
+    showEditor.value = false
+  } catch (err: any) { message.error(err.message || '操作失败') }
 }
 
 async function toggleStatus(w: any) {
   const current = normalizeBinaryStatus(w.status)
   if (current === null) { message.error('Webhook 状态尚未明确，暂时无法切换'); return }
   try {
-    await request.put(`/api/admin/webhooks/${w.id}?name=${encodeURIComponent(w.name)}&url=${encodeURIComponent(w.url)}&events=${encodeURIComponent(Array.isArray(w.events) ? w.events.join(',') : w.events)}&status=${current ? 0 : 1}`)
-    w.status = current ? 0 : 1
-  } catch { message.error('操作失败') }
+    const eventsValue = encodeURIComponent(Array.isArray(w.events) ? w.events.join(',') : w.events)
+    const res = await request.put(`/api/admin/webhooks/${w.id}?name=${encodeURIComponent(w.name)}&url=${encodeURIComponent(w.url)}&events=${eventsValue}&status=${current ? 0 : 1}`)
+    requireWebhook((res as any).data, 'update')
+    await load()
+    const refreshed = list.value?.find(item => Number(item.id) === Number(w.id))
+    if (!refreshed || normalizeBinaryStatus(refreshed.status) !== !current) {
+      throw new Error('Webhook 状态待确认')
+    }
+  } catch (err: any) { message.error(err.message || '操作失败') }
 }
 
 async function handleDelete(id: number) {
-  try { await request.delete(`/api/admin/webhooks/${id}`); list.value = list.value?.filter(w => w.id !== id) || []; message.success('已删除') }
-  catch { message.error('删除失败') }
+  try {
+    await request.delete(`/api/admin/webhooks/${id}`)
+    await load()
+    if (list.value?.some(item => Number(item.id) === id)) {
+      throw new Error('Webhook 删除结果待确认')
+    }
+    message.success('已删除')
+  }
+  catch (err: any) { message.error(err.message || '删除失败') }
 }
 
 function normalizeBinaryStatus(value: unknown): boolean | null {

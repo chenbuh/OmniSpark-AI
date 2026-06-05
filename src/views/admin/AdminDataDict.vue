@@ -132,6 +132,35 @@ const itemsLoadState = ref<'loading' | 'ready' | 'error'>('ready')
 const dictCountDisplay = computed(() => dicts.value === null ? '-' : dicts.value.length)
 const itemCountDisplay = computed(() => items.value === null ? '-' : items.value.length)
 
+function requireDict(value: unknown, action: 'create' | 'update') {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new Error(action === 'create' ? '字典创建结果待确认' : '字典更新结果待确认')
+  }
+  const id = Number((value as any).id)
+  const code = typeof (value as any).dictCode === 'string' ? (value as any).dictCode.trim() : ''
+  const name = typeof (value as any).dictName === 'string' ? (value as any).dictName.trim() : ''
+  if (!Number.isFinite(id) || id <= 0 || !code || !name) {
+    throw new Error(action === 'create' ? '字典创建结果待确认' : '字典更新结果待确认')
+  }
+  return { id, code, name }
+}
+
+function requireDictItem(value: unknown, action: 'create' | 'update') {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new Error(action === 'create' ? '条目创建结果待确认' : '条目更新结果待确认')
+  }
+  const id = Number((value as any).id)
+  const code = typeof (value as any).itemCode === 'string' ? (value as any).itemCode.trim() : ''
+  const name = typeof (value as any).itemName === 'string' ? (value as any).itemName.trim() : ''
+  if (!Number.isFinite(id) || id <= 0 || !code || !name) {
+    throw new Error(action === 'create' ? '条目创建结果待确认' : '条目更新结果待确认')
+  }
+  return {
+    id,
+    status: normalizeBinaryStatus((value as any).status)
+  }
+}
+
 onMounted(loadDicts)
 
 async function loadDicts() {
@@ -171,19 +200,38 @@ async function selectDict(d: any) {
 async function handleSaveDict() {
   if (!dictForm.code || !dictForm.name) { message.error('编码和名称为必填'); return false }
   try {
-    if (editingDict) {
-      await request.put(`/api/admin/dict/${editingDict}?name=${encodeURIComponent(dictForm.name)}&description=${encodeURIComponent(dictForm.description)}`)
+    if (editingDict.value) {
+      const currentEditingId = Number(editingDict.value)
+      const res = await request.put(`/api/admin/dict/${currentEditingId}?name=${encodeURIComponent(dictForm.name)}&description=${encodeURIComponent(dictForm.description)}`)
+      requireDict((res as any).data, 'update')
+      await loadDicts()
+      const refreshed = dicts.value?.find(item => Number(item.id) === currentEditingId)
+      if (!refreshed || refreshed.dictName !== dictForm.name || (refreshed.description || '') !== dictForm.description) {
+        throw new Error('字典更新结果待确认')
+      }
+      if (activeDict.value?.id === currentEditingId) {
+        activeDict.value = refreshed
+      }
     } else {
-      await request.post(`/api/admin/dict?code=${encodeURIComponent(dictForm.code)}&name=${encodeURIComponent(dictForm.name)}&description=${encodeURIComponent(dictForm.description)}`)
+      const res = await request.post(`/api/admin/dict?code=${encodeURIComponent(dictForm.code)}&name=${encodeURIComponent(dictForm.name)}&description=${encodeURIComponent(dictForm.description)}`)
+      const created = requireDict((res as any).data, 'create')
+      await loadDicts()
+      const refreshed = dicts.value?.find(item => Number(item.id) === created.id)
+      if (!refreshed || refreshed.dictCode !== dictForm.code || refreshed.dictName !== dictForm.name) {
+        throw new Error('字典创建结果待确认')
+      }
     }
     message.success('已保存'); showDictEditor.value = false; await loadDicts(); return true
-  } catch { message.error('操作失败'); return false }
+  } catch (err: any) { message.error(err.message || '操作失败'); return false }
 }
 
 async function handleDeleteDict(id: number) {
   try {
     await request.delete(`/api/admin/dict/${id}`)
-    dicts.value = dicts.value?.filter(d => d.id !== id) || []
+    await loadDicts()
+    if (dicts.value?.some(d => Number(d.id) === id)) {
+      throw new Error('字典删除结果待确认')
+    }
     if (activeDict.value?.id === id) {
       activeDict.value = null
       items.value = []
@@ -191,19 +239,33 @@ async function handleDeleteDict(id: number) {
     }
     message.success('已删除')
   }
-  catch { message.error('删除失败') }
+  catch (err: any) { message.error(err.message || '删除失败') }
 }
 
 async function handleSaveItem() {
   if (!itemForm.code || !itemForm.name || !activeDict.value) { message.error('编码和名称为必填'); return false }
   try {
-    if (editingItem) {
-      await request.put(`/api/admin/dict/items/${editingItem}?name=${encodeURIComponent(itemForm.name)}&sortOrder=${itemForm.sortOrder}`)
+    const activeDictId = Number(activeDict.value.id)
+    if (editingItem.value) {
+      const currentEditingId = Number(editingItem.value)
+      const res = await request.put(`/api/admin/dict/items/${currentEditingId}?name=${encodeURIComponent(itemForm.name)}&sortOrder=${itemForm.sortOrder}`)
+      requireDictItem((res as any).data, 'update')
+      await selectDict(activeDict.value)
+      const refreshed = items.value?.find(item => Number(item.id) === currentEditingId)
+      if (!refreshed || refreshed.itemName !== itemForm.name || Number(refreshed.sortOrder) !== itemForm.sortOrder) {
+        throw new Error('条目更新结果待确认')
+      }
     } else {
-      await request.post(`/api/admin/dict/${activeDict.value.id}/items?code=${encodeURIComponent(itemForm.code)}&name=${encodeURIComponent(itemForm.name)}&sortOrder=${itemForm.sortOrder}`)
+      const res = await request.post(`/api/admin/dict/${activeDictId}/items?code=${encodeURIComponent(itemForm.code)}&name=${encodeURIComponent(itemForm.name)}&sortOrder=${itemForm.sortOrder}`)
+      const created = requireDictItem((res as any).data, 'create')
+      await selectDict(activeDict.value)
+      const refreshed = items.value?.find(item => Number(item.id) === created.id)
+      if (!refreshed || refreshed.itemCode !== itemForm.code || refreshed.itemName !== itemForm.name || Number(refreshed.sortOrder) !== itemForm.sortOrder) {
+        throw new Error('条目创建结果待确认')
+      }
     }
-    message.success('已保存'); showItemEditor.value = false; await selectDict(activeDict.value); return true
-  } catch { message.error('操作失败'); return false }
+    message.success('已保存'); showItemEditor.value = false; return true
+  } catch (err: any) { message.error(err.message || '操作失败'); return false }
 }
 
 function editItem(item: any) {
@@ -213,8 +275,16 @@ function editItem(item: any) {
 async function toggleItemStatus(item: any) {
   const current = normalizeBinaryStatus(item.status)
   if (current === null) { message.error('条目状态尚未明确，暂时无法切换'); return }
-  try { await request.put(`/api/admin/dict/items/${item.id}?status=${current ? 0 : 1}`); item.status = current ? 0 : 1 }
-  catch { message.error('操作失败') }
+  try {
+    const res = await request.put(`/api/admin/dict/items/${item.id}?status=${current ? 0 : 1}`)
+    requireDictItem((res as any).data, 'update')
+    await selectDict(activeDict.value)
+    const refreshed = items.value?.find(entry => Number(entry.id) === Number(item.id))
+    if (!refreshed || normalizeBinaryStatus(refreshed.status) !== !current) {
+      throw new Error('条目状态待确认')
+    }
+  }
+  catch (err: any) { message.error(err.message || '操作失败') }
 }
 
 function normalizeBinaryStatus(value: unknown): boolean | null {
@@ -226,10 +296,13 @@ function normalizeBinaryStatus(value: unknown): boolean | null {
 async function handleDeleteItem(id: number) {
   try {
     await request.delete(`/api/admin/dict/items/${id}`)
-    items.value = items.value?.filter(i => i.id !== id) || []
+    await selectDict(activeDict.value)
+    if (items.value?.some(i => Number(i.id) === id)) {
+      throw new Error('条目删除结果待确认')
+    }
     message.success('已删除')
   }
-  catch { message.error('删除失败') }
+  catch (err: any) { message.error(err.message || '删除失败') }
 }
 </script>
 
