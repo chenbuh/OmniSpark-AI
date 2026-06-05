@@ -348,6 +348,74 @@ function requireStyleCardResult(value: unknown, action: 'create' | 'update') {
   }
 }
 
+function requireStyleCardDetail(value: unknown, action: 'create' | 'update') {
+  const base = requireStyleCardResult(value, action)
+  const record = value as Record<string, unknown>
+  const type = record.type
+  if (type !== 'style' && type !== 'character') {
+    throw new Error(action === 'create' ? '卡片创建结果待确认' : '卡片更新结果待确认')
+  }
+  return {
+    ...base,
+    type,
+    negativePrompt: normalizeOptionalText(record.negativePrompt),
+    modelName: normalizeOptionalText(record.modelName),
+    cfg: normalizeOptionalNumber(record.cfg),
+    steps: normalizeOptionalNumber(record.steps),
+    size: normalizeOptionalText(record.size),
+    tag: normalizeOptionalText(record.tag),
+    previewUrl: toRelativeUrl(typeof record.previewUrl === 'string' ? record.previewUrl : '')
+  }
+}
+
+function normalizeOptionalText(value: unknown) {
+  return typeof value === 'string' ? value.trim() : ''
+}
+
+function normalizeOptionalNumber(value: unknown) {
+  if (value == null || value === '') {
+    return null
+  }
+  const parsed = Number(value)
+  return Number.isFinite(parsed) ? parsed : null
+}
+
+function buildStyleCardExpectation(payload: StyleCardPayload) {
+  return {
+    name: payload.name.trim(),
+    type: payload.type,
+    content: payload.content.trim(),
+    negativePrompt: normalizeOptionalText(payload.negativePrompt),
+    modelName: normalizeOptionalText(payload.modelName),
+    cfg: normalizeOptionalNumber(payload.cfg),
+    steps: normalizeOptionalNumber(payload.steps),
+    size: normalizeOptionalText(payload.size),
+    tag: normalizeOptionalText(payload.tag),
+    previewUrl: toRelativeUrl(payload.previewUrl || '')
+  }
+}
+
+function assertStyleCardMatches(
+  card: ReturnType<typeof requireStyleCardDetail>,
+  expected: ReturnType<typeof buildStyleCardExpectation>,
+  action: 'create' | 'update'
+) {
+  if (
+    card.name !== expected.name
+    || card.type !== expected.type
+    || card.content !== expected.content
+    || card.negativePrompt !== expected.negativePrompt
+    || card.modelName !== expected.modelName
+    || card.cfg !== expected.cfg
+    || card.steps !== expected.steps
+    || card.size !== expected.size
+    || card.tag !== expected.tag
+    || card.previewUrl !== expected.previewUrl
+  ) {
+    throw new Error(action === 'create' ? '卡片创建结果待确认' : '卡片更新结果待确认')
+  }
+}
+
 function requireStyleCardLikeResult(value: unknown) {
   if (value === 1 || value === '1' || value === true || value === 'true') {
     return 1
@@ -584,19 +652,31 @@ async function handleSave() {
     tag: form.tag.trim() || undefined,
     previewUrl: form.previewUrl || undefined
   } satisfies StyleCardPayload
+  const expected = buildStyleCardExpectation(payload)
   try {
     if (editingCard.value) {
       const res = await styleCardApi.update(editingCard.value.id, payload)
-      requireStyleCardResult((res as any).data, 'update')
+      const updated = requireStyleCardResult((res as any).data, 'update')
+      await Promise.all([loadStyleCardTags(), loadCards()])
+      assertStyleCardMatches(
+        requireStyleCardDetail((await styleCardApi.get(updated.id) as any).data, 'update'),
+        expected,
+        'update'
+      )
       message.success('卡片已更新')
     } else {
       const res = await styleCardApi.create(payload)
-      requireStyleCardResult((res as any).data, 'create')
+      const created = requireStyleCardResult((res as any).data, 'create')
+      await Promise.all([loadStyleCardTags(), loadCards()])
+      assertStyleCardMatches(
+        requireStyleCardDetail((await styleCardApi.get(created.id) as any).data, 'create'),
+        expected,
+        'create'
+      )
       message.success('卡片已创建')
     }
     showAddModal.value = false
     resetForm()
-    await Promise.all([loadStyleCardTags(), loadCards()])
   } catch (err: any) {
     message.error(err.message || '操作失败')
   }
