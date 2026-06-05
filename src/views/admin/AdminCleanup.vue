@@ -13,6 +13,8 @@
         <span class="param-label">天的数据</span>
         <n-button type="primary" secondary @click="handlePreview" :loading="previewing">预览可清理量</n-button>
       </div>
+      <div v-if="previewLoadState === 'error'" class="status-note">清理预览待确认，请稍后重试。</div>
+      <div v-if="resultLoadState === 'error'" class="status-note">清理结果待确认，请稍后重试。</div>
     </n-card>
 
     <!-- 预览结果 -->
@@ -60,6 +62,8 @@ const preview = ref<any>(null)
 const result = ref<any>(null)
 const previewing = ref(false)
 const cleaning = ref(false)
+const previewLoadState = ref<'idle' | 'loading' | 'ready' | 'error'>('idle')
+const resultLoadState = ref<'idle' | 'ready' | 'error'>('idle')
 
 const cleanupItems = [
   { key: 'oldTasks', label: '过期任务', color: '#f59e0b' },
@@ -73,13 +77,37 @@ const totalDeletable = computed(() => {
   return cleanupItems.reduce((sum, item) => sum + (toOptionalNumber(preview.value[item.key]) ?? 0), 0)
 })
 
+function isPlainObject(value: unknown): value is Record<string, any> {
+  return !!value && typeof value === 'object' && !Array.isArray(value)
+}
+
+function normalizeCleanupPayload(payload: unknown, metricKeys: string[], requireDaysOld = false) {
+  if (!isPlainObject(payload)) {
+    throw new Error('清理结果待确认')
+  }
+  if (requireDaysOld && toOptionalNumber(payload.daysOld) === null) {
+    throw new Error('清理预览待确认')
+  }
+  if (metricKeys.some((key) => toOptionalNumber(payload[key]) === null)) {
+    throw new Error(requireDaysOld ? '清理预览待确认' : '清理结果待确认')
+  }
+  return payload
+}
+
 async function handlePreview() {
   previewing.value = true
   result.value = null
+  resultLoadState.value = 'idle'
   try {
+    previewLoadState.value = 'loading'
     const res = await request.get('/api/admin/cleanup/preview', { params: { daysOld: daysOld.value } })
-    preview.value = (res as any).data
-  } catch { message.error('预览失败') }
+    preview.value = normalizeCleanupPayload((res as any).data, cleanupItems.map(item => item.key), true)
+    previewLoadState.value = 'ready'
+  } catch (err: any) {
+    preview.value = null
+    previewLoadState.value = 'error'
+    message.error(err.message || '预览失败')
+  }
   finally { previewing.value = false }
 }
 
@@ -87,10 +115,19 @@ async function handleExecute() {
   cleaning.value = true
   try {
     const res = await request.delete('/api/admin/cleanup/execute', { params: { daysOld: daysOld.value } })
-    result.value = (res as any).data
+    result.value = normalizeCleanupPayload(
+      (res as any).data,
+      cleanupItems.map(item => `deleted${item.key.charAt(0).toUpperCase()}${item.key.slice(1)}`)
+    )
+    resultLoadState.value = 'ready'
     preview.value = null
+    previewLoadState.value = 'idle'
     message.success('清理完成！')
-  } catch { message.error('清理失败') }
+  } catch (err: any) {
+    result.value = null
+    resultLoadState.value = 'error'
+    message.error(err.message || '清理失败')
+  }
   finally { cleaning.value = false }
 }
 
@@ -121,4 +158,5 @@ function toOptionalNumber(value: unknown): number | null {
 .stats-label { font-size: 11px; color: #9ca3af; }
 .stats-value { font-size: 24px; font-weight: 700; }
 .stats-unit { font-size: 10px; color: #6b7280; }
+.status-note { margin-top: 12px; font-size: 12px; color: #fca5a5; }
 </style>

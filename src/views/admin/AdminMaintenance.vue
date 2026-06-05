@@ -6,6 +6,7 @@
     </div>
 
     <n-card class="glass-card" :bordered="false">
+      <div v-if="statusLoadState === 'error'" class="status-note">维护模式状态待确认，请稍后重试。</div>
       <div class="status-bar">
         <n-tag :type="statusTagType" size="large" round>
           {{ statusTagLabel }}
@@ -45,13 +46,16 @@ import request from '@/api/request'
 const message = useMessage()
 const loading = ref(true)
 const status = reactive<{ enabled: boolean | null; message: string }>({ enabled: null, message: '' })
+const statusLoadState = ref<'loading' | 'ready' | 'error'>('loading')
 
 const statusTagType = computed(() => {
+  if (statusLoadState.value === 'error') return 'warning'
   if (loading.value || status.enabled === null) return 'warning'
   return status.enabled ? 'error' : 'success'
 })
 
 const statusTagLabel = computed(() => {
+  if (statusLoadState.value === 'error') return '状态待确认'
   if (loading.value || status.enabled === null) return '状态加载中'
   return status.enabled ? '🛠 维护中' : '✅ 正常运行'
 })
@@ -61,13 +65,21 @@ onMounted(load)
 async function load() {
   try {
     loading.value = true
+    statusLoadState.value = 'loading'
     const res = await request.get('/api/admin/maintenance')
     const data = (res as any).data
-    if (data) {
-      status.enabled = typeof data.enabled === 'boolean' ? data.enabled : null
-      status.message = typeof data.message === 'string' ? data.message : ''
+    if (!data || typeof data !== 'object' || Array.isArray(data) || typeof data.enabled !== 'boolean') {
+      throw new Error('维护模式状态待确认')
     }
-  } catch {} finally {
+    status.enabled = data.enabled
+    status.message = typeof data.message === 'string' ? data.message : ''
+    statusLoadState.value = 'ready'
+  } catch (err: any) {
+    status.enabled = null
+    status.message = ''
+    statusLoadState.value = 'error'
+    message.error(err.message || '加载维护模式状态失败')
+  } finally {
     loading.value = false
   }
 }
@@ -102,5 +114,6 @@ async function handleSaveMessage() {
 .page-header h2 { font-size: 24px; font-weight: 700; margin: 0 0 6px 0; color: #fff; }
 .subtitle { font-size: 13px; color: #9ca3af; margin: 0; }
 .glass-card { background: rgba(15,23,42,0.4) !important; backdrop-filter: blur(16px); border: 1px solid rgba(255,255,255,0.08) !important; border-radius: 16px !important; }
+.status-note { margin-bottom: 12px; font-size: 12px; color: #fca5a5; }
 .status-bar { display: flex; justify-content: space-between; align-items: center; }
 </style>
