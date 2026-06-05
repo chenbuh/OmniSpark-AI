@@ -66,6 +66,10 @@ public class AnnouncementService {
 
     @Transactional(rollbackFor = Exception.class)
     public void delete(Long id) {
+        Announcement ann = announcementMapper.selectById(id);
+        if (ann == null) {
+            throw new BusinessException("公告不存在");
+        }
         announcementMapper.deleteById(id);
     }
 }

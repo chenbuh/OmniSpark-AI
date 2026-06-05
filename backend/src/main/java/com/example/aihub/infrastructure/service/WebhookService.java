@@ -71,6 +71,10 @@ public class WebhookService {
 
     @Transactional(rollbackFor = Exception.class)
     public void delete(Long id) {
+        Webhook wh = webhookMapper.selectById(id);
+        if (wh == null) {
+            throw new BusinessException("Webhook 不存在");
+        }
         webhookMapper.deleteById(id);
     }
 

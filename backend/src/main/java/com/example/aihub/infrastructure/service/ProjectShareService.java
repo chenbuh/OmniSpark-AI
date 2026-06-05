@@ -175,7 +175,9 @@ public class ProjectShareService {
     @Transactional(rollbackFor = Exception.class)
     public void removeShare(Long shareId) {
         ProjectShare share = shareMapper.selectById(shareId);
-        if (share == null) return;
+        if (share == null) {
+            throw new BusinessException("共享记录不存在");
+        }
         requirePermission(share.getProjectId(), "admin");
         shareMapper.deleteById(shareId);
     }

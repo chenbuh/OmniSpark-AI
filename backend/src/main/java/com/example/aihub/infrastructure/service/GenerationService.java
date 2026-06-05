@@ -284,7 +284,7 @@ public class GenerationService {
     public void adminDelete(Long id) {
         GenerationTask task = taskMapper.selectById(id);
         if (task == null) {
-            return;
+            throw new BusinessException("任务不存在");
         }
         deleteTaskInternal(id);
     }
