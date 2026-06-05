@@ -136,6 +136,8 @@ public class ApiKeyService {
 
     @Transactional(rollbackFor = Exception.class)
     public void deleteByAdmin(Long id) {
+        ApiKey key = apiKeyMapper.selectById(id);
+        if (key == null) throw new BusinessException("密钥不存在");
         apiKeyMapper.deleteById(id);
     }
 

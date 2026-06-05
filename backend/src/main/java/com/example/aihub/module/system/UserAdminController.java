@@ -205,6 +205,10 @@ public class UserAdminController {
         if (id.equals(SecurityUtil.loginUserId())) {
             return ApiResult.fail("不能删除自己的账号");
         }
+        User user = userMapper.selectById(id);
+        if (user == null) {
+            return ApiResult.fail("用户不存在");
+        }
         userMapper.deleteById(id);
         return ApiResult.ok();
     }

@@ -295,7 +295,7 @@ public class AssetService {
     public void adminDelete(Long id) {
         Asset asset = assetMapper.selectById(id);
         if (asset == null) {
-            return;
+            throw new BusinessException("资产不存在");
         }
         detachAssetReferences(List.of(asset.getId()));
         subtitleService.deleteByAssetIds(List.of(asset.getId()));
