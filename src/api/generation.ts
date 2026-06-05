@@ -52,6 +52,19 @@ export interface ImageGenerateDTO {
   options?: ImageGenerateOptions
 }
 
+export interface PromptOptimizeDTO {
+  projectId: number
+  providerId?: number
+  prompt: string
+}
+
+export interface PromptOptimizeResult {
+  prompt: string
+  providerId?: number
+  providerName?: string
+  modelName?: string
+}
+
 export interface VideoGenerateDTO {
   projectId: number
   providerId: number
@@ -81,5 +94,9 @@ export const generationApi = {
   // 局部重绘触发
   async generateInpaint(dto: ImageGenerateDTO) {
     return request.post('/api/generation/image/inpaint', dto)
+  },
+
+  async optimizeImagePrompt(dto: PromptOptimizeDTO) {
+    return request.post('/api/generation/image/optimize-prompt', dto)
   }
 }

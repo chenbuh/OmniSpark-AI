@@ -43,7 +43,15 @@
                     :autosize="{ minRows: 3, maxRows: 6 }"
                     placeholder="输入您构想的画面描述，支持中英文... (例如: 赛博朋克霓虹街道)"
                   />
-                  <n-button size="tiny" type="primary" secondary class="optimize-btn" :loading="optimizing" @click="handleOptimizePrompt">
+                  <n-button
+                    size="tiny"
+                    type="primary"
+                    secondary
+                    class="optimize-btn"
+                    :loading="optimizing"
+                    title="调用项目内已配置的 OpenAI / Custom 文本模型，真实润色提示词"
+                    @click="handleOptimizePrompt"
+                  >
                     <Sparkles class="optimize-icon" /> 提示词润色
                   </n-button>
                 </div>
@@ -446,7 +454,7 @@ import { useModelProviderStore } from '@/store/provider'
 import { useTaskStore } from '@/store/task'
 import { useAssetStore, type Asset } from '@/store/asset'
 import { assetApi } from '@/api/assets'
-import { generationApi, type GenerationMetaOption, type GenerationMetaVO } from '@/api/generation'
+import { generationApi, type GenerationMetaOption, type GenerationMetaVO, type PromptOptimizeResult } from '@/api/generation'
 import { taskApi } from '@/api/tasks'
 import {
   Sparkles,
@@ -661,6 +669,10 @@ const providerOptions = computed(() => {
       label: p.name,
       value: p.id
     }))
+})
+
+const selectedProvider = computed(() => {
+  return providerStore.providers.find(provider => provider.id === form.providerId) || null
 })
 
 // 模型列表选择
@@ -1524,16 +1536,36 @@ const getAssetThumbUrl = (assetId?: number) => {
   return asset ? asset.thumbUrl : ''
 }
 
-const handleOptimizePrompt = () => {
-  if (!form.prompt) {
+const handleOptimizePrompt = async () => {
+  const rawPrompt = form.prompt.trim()
+  if (!rawPrompt) {
     message.error('请先输入一些提示词草稿！')
     return
   }
+  if (!projectStore.activeProjectId) {
+    message.error('请先进入一个项目空间后再润色提示词')
+    return
+  }
   optimizing.value = true
-  const raw = form.prompt
-  form.prompt = `${raw}, highly detailed, cinematic lighting, rich textures, refined composition, masterpiece`
-  optimizing.value = false
-  message.success('提示词已润色。')
+  try {
+    const res = await generationApi.optimizeImagePrompt({
+      projectId: projectStore.activeProjectId,
+      providerId: form.providerId || undefined,
+      prompt: rawPrompt
+    })
+    const payload = ((res as any).data || {}) as PromptOptimizeResult
+    const optimizedPrompt = typeof payload.prompt === 'string' ? payload.prompt.trim() : ''
+    if (!optimizedPrompt) {
+      throw new Error('提示词润色接口未返回有效结果')
+    }
+    form.prompt = optimizedPrompt
+    const providerName = payload.providerName || selectedProvider.value?.name
+    message.success(providerName ? `提示词已通过 ${providerName} 润色` : '提示词已润色')
+  } catch (error: any) {
+    message.error(error?.message || '提示词润色失败，请稍后重试')
+  } finally {
+    optimizing.value = false
+  }
 }
 
 // 从「Asset | string」中安全取出资产 id（字符串占位无 id 时返回 undefined）

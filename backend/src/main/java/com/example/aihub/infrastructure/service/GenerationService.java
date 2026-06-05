@@ -9,6 +9,7 @@ import com.example.aihub.common.util.PagingUtil;
 import com.example.aihub.common.util.SecurityUtil;
 import com.example.aihub.common.util.VoMapper;
 import com.example.aihub.infrastructure.dto.ImageGenerateDTO;
+import com.example.aihub.infrastructure.dto.PromptOptimizeDTO;
 import com.example.aihub.infrastructure.dto.TaskQueryDTO;
 import com.example.aihub.infrastructure.dto.VideoGenerateDTO;
 import com.example.aihub.infrastructure.entity.Asset;
@@ -66,6 +67,7 @@ public class GenerationService {
     private static final String DEFAULT_VIDEO_CAMERA_MOTION = "zoom_in";
     private static final Set<String> SUPPORTED_IMAGE_PROVIDER_TYPES = Set.of("image", "openai", "custom");
     private static final Set<String> SUPPORTED_VIDEO_PROVIDER_TYPES = Set.of("video", "openai", "custom");
+    private static final Set<String> SUPPORTED_PROMPT_OPTIMIZER_PROVIDER_TYPES = Set.of("openai", "custom");
     private static final Set<String> SUPPORTED_IMAGE_RESOLUTIONS = Set.of("custom", "1k", "2k", "4k");
     private static final Set<String> SUPPORTED_IMAGE_QUALITIES = Set.of("standard", "high", "ultra");
     private static final Set<String> SUPPORTED_VIDEO_DURATIONS = Set.of("5s", "10s");
@@ -98,6 +100,7 @@ public class GenerationService {
     private final ModelProviderMapper providerMapper;
     private final QuotaRecordMapper quotaRecordMapper;
     private final OpenAiImageClient imageClient;
+    private final OpenAiTextClient textClient;
     private final NotificationService notificationService;
     private final WebhookService webhookService;
     private final ObjectMapper objectMapper;
@@ -224,6 +227,27 @@ public class GenerationService {
             markTaskFailed(task.getId(), ex.getMessage());
             throw new BusinessException(ex.getMessage());
         }
+    }
+
+    public Map<String, Object> optimizeImagePrompt(PromptOptimizeDTO dto) {
+        projectAccessGuard.assertAccess(dto.getProjectId());
+        ModelProvider provider = resolvePromptOptimizerProvider(dto.getProjectId(), dto.getProviderId());
+        String modelName = resolvePromptOptimizerModel(provider, dto.getModelName());
+        if (modelName == null || modelName.isBlank()) {
+            throw new BusinessException("未找到可用的提示词润色文本模型，请在模型配置中心为 OpenAI / Custom 提供商填写文本模型（例如 gpt-4o-mini）");
+        }
+        String optimizedPrompt = textClient.optimizeImagePrompt(
+                provider.getBaseUrl(),
+                provider.getApiKey(),
+                modelName,
+                dto.getPrompt()
+        );
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("prompt", optimizedPrompt);
+        result.put("providerId", provider.getId());
+        result.put("providerName", provider.getName());
+        result.put("modelName", modelName);
+        return result;
     }
 
     public GenerationTaskVO retry(Long id) {
@@ -565,6 +589,31 @@ public class GenerationService {
         return provider;
     }
 
+    private ModelProvider resolvePromptOptimizerProvider(Long projectId, Long preferredProviderId) {
+        if (preferredProviderId != null) {
+            ModelProvider preferred = providerMapper.selectById(preferredProviderId);
+            if (preferred == null) {
+                throw new BusinessException("模型提供商不存在");
+            }
+            projectAccessGuard.assertAccess(preferred.getProjectId());
+            if (!preferred.getProjectId().equals(projectId)) {
+                throw new BusinessException("模型提供商不属于当前项目");
+            }
+        }
+
+        List<ModelProvider> candidates = providerMapper.selectList(
+                new LambdaQueryWrapper<ModelProvider>()
+                        .eq(ModelProvider::getProjectId, projectId)
+                        .eq(ModelProvider::getEnabled, 1)
+                        .orderByDesc(ModelProvider::getIsDefault)
+                        .orderByDesc(ModelProvider::getId));
+
+        return candidates.stream()
+                .filter(provider -> promptOptimizerProviderScore(provider, preferredProviderId) > 0)
+                .max(java.util.Comparator.comparingInt(provider -> promptOptimizerProviderScore(provider, preferredProviderId)))
+                .orElseThrow(() -> new BusinessException("未找到可用的提示词润色模型，请先在模型配置中心配置启用中的 OpenAI / Custom 文本模型"));
+    }
+
     private List<OpenAiImageClient.ReferenceImage> loadReferenceImages(List<Long> referenceAssetIds, Long projectId) {
         if (referenceAssetIds == null || referenceAssetIds.isEmpty()) {
             return List.of();
@@ -900,6 +949,19 @@ public class GenerationService {
         return fallback;
     }
 
+    private String resolvePromptOptimizerModel(ModelProvider provider, String explicitModelName) {
+        String explicit = normalizeText(explicitModelName);
+        if (explicit != null) {
+            return explicit;
+        }
+        String configModel = extractProviderConfigText(provider.getConfigJson(),
+                "promptOptimizeModel", "chatModel", "textModel", "completionModel");
+        if (configModel != null) {
+            return configModel;
+        }
+        return normalizeText(provider.getModelName());
+    }
+
     private String normalizeSizeLabel(String size) {
         if (size == null || size.isBlank()) {
             return "1024x1024";
@@ -949,6 +1011,123 @@ public class GenerationService {
         }
         String text = value.toString().trim().toLowerCase(Locale.ROOT);
         return text.isBlank() ? null : text;
+    }
+
+    private int promptOptimizerProviderScore(ModelProvider provider, Long preferredProviderId) {
+        String type = normalizeText(provider.getType());
+        if (type == null) {
+            return Integer.MIN_VALUE;
+        }
+        type = type.toLowerCase(Locale.ROOT);
+        if (!SUPPORTED_PROMPT_OPTIMIZER_PROVIDER_TYPES.contains(type)) {
+            return Integer.MIN_VALUE;
+        }
+        if (provider.getEnabled() != null && provider.getEnabled() == 0) {
+            return Integer.MIN_VALUE;
+        }
+        if (isBlank(provider.getBaseUrl()) || isBlank(provider.getApiKey())) {
+            return Integer.MIN_VALUE;
+        }
+
+        int score = "openai".equals(type) ? 40 : 30;
+        if (preferredProviderId != null && preferredProviderId.equals(provider.getId())) {
+            score += 35;
+        }
+        if (provider.getIsDefault() != null && provider.getIsDefault() == 1) {
+            score += 15;
+        }
+
+        String modelName = resolvePromptOptimizerModel(provider, null);
+        if (looksLikeTextModel(modelName)) {
+            score += 80;
+        } else if (looksLikeNonTextModel(modelName)) {
+            score -= 60;
+        } else if (!isBlank(modelName)) {
+            score += 10;
+        }
+        return score;
+    }
+
+    private boolean looksLikeTextModel(String modelName) {
+        if (isBlank(modelName)) {
+            return false;
+        }
+        String value = modelName.trim().toLowerCase(Locale.ROOT);
+        if (looksLikeNonTextModel(value)) {
+            return false;
+        }
+        return value.contains("gpt")
+                || value.contains("claude")
+                || value.contains("qwen")
+                || value.contains("glm")
+                || value.contains("deepseek")
+                || value.contains("gemini")
+                || value.contains("llama")
+                || value.contains("mistral")
+                || value.contains("command")
+                || value.contains("chat")
+                || value.contains("instruct")
+                || value.contains("assistant")
+                || value.contains("sonnet")
+                || value.contains("haiku")
+                || value.contains("opus")
+                || value.contains("turbo");
+    }
+
+    private boolean looksLikeNonTextModel(String modelName) {
+        if (isBlank(modelName)) {
+            return false;
+        }
+        String value = modelName.trim().toLowerCase(Locale.ROOT);
+        return value.contains("dall-e")
+                || value.contains("dalle")
+                || value.contains("gpt-image")
+                || value.contains("image-1")
+                || value.contains("flux")
+                || value.contains("sdxl")
+                || value.contains("stable-diffusion")
+                || value.contains("sora")
+                || value.contains("runway")
+                || value.contains("kling")
+                || value.contains("tts")
+                || value.contains("speech")
+                || value.contains("whisper")
+                || value.contains("transcribe")
+                || value.contains("audio");
+    }
+
+    private String extractProviderConfigText(String configJson, String... keys) {
+        if (isBlank(configJson) || keys == null || keys.length == 0) {
+            return null;
+        }
+        try {
+            JsonNode node = objectMapper.readTree(configJson);
+            if (!node.isObject()) {
+                return null;
+            }
+            for (String key : keys) {
+                if (node.hasNonNull(key)) {
+                    String value = normalizeText(node.get(key).asText());
+                    if (value != null) {
+                        return value;
+                    }
+                }
+            }
+        } catch (Exception ignored) {
+        }
+        return null;
+    }
+
+    private boolean isBlank(String value) {
+        return value == null || value.isBlank();
+    }
+
+    private String normalizeText(String value) {
+        if (value == null) {
+            return null;
+        }
+        String normalized = value.trim();
+        return normalized.isBlank() ? null : normalized;
     }
 
     private void updateTaskProgress(Long taskId, int progress, String progressText) {

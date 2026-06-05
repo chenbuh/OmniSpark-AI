@@ -4,6 +4,7 @@ import cn.dev33.satoken.annotation.SaCheckLogin;
 import com.example.aihub.common.annotation.RateLimit;
 import com.example.aihub.common.result.ApiResult;
 import com.example.aihub.infrastructure.dto.ImageGenerateDTO;
+import com.example.aihub.infrastructure.dto.PromptOptimizeDTO;
 import com.example.aihub.infrastructure.dto.VideoGenerateDTO;
 import com.example.aihub.infrastructure.service.GenerationService;
 import com.example.aihub.infrastructure.vo.GenerationTaskVO;
@@ -46,5 +47,11 @@ public class GenerationController {
     @RateLimit(count = 200, seconds = 86400, dimension = RateLimit.Dimension.USER_API, message = "今日生成次数已达上限，请明日再试")
     public ApiResult<GenerationTaskVO> inpaint(@Valid @RequestBody ImageGenerateDTO dto) {
         return ApiResult.ok(generationService.generateInpaint(dto));
+    }
+
+    @PostMapping("/image/optimize-prompt")
+    @RateLimit(count = 20, seconds = 60, dimension = RateLimit.Dimension.USER_API, message = "提示词润色过于频繁，请稍后再试")
+    public ApiResult<java.util.Map<String, Object>> optimizePrompt(@Valid @RequestBody PromptOptimizeDTO dto) {
+        return ApiResult.ok(generationService.optimizeImagePrompt(dto));
     }
 }
