@@ -59,8 +59,8 @@
           <div class="card-meta">
             <n-space :size="8">
               <code v-if="card.modelName">{{ card.modelName }}</code>
-              <span class="card-stat"><ThumbsUp class="tiny-icon" /> {{ card.likesCount || 0 }}</span>
-              <span class="card-stat"><MessageCircle class="tiny-icon" /> {{ card.commentsCount || 0 }}</span>
+              <span class="card-stat"><ThumbsUp class="tiny-icon" /> {{ formatInteractionCount(card.likesCount) }}</span>
+              <span class="card-stat"><MessageCircle class="tiny-icon" /> {{ formatInteractionCount(card.commentsCount) }}</span>
             </n-space>
           </div>
         </div>
@@ -70,10 +70,10 @@
             <template #icon><Zap /></template>应用
           </n-button>
           <n-button size="tiny" quaternary @click="handleLike(card)" :type="card.liked ? 'primary' : 'default'">
-            <template #icon><ThumbsUp /></template>{{ card.likesCount || 0 }}
+            <template #icon><ThumbsUp /></template>{{ formatInteractionCount(card.likesCount) }}
           </n-button>
           <n-button size="tiny" quaternary @click="openComments(card)">
-            <template #icon><MessageCircle /></template>{{ card.commentsCount || 0 }}
+            <template #icon><MessageCircle /></template>{{ formatInteractionCount(card.commentsCount) }}
           </n-button>
           <n-button v-if="canManage(card)" size="tiny" secondary @click="handleEdit(card)">
             <template #icon><Edit3 /></template>编辑
@@ -386,6 +386,14 @@ function formatTime(value?: string) {
   return value ? String(value).replace('T', ' ').slice(0, 16) : ''
 }
 
+function formatInteractionCount(count?: number | null) {
+  return typeof count === 'number' ? count : '-'
+}
+
+function updateKnownCount(count: number | undefined, delta: number): number | undefined {
+  return typeof count === 'number' ? Math.max(0, count + delta) : undefined
+}
+
 function canManage(card: StyleCard) {
   return !!card.userId && !!currentUserId.value && card.userId === currentUserId.value
 }
@@ -509,7 +517,7 @@ async function handleLike(card: StyleCard) {
     const res = await request.post(`/api/style-cards/${card.id}/like`)
     const liked = (res as any).data
     card.liked = liked
-    card.likesCount = Math.max(0, (card.likesCount || 0) + (liked ? 1 : -1))
+    card.likesCount = updateKnownCount(card.likesCount, liked ? 1 : -1)
   } catch (err: any) {
     message.error(err.message || '点赞失败')
   }

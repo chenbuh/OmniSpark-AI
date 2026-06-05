@@ -54,10 +54,10 @@
           </div>
           <div class="post-actions">
             <n-button size="tiny" quaternary @click="handleLike(post)" :type="post.liked ? 'primary' : 'default'">
-              <template #icon><ThumbsUp /></template>{{ post.likesCount || 0 }}
+              <template #icon><ThumbsUp /></template>{{ formatInteractionCount(post.likesCount) }}
             </n-button>
             <n-button size="tiny" quaternary @click="showDetail(post)">
-              <template #icon><MessageCircle /></template>{{ post.commentsCount || 0 }}
+              <template #icon><MessageCircle /></template>{{ formatInteractionCount(post.commentsCount) }}
             </n-button>
             <n-button size="tiny" secondary @click="handleApply(post)">
               <template #icon><Zap /></template>复用
@@ -197,8 +197,8 @@
             <span><n-tag size="small">👤 {{ authorLabel(detailPost) }}</n-tag></span>
             <span v-if="detailPost.category"><n-tag size="small">🏷 {{ detailPost.category }}</n-tag></span>
             <span v-if="detailPost.modelName"><n-tag size="small">🤖 {{ detailPost.modelName }}</n-tag></span>
-            <span><n-tag size="small">❤️ {{ detailPost.likesCount || 0 }}</n-tag></span>
-            <span><n-tag size="small">💬 {{ detailPost.commentsCount || 0 }}</n-tag></span>
+            <span><n-tag size="small">❤️ {{ formatInteractionCount(detailPost.likesCount) }}</n-tag></span>
+            <span><n-tag size="small">💬 {{ formatInteractionCount(detailPost.commentsCount) }}</n-tag></span>
             <span><n-tag size="small">🕐 {{ String(detailPost.createdAt||'').replace('T',' ').substring(5,16) }}</n-tag></span>
           </div>
           <PublicCommentThread
@@ -309,6 +309,14 @@ function canDelete(post: any) {
 
 function authorLabel(post: any) {
   return post?.nickname || post?.username || '匿名'
+}
+
+function formatInteractionCount(count: number | null | undefined) {
+  return typeof count === 'number' ? count : '-'
+}
+
+function updateKnownCount(count: number | null | undefined, delta: number) {
+  return typeof count === 'number' ? Math.max(0, count + delta) : count
 }
 
 let searchTimer: any = null
@@ -491,7 +499,7 @@ async function handleLike(post: any) {
     const res = await request.post(`/api/community/posts/${post.id}/like`)
     const liked = (res as any).data
     post.liked = liked
-    post.likesCount = (post.likesCount || 0) + (liked ? 1 : -1)
+    post.likesCount = updateKnownCount(post.likesCount, liked ? 1 : -1)
   } catch { message.error('操作失败，请先登录') }
 }
 

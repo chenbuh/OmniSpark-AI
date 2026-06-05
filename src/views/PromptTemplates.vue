@@ -42,8 +42,8 @@
         <div class="tpl-meta">
           <n-space :size="8">
             <code v-if="tpl.modelName">{{ tpl.modelName }}</code>
-            <span class="tpl-stat"><ThumbsUp class="tiny-icon" /> {{ tpl.likesCount || 0 }}</span>
-            <span class="tpl-stat"><MessageCircle class="tiny-icon" /> {{ tpl.commentsCount || 0 }}</span>
+            <span class="tpl-stat"><ThumbsUp class="tiny-icon" /> {{ formatInteractionCount(tpl.likesCount) }}</span>
+            <span class="tpl-stat"><MessageCircle class="tiny-icon" /> {{ formatInteractionCount(tpl.commentsCount) }}</span>
           </n-space>
         </div>
         <div class="card-footer" @click.stop>
@@ -55,10 +55,10 @@
               <template #icon><Video /></template>视频
             </n-button>
             <n-button size="tiny" quaternary @click="handleLike(tpl)" :type="tpl.liked ? 'primary' : 'default'">
-              <template #icon><ThumbsUp /></template>{{ tpl.likesCount || 0 }}
+              <template #icon><ThumbsUp /></template>{{ formatInteractionCount(tpl.likesCount) }}
             </n-button>
             <n-button size="tiny" quaternary @click="openComments(tpl)">
-              <template #icon><MessageCircle /></template>{{ tpl.commentsCount || 0 }}
+              <template #icon><MessageCircle /></template>{{ formatInteractionCount(tpl.commentsCount) }}
             </n-button>
           </n-space>
           <n-space :size="4" v-if="canManage(tpl)">
@@ -286,6 +286,14 @@ function formatTime(value?: string) {
   return value ? String(value).replace('T', ' ').slice(0, 16) : ''
 }
 
+function formatInteractionCount(count?: number | null) {
+  return typeof count === 'number' ? count : '-'
+}
+
+function updateKnownCount(count: number | undefined, delta: number): number | undefined {
+  return typeof count === 'number' ? Math.max(0, count + delta) : undefined
+}
+
 function canManage(tpl: PromptTemplate) {
   return !!tpl.userId && !!currentUserId.value && tpl.userId === currentUserId.value
 }
@@ -311,7 +319,7 @@ async function handleLike(tpl: PromptTemplate) {
     const res = await request.post(`/api/prompt-templates/${tpl.id}/like`)
     const liked = (res as any).data
     tpl.liked = liked
-    tpl.likesCount = Math.max(0, (tpl.likesCount || 0) + (liked ? 1 : -1))
+    tpl.likesCount = updateKnownCount(tpl.likesCount, liked ? 1 : -1)
   } catch (err: any) {
     message.error(err.message || '点赞失败')
   }
