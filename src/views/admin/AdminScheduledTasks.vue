@@ -2,7 +2,7 @@
   <div class="admin-scheduler">
     <div class="page-header">
       <h2>定时任务调度 (Scheduled Tasks)</h2>
-      <p class="subtitle">自定义管理系统定时任务，如自动清理、统计快照等。</p>
+      <p class="subtitle">自定义管理系统定时任务，目前仅开放真实已实现的数据清理任务。</p>
     </div>
 
     <n-card class="glass-card" :bordered="false">
@@ -116,8 +116,7 @@ const form = reactive({
 const cleanupDays = ref(30)
 
 const typeOptions = [
-  { label: '数据清理', value: 'cleanup' },
-  { label: '统计快照', value: 'stats' }
+  { label: '数据清理', value: 'cleanup' }
 ]
 
 onMounted(load)

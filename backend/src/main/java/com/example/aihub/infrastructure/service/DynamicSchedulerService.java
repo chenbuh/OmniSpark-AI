@@ -12,6 +12,8 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Locale;
+import java.util.Set;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
@@ -20,6 +22,8 @@ import java.util.concurrent.TimeUnit;
 @Service
 @RequiredArgsConstructor
 public class DynamicSchedulerService {
+    private static final Set<String> SUPPORTED_TASK_TYPES = Set.of("cleanup");
+
     private final ScheduledTaskMapper taskMapper;
     private final ScheduledExecutorService executor = Executors.newScheduledThreadPool(3);
     private final AdminCleanupController cleanupController;
@@ -48,6 +52,7 @@ public class DynamicSchedulerService {
 
     @Transactional(rollbackFor = Exception.class)
     public ScheduledTask create(ScheduledTask task) {
+        validateTask(task);
         task.setEnabled(task.getEnabled() != null ? task.getEnabled() : 1);
         task.setCreatedAt(LocalDateTime.now());
         task.setUpdatedAt(LocalDateTime.now());
@@ -57,6 +62,7 @@ public class DynamicSchedulerService {
 
     @Transactional(rollbackFor = Exception.class)
     public ScheduledTask update(ScheduledTask task) {
+        validateTask(task);
         task.setUpdatedAt(LocalDateTime.now());
         taskMapper.updateById(task);
         return taskMapper.selectById(task.getId());
@@ -69,7 +75,11 @@ public class DynamicSchedulerService {
 
     public void runNow(Long id) {
         ScheduledTask task = taskMapper.selectById(id);
-        if (task != null) executeTask(task);
+        if (task == null) {
+            throw new com.example.aihub.common.exception.BusinessException("定时任务不存在");
+        }
+        validateTask(task);
+        executeTask(task);
     }
 
     private void checkAndRun() {
@@ -77,6 +87,10 @@ public class DynamicSchedulerService {
                 new com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper<ScheduledTask>()
                         .eq(ScheduledTask::getEnabled, 1));
         for (ScheduledTask task : tasks) {
+            if (!isSupportedTaskType(task.getTaskType())) {
+                log.warn("Skipping unsupported scheduled task type: id={}, name={}, type={}", task.getId(), task.getName(), task.getTaskType());
+                continue;
+            }
             if (shouldRun(task)) executeTask(task);
         }
     }
@@ -127,7 +141,7 @@ public class DynamicSchedulerService {
                     cleanupController.execute(days);
                     log.info("Scheduled cleanup completed: {} days", days);
                 }
-                default -> log.warn("Unknown task type: {}", task.getTaskType());
+                default -> throw new IllegalArgumentException("暂不支持的任务类型: " + task.getTaskType());
             }
 
             task.setLastStatus("success");
@@ -136,5 +150,27 @@ public class DynamicSchedulerService {
             log.error("Scheduled task '{}' failed: {}", task.getName(), e.getMessage());
         }
         taskMapper.updateById(task);
+    }
+
+    private void validateTask(ScheduledTask task) {
+        if (task == null) {
+            throw new com.example.aihub.common.exception.BusinessException("任务不能为空");
+        }
+        String normalizedType = normalizeTaskType(task.getTaskType());
+        if (!isSupportedTaskType(normalizedType)) {
+            throw new com.example.aihub.common.exception.BusinessException("当前仅支持真实可执行的“数据清理”任务类型");
+        }
+        task.setTaskType(normalizedType);
+        if ("cleanup".equals(normalizedType) && (task.getConfigJson() == null || task.getConfigJson().isBlank())) {
+            task.setConfigJson("{\"daysOld\":30}");
+        }
+    }
+
+    private boolean isSupportedTaskType(String taskType) {
+        return SUPPORTED_TASK_TYPES.contains(normalizeTaskType(taskType));
+    }
+
+    private String normalizeTaskType(String taskType) {
+        return taskType == null ? "" : taskType.trim().toLowerCase(Locale.ROOT);
     }
 }

@@ -31,6 +31,12 @@ spring:
 app:
   version: ${APP_VERSION:@project.version@}
   build-time: ${APP_BUILD_TIME:@maven.build.timestamp@}
+  bootstrap:
+    admin:
+      username: ${APP_BOOTSTRAP_ADMIN_USERNAME:admin}
+      password: ${APP_BOOTSTRAP_ADMIN_PASSWORD:}
+      nickname: ${APP_BOOTSTRAP_ADMIN_NICKNAME:管理员}
+      avatar: ${APP_BOOTSTRAP_ADMIN_AVATAR:}
   update:
     prefer-release: ${APP_UPDATE_PREFER_RELEASE:true}
     cache-ttl-minutes: ${APP_UPDATE_CACHE_TTL_MINUTES:30}
