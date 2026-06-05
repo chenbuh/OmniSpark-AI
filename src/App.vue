@@ -7,6 +7,11 @@
           <n-layout :style="layoutStyle" :native-scrollbar="false">
             <router-view />
           </n-layout>
+          <SliderCaptcha
+            :visible="riskCaptchaVisible"
+            @success="onRiskCaptchaSuccess"
+            @close="onRiskCaptchaClose"
+          />
         </n-notification-provider>
       </n-dialog-provider>
     </n-message-provider>
@@ -24,6 +29,8 @@ hljs.registerLanguage('json', json)
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useUserStore } from '@/store/user'
+import SliderCaptcha from '@/components/SliderCaptcha.vue'
+import { registerRiskCaptchaHandler, unregisterRiskCaptchaHandler } from '@/utils/riskCaptcha'
 import {
   darkTheme,
   NConfigProvider,
@@ -35,6 +42,9 @@ import {
 } from 'naive-ui'
 
 const router = useRouter()
+const riskCaptchaVisible = ref(false)
+let resolveRiskCaptcha: ((ticket: string) => void) | null = null
+let rejectRiskCaptcha: ((reason?: unknown) => void) | null = null
 
 // ===== 主题切换 =====
 const THEME_KEY = 'omnispark-theme'
@@ -69,6 +79,31 @@ function toggleTheme() {
   window.dispatchEvent(new CustomEvent('theme-changed', { detail: { isDark: isDark.value } }))
 }
 
+function cleanupRiskCaptchaHandlers() {
+  resolveRiskCaptcha = null
+  rejectRiskCaptcha = null
+}
+
+function openRiskCaptcha(): Promise<string> {
+  riskCaptchaVisible.value = true
+  return new Promise<string>((resolve, reject) => {
+    resolveRiskCaptcha = resolve
+    rejectRiskCaptcha = reject
+  })
+}
+
+function onRiskCaptchaSuccess(ticket: string) {
+  riskCaptchaVisible.value = false
+  resolveRiskCaptcha?.(ticket)
+  cleanupRiskCaptchaHandlers()
+}
+
+function onRiskCaptchaClose() {
+  riskCaptchaVisible.value = false
+  rejectRiskCaptcha?.(new Error('已取消二次验证'))
+  cleanupRiskCaptchaHandlers()
+}
+
 // 初始化 body class
 document.body.className = isDark.value ? 'dark' : 'light'
 
@@ -78,10 +113,15 @@ document.body.className = isDark.value ? 'dark' : 'light'
 
 // 监听维护模式事件
 onMounted(() => {
+  registerRiskCaptchaHandler(openRiskCaptcha)
   window.addEventListener('system-maintenance', maintenanceHandler)
   window.addEventListener('auth-unauthorized', unauthorizedHandler)
 })
 onUnmounted(() => {
+  unregisterRiskCaptchaHandler(openRiskCaptcha)
+  if (riskCaptchaVisible.value) {
+    onRiskCaptchaClose()
+  }
   window.removeEventListener('system-maintenance', maintenanceHandler)
   window.removeEventListener('auth-unauthorized', unauthorizedHandler)
 })

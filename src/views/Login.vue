@@ -1,5 +1,5 @@
 <template>
-  <div class="login-container">
+  <div ref="loginRoot" class="login-container">
     <!-- 背景流光装饰 -->
     <div class="gradient-bg">
       <div class="bubble bubble-1"></div>
@@ -159,10 +159,11 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive } from 'vue'
+import { ref, reactive, nextTick, onMounted, onBeforeUnmount, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useMessage } from 'naive-ui'
 import type { FormInst } from 'naive-ui'
+import { gsap } from 'gsap'
 import { authApi } from '@/api/auth'
 import { User, Lock, Zap, Smile, ShieldCheck } from 'lucide-vue-next'
 import { PASSWORD_REQUIREMENT_TEXT, validatePasswordStrength } from '@/utils/password'
@@ -170,9 +171,12 @@ import SliderCaptcha from '@/components/SliderCaptcha.vue'
 
 const router = useRouter()
 const message = useMessage()
+const loginRoot = ref<HTMLElement | null>(null)
 
 const isLoginMode = ref(true)
 const loading = ref(false)
+let loginContext: gsap.Context | null = null
+let loginMatchMedia: gsap.MatchMedia | null = null
 
 const loginFormRef = ref<FormInst | null>(null)
 const registerFormRef = ref<FormInst | null>(null)
@@ -190,6 +194,153 @@ const registerForm = reactive({
   password: '',
   confirmPassword: ''
 })
+
+const shouldReduceMotion = () => window.matchMedia('(prefers-reduced-motion: reduce)').matches
+
+const animateFormMode = async () => {
+  await nextTick()
+  if (!loginRoot.value || shouldReduceMotion()) return
+
+  const targets = Array.from(
+    loginRoot.value.querySelectorAll<HTMLElement>('.login-form .n-form-item, .login-form .submit-btn, .switch-mode-row')
+  )
+  if (targets.length === 0) return
+
+  gsap.killTweensOf(targets)
+  gsap.fromTo(
+    targets,
+    { autoAlpha: 0, y: 18 },
+    {
+      autoAlpha: 1,
+      y: 0,
+      duration: 0.38,
+      stagger: 0.06,
+      ease: 'power2.out',
+      clearProps: 'transform,opacity,visibility'
+    }
+  )
+}
+
+const setupLoginMotion = async () => {
+  await nextTick()
+  const rootEl = loginRoot.value
+  if (!rootEl) return
+
+  loginContext?.revert()
+  loginMatchMedia?.revert()
+
+  loginContext = gsap.context(() => {
+    loginMatchMedia = gsap.matchMedia()
+    loginMatchMedia.add(
+      {
+        isReduced: '(prefers-reduced-motion: reduce)',
+        isMobile: '(max-width: 768px)'
+      },
+      (context) => {
+        const { isReduced } = context.conditions as { isReduced: boolean; isMobile: boolean }
+        const root = loginRoot.value
+        if (!root) return
+
+        const card = root.querySelector('.login-card')
+        const logo = root.querySelector('.logo-box')
+        const title = root.querySelector('.login-header h2')
+        const subtitle = root.querySelector('.login-header .subtitle')
+        const bubbles = Array.from(root.querySelectorAll<HTMLElement>('.bubble'))
+        const formTargets = Array.from(
+          root.querySelectorAll<HTMLElement>('.login-form .n-form-item, .login-form .submit-btn, .switch-mode-row')
+        )
+
+        const allTargets = [card, logo, title, subtitle, ...bubbles, ...formTargets].filter(Boolean) as HTMLElement[]
+        if (isReduced) {
+          gsap.set(allTargets, { clearProps: 'transform,opacity,visibility,filter' })
+          return
+        }
+
+        const timeline = gsap.timeline({ defaults: { ease: 'power3.out' } })
+        timeline
+          .fromTo(
+            card,
+            { autoAlpha: 0, y: 32, scale: 0.96, filter: 'blur(10px)' },
+            { autoAlpha: 1, y: 0, scale: 1, filter: 'blur(0px)', duration: 0.7, clearProps: 'transform,opacity,visibility,filter' }
+          )
+          .fromTo(
+            logo,
+            { autoAlpha: 0, scale: 0.7, rotation: -18 },
+            { autoAlpha: 1, scale: 1, rotation: 0, duration: 0.46, ease: 'back.out(1.6)', clearProps: 'transform,opacity,visibility' },
+            '-=0.44'
+          )
+          .fromTo(
+            title,
+            { autoAlpha: 0, y: 14 },
+            { autoAlpha: 1, y: 0, duration: 0.34, clearProps: 'transform,opacity,visibility' },
+            '-=0.28'
+          )
+          .fromTo(
+            subtitle,
+            { autoAlpha: 0, y: 10 },
+            { autoAlpha: 1, y: 0, duration: 0.28, clearProps: 'transform,opacity,visibility' },
+            '-=0.24'
+          )
+          .fromTo(
+            formTargets,
+            { autoAlpha: 0, y: 18 },
+            {
+              autoAlpha: 1,
+              y: 0,
+              duration: 0.34,
+              stagger: 0.06,
+              clearProps: 'transform,opacity,visibility'
+            },
+            '-=0.12'
+          )
+
+        const loopTweens: gsap.core.Tween[] = []
+        if (bubbles[0]) {
+          loopTweens.push(
+            gsap.to(bubbles[0], {
+              x: 34,
+              y: 18,
+              scale: 1.08,
+              duration: 9,
+              repeat: -1,
+              yoyo: true,
+              ease: 'sine.inOut'
+            })
+          )
+        }
+        if (bubbles[1]) {
+          loopTweens.push(
+            gsap.to(bubbles[1], {
+              x: -38,
+              y: -20,
+              scale: 1.06,
+              duration: 11,
+              repeat: -1,
+              yoyo: true,
+              ease: 'sine.inOut'
+            })
+          )
+        }
+        if (logo) {
+          loopTweens.push(
+            gsap.to(logo, {
+              y: -4,
+              duration: 2.4,
+              repeat: -1,
+              yoyo: true,
+              ease: 'sine.inOut'
+            })
+          )
+        }
+
+        return () => {
+          loopTweens.forEach((tween) => tween.kill())
+        }
+      },
+      rootEl
+    )
+  }, rootEl)
+}
 
 // 登录验证规则
 const loginRules = {
@@ -317,18 +468,87 @@ const doRegister = async (captchaTicket: string) => {
     loading.value = false
   }
 }
+
+onMounted(() => {
+  void setupLoginMotion()
+})
+
+watch(isLoginMode, () => {
+  void animateFormMode()
+})
+
+onBeforeUnmount(() => {
+  loginMatchMedia?.revert()
+  loginContext?.revert()
+})
 </script>
 
 <style scoped>
 .login-container {
+  --login-page-bg: var(--bg-color);
+  --login-page-spot-left: radial-gradient(circle, rgba(16, 185, 129, 0.14), transparent 72%);
+  --login-page-spot-right: radial-gradient(circle, rgba(59, 130, 246, 0.16), transparent 72%);
+  --login-bubble-opacity: 0.15;
+  --login-card-bg:
+    linear-gradient(180deg, rgba(15, 23, 42, 0.72) 0%, rgba(8, 12, 24, 0.88) 100%),
+    rgba(15, 23, 42, 0.45);
+  --login-card-border: rgba(255, 255, 255, 0.08);
+  --login-card-shadow: 0 24px 60px rgba(0, 0, 0, 0.54);
+  --login-card-overlay: linear-gradient(135deg, rgba(16, 185, 129, 0.06), transparent 36%, rgba(59, 130, 246, 0.08) 100%);
+  --login-subtitle-color: var(--text-muted);
+  --login-icon-color: var(--text-muted);
+  --login-switch-color: var(--text-muted);
   position: relative;
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 100vw;
-  height: 100vh;
-  background-color: #05070c;
+  width: 100%;
+  min-height: 100vh;
+  padding: 24px;
+  background:
+    radial-gradient(circle at top left, rgba(255, 255, 255, 0.08), transparent 28%),
+    radial-gradient(circle at bottom right, rgba(255, 255, 255, 0.04), transparent 24%),
+    var(--login-page-bg);
   overflow: hidden;
+  isolation: isolate;
+}
+
+:global(body.light) .login-container {
+  --login-page-bg: linear-gradient(180deg, #f8fafc 0%, #eef4ff 46%, #f7fbff 100%);
+  --login-page-spot-left: radial-gradient(circle, rgba(16, 185, 129, 0.12), transparent 72%);
+  --login-page-spot-right: radial-gradient(circle, rgba(59, 130, 246, 0.14), transparent 72%);
+  --login-bubble-opacity: 0.22;
+  --login-card-bg:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.92) 0%, rgba(244, 248, 255, 0.98) 100%),
+    rgba(255, 255, 255, 0.92);
+  --login-card-border: rgba(148, 163, 184, 0.22);
+  --login-card-shadow: 0 28px 72px rgba(148, 163, 184, 0.22);
+  --login-card-overlay: linear-gradient(135deg, rgba(16, 185, 129, 0.08), rgba(255, 255, 255, 0) 38%, rgba(59, 130, 246, 0.1) 100%);
+}
+
+.login-container::before,
+.login-container::after {
+  content: '';
+  position: absolute;
+  border-radius: 999px;
+  pointer-events: none;
+  filter: blur(36px);
+}
+
+.login-container::before {
+  width: 300px;
+  height: 300px;
+  top: -120px;
+  left: -90px;
+  background: var(--login-page-spot-left);
+}
+
+.login-container::after {
+  width: 320px;
+  height: 320px;
+  right: -100px;
+  bottom: -120px;
+  background: var(--login-page-spot-right);
 }
 
 /* 霓虹渐变发光气泡背景 */
@@ -345,7 +565,7 @@ const doRegister = async (captchaTicket: string) => {
   position: absolute;
   border-radius: 50%;
   filter: blur(80px);
-  opacity: 0.15;
+  opacity: var(--login-bubble-opacity);
 }
 
 .bubble-1 {
@@ -378,21 +598,33 @@ const doRegister = async (captchaTicket: string) => {
 
 /* 磨砂玻璃卡片 */
 .glass-card {
-  background: rgba(15, 23, 42, 0.45) !important;
+  background: var(--login-card-bg) !important;
   backdrop-filter: blur(20px);
-  border: 1px solid rgba(255, 255, 255, 0.08) !important;
-  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.5);
+  border: 1px solid var(--login-card-border) !important;
+  box-shadow: var(--login-card-shadow);
   border-radius: 20px !important;
 }
 
 .login-card {
+  position: relative;
+  overflow: hidden;
   width: 420px;
   padding: 10px;
   z-index: 2;
   transition: all 0.4s ease;
 }
 
+.login-card::before {
+  content: '';
+  position: absolute;
+  inset: 1px;
+  border-radius: 19px;
+  background: var(--login-card-overlay);
+  pointer-events: none;
+}
+
 .login-header {
+  position: relative;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -403,11 +635,11 @@ const doRegister = async (captchaTicket: string) => {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 48px;
-  height: 48px;
+  width: 56px;
+  height: 56px;
   background: linear-gradient(135deg, #10b981, #3b82f6);
-  border-radius: 12px;
-  box-shadow: 0 0 16px rgba(16, 185, 129, 0.4);
+  border-radius: 16px;
+  box-shadow: 0 0 24px rgba(16, 185, 129, 0.36);
   margin-bottom: 16px;
 }
 
@@ -418,8 +650,8 @@ const doRegister = async (captchaTicket: string) => {
 }
 
 .login-header h2 {
-  font-size: 24px;
-  font-weight: 700;
+  font-size: 28px;
+  font-weight: 800;
   margin: 0;
   letter-spacing: 0.5px;
   background: linear-gradient(to right, #10b981, #3b82f6, #8b5cf6);
@@ -429,8 +661,10 @@ const doRegister = async (captchaTicket: string) => {
 
 .subtitle {
   font-size: 13px;
-  color: #9ca3af;
-  margin-top: 6px;
+  color: var(--login-subtitle-color);
+  margin-top: 8px;
+  line-height: 1.7;
+  text-align: center;
 }
 
 .login-form {
@@ -441,7 +675,7 @@ const doRegister = async (captchaTicket: string) => {
 .input-icon {
   width: 18px;
   height: 18px;
-  color: #9ca3af;
+  color: var(--login-icon-color);
 }
 
 .submit-btn {
@@ -467,10 +701,16 @@ const doRegister = async (captchaTicket: string) => {
   gap: 6px;
   margin-top: 18px;
   font-size: 13px;
-  color: #9ca3af;
+  color: var(--login-switch-color);
 }
 
 .switch-link {
   font-weight: 600;
+}
+
+@media (max-width: 640px) {
+  .login-card {
+    width: min(420px, calc(100vw - 28px));
+  }
 }
 </style>

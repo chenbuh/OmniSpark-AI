@@ -70,7 +70,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { captchaApi, type CaptchaData } from '@/api/captcha'
 
 const props = defineProps<{ visible: boolean }>()
@@ -97,6 +97,8 @@ let trackOffsetX = 0
 // 行为轨迹采集（三形态通用）：[x, y, t]
 const trail = ref<number[][]>([])
 let startTime = 0
+let reloadTimer: ReturnType<typeof setTimeout> | null = null
+let latestReloadToken = 0
 
 const stageRef = ref<HTMLElement | null>(null)
 
@@ -122,8 +124,17 @@ const trackY = computed(() => {
   return path[path.length - 1][1]
 })
 
+function clearReloadTimer() {
+  if (reloadTimer !== null) {
+    clearTimeout(reloadTimer)
+    reloadTimer = null
+  }
+}
+
 async function reload() {
+  const reloadToken = ++latestReloadToken
   loading.value = true
+  clearReloadTimer()
   hint.value = ''
   hintError.value = false
   verifying.value = false
@@ -134,20 +145,34 @@ async function reload() {
   trackOffsetX = 0
   removeTrackListeners()
   try {
-    data.value = await captchaApi.generate()
+    const nextData = await captchaApi.generate()
+    if (!props.visible || reloadToken !== latestReloadToken) {
+      return
+    }
+    data.value = nextData
     if (data.value.type === 'track' && data.value.trackPath?.length) {
       trackX.value = data.value.trackPath[0][0]
     }
     startTime = Date.now()
   } catch (e: any) {
+    if (!props.visible || reloadToken !== latestReloadToken) {
+      return
+    }
     hint.value = e?.message || '加载失败，请重试'
     hintError.value = true
   } finally {
-    loading.value = false
+    if (reloadToken === latestReloadToken) {
+      loading.value = false
+    }
   }
 }
 
 function close() {
+  clearReloadTimer()
+  latestReloadToken++
+  verifying.value = false
+  tracking = false
+  removeTrackListeners()
   emit('close')
 }
 
@@ -158,7 +183,16 @@ function pushTrail(x: number, y: number) {
 function showError(msg: string) {
   hint.value = msg
   hintError.value = true
-  setTimeout(reload, 700)
+  clearReloadTimer()
+  if (!props.visible) {
+    return
+  }
+  reloadTimer = setTimeout(() => {
+    reloadTimer = null
+    if (props.visible) {
+      void reload()
+    }
+  }, 700)
 }
 
 async function doVerify(payload: any) {
@@ -263,16 +297,41 @@ function endTrack() {
 
 watch(() => props.visible, (v) => {
   if (v) {
-    reload()
+    void reload()
   } else {
+    clearReloadTimer()
+    latestReloadToken++
+    loading.value = false
+    verifying.value = false
     tracking = false
     removeTrackListeners()
   }
+})
+
+onBeforeUnmount(() => {
+  clearReloadTimer()
+  removeTrackListeners()
 })
 </script>
 
 <style scoped>
 .captcha-mask {
+  --captcha-panel-bg: #11151c;
+  --captcha-panel-border: rgba(255, 255, 255, 0.12);
+  --captcha-panel-shadow: 0 12px 40px rgba(0, 0, 0, 0.5);
+  --captcha-title-color: #e8eaed;
+  --captcha-action-color: #9aa0a6;
+  --captcha-action-hover: #fff;
+  --captcha-loading-color: #9aa0a6;
+  --captcha-stage-bg: #0a0d12;
+  --captcha-stage-border: rgba(255, 255, 255, 0.15);
+  --captcha-confirm-bg: #5b8cff;
+  --captcha-confirm-hover: #4a7bf0;
+  --captcha-confirm-text: #fff;
+  --captcha-knob-bg: #fff;
+  --captcha-knob-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
+  --captcha-hint-success: #6ad08a;
+  --captcha-hint-error: #ff6b6b;
   position: fixed;
   inset: 0;
   z-index: 3000;
@@ -282,13 +341,28 @@ watch(() => props.visible, (v) => {
   background: rgba(0, 0, 0, 0.55);
   backdrop-filter: blur(2px);
 }
+
+:global(body.light) .captcha-mask {
+  --captcha-panel-bg: rgba(255, 255, 255, 0.96);
+  --captcha-panel-border: rgba(148, 163, 184, 0.22);
+  --captcha-panel-shadow: 0 20px 48px rgba(148, 163, 184, 0.22);
+  --captcha-title-color: #1f2937;
+  --captcha-action-color: #64748b;
+  --captcha-action-hover: #0f172a;
+  --captcha-loading-color: #64748b;
+  --captcha-stage-bg: #f8fafc;
+  --captcha-stage-border: rgba(148, 163, 184, 0.24);
+  --captcha-hint-success: #059669;
+  --captcha-hint-error: #dc2626;
+}
+
 .captcha-panel {
-  background: #11151c;
-  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: var(--captcha-panel-bg);
+  border: 1px solid var(--captcha-panel-border);
   border-radius: 12px;
   padding: 16px;
-  width: 360px;
-  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5);
+  width: min(360px, calc(100vw - 24px));
+  box-shadow: var(--captcha-panel-shadow);
 }
 .captcha-head {
   display: flex;
@@ -296,49 +370,60 @@ watch(() => props.visible, (v) => {
   justify-content: space-between;
   margin-bottom: 12px;
 }
-.captcha-prompt { color: #e8eaed; font-size: 14px; font-weight: 500; }
+.captcha-prompt { color: var(--captcha-title-color); font-size: 14px; font-weight: 500; }
 .captcha-actions { display: flex; gap: 8px; }
 .captcha-icon-btn {
   background: transparent;
   border: none;
-  color: #9aa0a6;
+  color: var(--captcha-action-color);
   cursor: pointer;
   font-size: 16px;
   line-height: 1;
+  border-radius: 8px;
+  padding: 4px;
+  transition: background-color 0.2s ease, color 0.2s ease;
 }
-.captcha-icon-btn:hover { color: #fff; }
-.captcha-loading { color: #9aa0a6; text-align: center; padding: 40px 0; }
-.captcha-body { display: flex; flex-direction: column; align-items: center; }
+.captcha-icon-btn:hover {
+  color: var(--captcha-action-hover);
+  background: rgba(148, 163, 184, 0.14);
+}
+.captcha-loading { color: var(--captcha-loading-color); text-align: center; padding: 40px 0; }
+.captcha-body { display: flex; flex-direction: column; align-items: center; width: 100%; }
 .rotate-stage {
   width: 160px;
   height: 160px;
+  max-width: 100%;
   border-radius: 50%;
   overflow: hidden;
-  border: 2px solid rgba(255, 255, 255, 0.15);
+  border: 2px solid var(--captcha-stage-border);
   display: flex;
   align-items: center;
   justify-content: center;
-  background: #0a0d12;
+  background: var(--captcha-stage-bg);
 }
 .rotate-img { width: 150px; height: 150px; transition: transform 0.05s linear; }
-.rotate-bar { display: flex; align-items: center; gap: 10px; width: 100%; margin-top: 14px; }
+.rotate-bar { display: flex; align-items: center; gap: 10px; width: 100%; margin-top: 14px; flex-wrap: wrap; }
 .rotate-bar input[type="range"] { flex: 1; accent-color: #5b8cff; }
 .captcha-confirm {
-  background: #5b8cff;
+  background: var(--captcha-confirm-bg);
   border: none;
-  color: #fff;
+  color: var(--captcha-confirm-text);
   border-radius: 6px;
   padding: 6px 14px;
   cursor: pointer;
   font-size: 13px;
 }
-.captcha-confirm:hover { background: #4a7bf0; }
+.captcha-confirm:hover { background: var(--captcha-confirm-hover); }
 .canvas-stage {
   position: relative;
   border-radius: 8px;
   overflow: hidden;
   cursor: pointer;
   user-select: none;
+  max-width: 100%;
+  border: 1px solid var(--captcha-stage-border);
+  background: var(--captcha-stage-bg);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
 }
 .stage-img { display: block; width: 100%; height: 100%; pointer-events: none; }
 .click-dot {
@@ -362,12 +447,26 @@ watch(() => props.visible, (v) => {
   height: 28px;
   margin: -14px 0 0 -14px;
   border-radius: 50%;
-  background: #fff;
+  background: var(--captcha-knob-bg);
   border: 3px solid #5b8cff;
   cursor: grab;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
+  box-shadow: var(--captcha-knob-shadow);
 }
 .track-knob:active { cursor: grabbing; }
-.captcha-hint { margin-top: 10px; font-size: 13px; color: #6ad08a; }
-.captcha-hint.error { color: #ff6b6b; }
+.captcha-hint { margin-top: 10px; font-size: 13px; color: var(--captcha-hint-success); }
+.captcha-hint.error { color: var(--captcha-hint-error); }
+
+@media (max-width: 480px) {
+  .captcha-panel {
+    padding: 14px;
+  }
+
+  .rotate-bar {
+    gap: 8px;
+  }
+
+  .captcha-confirm {
+    width: 100%;
+  }
+}
 </style>

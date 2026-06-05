@@ -1,5 +1,6 @@
-import axios from 'axios'
+import axios, { AxiosHeaders } from 'axios'
 import type { AxiosInstance, InternalAxiosRequestConfig, AxiosResponse } from 'axios'
+import { requestRiskCaptchaTicket } from '@/utils/riskCaptcha'
 
 export const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || 'http://localhost:8080').replace(/\/$/, '')
 
@@ -15,6 +16,10 @@ interface SignChallenge {
   challengeSecret: string
   serverTime: number
   expiresAt: number
+}
+
+type RiskRetriableConfig = InternalAxiosRequestConfig & {
+  __riskCaptchaRetried?: boolean
 }
 
 // ===== SWR 内存缓存 =====
@@ -94,6 +99,14 @@ function extractErrorMessage(error: any): string {
     return error.message.trim()
   }
   return '请求失败，请稍后重试'
+}
+
+function isRiskCaptchaRequired(error: any): boolean {
+  const status = error?.response?.status
+  const message = typeof error?.response?.data?.message === 'string'
+    ? error.response.data.message
+    : ''
+  return status === 429 && message.includes('二次验证码')
 }
 
 function shouldSignRequest(config: InternalAxiosRequestConfig): boolean {
@@ -375,6 +388,30 @@ request.interceptors.response.use(
     // 命中缓存的请求直接返回缓存数据
     if (error?.__fromCache) {
       return Promise.resolve(error.data)
+    }
+    if (isRiskCaptchaRequired(error)) {
+      const originalConfig = error?.config as RiskRetriableConfig | undefined
+      if (!originalConfig) {
+        return Promise.reject(new Error('当前请求需要完成二次验证后重试'))
+      }
+      if (originalConfig.__riskCaptchaRetried) {
+        return Promise.reject(new Error(error?.response?.data?.message || '二次验证后请求仍未通过，请稍后再试'))
+      }
+
+      return requestRiskCaptchaTicket()
+        .then((ticket) => {
+          originalConfig.__riskCaptchaRetried = true
+          const headers = AxiosHeaders.from(originalConfig.headers || {})
+          headers.set('X-Risk-Captcha-Ticket', ticket)
+          originalConfig.headers = headers
+          return request(originalConfig)
+        })
+        .catch((captchaError: any) => {
+          if (captchaError instanceof Error) {
+            return Promise.reject(captchaError)
+          }
+          return Promise.reject(new Error('二次验证未完成，请重试'))
+        })
     }
     // 401 登录失效：清除会话并跳转登录页（由 App.vue 监听处理，避免循环依赖）
     if (error?.response?.status === 401) {
