@@ -779,10 +779,22 @@ const handleStartGenerate = async () => {
   }
 }
 
+function hasVideoHistoryTask(taskId: number) {
+  return taskHistory.value.some(task => task.id === taskId)
+}
+
+function ensureVideoHistoryTasksRemoved(taskIds: number[]) {
+  const remaining = taskIds.filter(id => hasVideoHistoryTask(id))
+  if (remaining.length > 0) {
+    throw new Error('视频历史删除结果待确认')
+  }
+}
+
 const handleDeleteTask = async (taskId: number) => {
   try {
     await taskStore.deleteTask(taskId)
     if (activeTaskId.value === taskId) { activeTaskId.value = null }
+    ensureVideoHistoryTasksRemoved([taskId])
     message.success('已删除')
   } catch (err: any) {
     message.error(err.message || '删除失败')
@@ -800,6 +812,7 @@ const handleBatchClear = async () => {
       await taskStore.deleteTask(id)
     }
     activeTaskId.value = null
+    ensureVideoHistoryTasksRemoved(ids)
     message.success('历史记录已清空')
   } catch (err: any) {
     message.error(err.message || '清空失败')

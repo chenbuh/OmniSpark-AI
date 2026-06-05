@@ -673,6 +673,9 @@ const handleReuse = (task: any) => {
 const handleDelete = async (id: number) => {
   try {
     await taskStore.deleteTask(id)
+    if (currentProjectTasks.value.some(task => task.id === id)) {
+      throw new Error('任务删除结果待确认')
+    }
     message.success('任务删除成功')
   } catch (err: any) {
     message.error(err.message || '任务删除失败')

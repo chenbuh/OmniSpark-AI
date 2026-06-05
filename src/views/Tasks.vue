@@ -272,10 +272,24 @@ const handleViewAsset = (task: any) => {
   else message.error('无关联资产')
 }
 
+function hasCurrentProjectTask(taskId: number) {
+  return taskStore.getTasksByProject(projectStore.activeProjectId).some(task => task.id === taskId)
+}
+
+function ensureCurrentProjectTasksRemoved(taskIds: number[]) {
+  const remaining = taskIds.filter(id => hasCurrentProjectTask(id))
+  if (remaining.length > 0) {
+    throw new Error('任务删除结果待确认')
+  }
+}
+
 const handleRetry = async (id: number) => {
   try {
     const retried = await taskStore.retryTask(id)
     await refresh()
+    if (!hasCurrentProjectTask(retried.id)) {
+      throw new Error('任务重试结果待确认')
+    }
     if (retried.status === 'failed') {
       message.error(retried.errorMessage || '任务重试后执行失败')
       return false
@@ -293,6 +307,10 @@ const handleDelete = async (id: number) => {
     await taskStore.deleteTask(id)
     selectedIds.value.delete(id)
     await refresh()
+    ensureCurrentProjectTasksRemoved([id])
+    if (selectedTask.value?.id === id) {
+      selectedTask.value = null
+    }
     message.success('已删除')
     return true
   } catch (err: any) {
@@ -335,6 +353,10 @@ const handleBatchDelete = async () => {
     }
     selectedIds.value.clear()
     await refresh()
+    ensureCurrentProjectTasksRemoved(ids)
+    if (selectedTask.value && ids.includes(selectedTask.value.id)) {
+      selectedTask.value = null
+    }
     message.success(`已删除 ${ids.length} 项`)
   } catch (err: any) {
     await refresh()
@@ -354,6 +376,10 @@ const handleClearAll = async () => {
     }
     selectedIds.value.clear()
     await refresh()
+    ensureCurrentProjectTasksRemoved(ids)
+    if (selectedTask.value && ids.includes(selectedTask.value.id)) {
+      selectedTask.value = null
+    }
     message.success('已清空')
   } catch (err: any) {
     await refresh()

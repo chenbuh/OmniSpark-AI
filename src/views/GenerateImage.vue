@@ -1966,6 +1966,17 @@ const handleStartGenerate = async () => {
   }
 }
 
+function hasHistoryTask(taskId: number) {
+  return taskHistory.value.some(task => task.id === taskId)
+}
+
+function ensureHistoryTasksRemoved(taskIds: number[]) {
+  const remaining = taskIds.filter(id => hasHistoryTask(id))
+  if (remaining.length > 0) {
+    throw new Error('历史记录删除结果待确认')
+  }
+}
+
 // 删除单条历史
 const handleDeleteTask = async (taskId: number) => {
   try {
@@ -1975,6 +1986,7 @@ const handleDeleteTask = async (taskId: number) => {
       selectedBatchIndex.value = 0
       taskCompleted.value = true
     }
+    ensureHistoryTasksRemoved([taskId])
     message.success('已删除')
   } catch (err: any) {
     message.error(err.message || '删除失败')
@@ -1997,6 +2009,7 @@ const handleBatchClear = async () => {
     activeTaskId.value = null
     selectedBatchIndex.value = 0
     taskCompleted.value = true
+    ensureHistoryTasksRemoved(ids)
     message.success('历史记录已清空')
   } catch (err: any) {
     message.error(err.message || '清空失败')
