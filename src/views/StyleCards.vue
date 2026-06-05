@@ -133,7 +133,13 @@
           </n-col>
           <n-col :span="12">
             <n-form-item label="分类标签">
-              <n-input v-model:value="form.tag" placeholder="例如：赛博朋克" />
+              <n-select
+                v-model:value="form.tag"
+                filterable
+                tag
+                :options="tagOptions"
+                placeholder="选择或输入标签"
+              />
             </n-form-item>
           </n-col>
         </n-row>
@@ -243,7 +249,7 @@ import { useAssetStore, resolveAssetUrl, type Asset } from '@/store/asset'
 import { assetApi } from '@/api/assets'
 import request from '@/api/request'
 import PublicCommentThread from '@/components/PublicCommentThread.vue'
-import { styleCardApi, type StyleCard } from '@/api/styleCards'
+import { styleCardApi, type StyleCard, type StyleCardPayload } from '@/api/styleCards'
 import { Plus, Zap, Edit3, Trash2, User, Palette, Search, Image as ImageIcon, FolderOpen, Upload, ThumbsUp, MessageCircle } from 'lucide-vue-next'
 
 const router = useRouter()
@@ -264,6 +270,7 @@ const uploadInput = ref<HTMLInputElement | null>(null)
 const selectedCard = ref<StyleCard | null>(null)
 const currentUserId = ref<number | null>(null)
 const totalCards = ref(0)
+const styleCardTags = ref<string[]>([])
 let searchTimer: ReturnType<typeof setTimeout> | null = null
 
 const imageAssets = computed(() => {
@@ -289,6 +296,13 @@ const sortOptions = [
   { label: '最多点赞', value: 'likes' },
   { label: '最多评论', value: 'comments' }
 ]
+const tagOptions = computed(() => {
+  const values = new Set<string>(styleCardTags.value)
+  if (form.tag?.trim()) {
+    values.add(form.tag.trim())
+  }
+  return Array.from(values).map(item => ({ label: item, value: item }))
+})
 
 const page = ref(1)
 const pageSize = ref(12)
@@ -316,6 +330,18 @@ async function loadCards() {
   }
 }
 
+async function loadStyleCardTags() {
+  try {
+    const res = await styleCardApi.getTags()
+    const values = Array.isArray((res as any).data) ? (res as any).data : []
+    styleCardTags.value = values
+      .map((item: unknown) => typeof item === 'string' ? item.trim() : '')
+      .filter((item: string) => !!item)
+  } catch {
+    styleCardTags.value = []
+  }
+}
+
 function scheduleLoadCards(delay = 180) {
   if (searchTimer) {
     clearTimeout(searchTimer)
@@ -330,7 +356,7 @@ onMounted(async () => {
     const info = JSON.parse(localStorage.getItem('userInfo') || '{}')
     currentUserId.value = info.id || null
   } catch {}
-  await loadCards()
+  await Promise.all([loadStyleCardTags(), loadCards()])
   try {
     await assetStore.refresh({ projectId: projectStore.activeProjectId })
   } catch {}
@@ -459,20 +485,20 @@ async function handleSave() {
     cfg: form.cfg ?? undefined,
     steps: form.steps ?? undefined,
     size: form.size || undefined,
-    tag: form.tag || undefined,
+    tag: form.tag.trim() || undefined,
     previewUrl: form.previewUrl || undefined
-  }
+  } satisfies StyleCardPayload
   try {
     if (editingCard.value) {
       await styleCardApi.update(editingCard.value.id, payload)
       message.success('卡片已更新')
     } else {
-      await styleCardApi.create(payload as any)
+      await styleCardApi.create(payload)
       message.success('卡片已创建')
     }
     showAddModal.value = false
     resetForm()
-    await loadCards()
+    await Promise.all([loadStyleCardTags(), loadCards()])
   } catch (err: any) {
     message.error(err.message || '操作失败')
   }
@@ -506,7 +532,7 @@ function handleCommentCountChange(count: number) {
 async function handleDelete(id: number) {
   try {
     await styleCardApi.delete(id)
-    await loadCards()
+    await Promise.all([loadStyleCardTags(), loadCards()])
     message.success('已删除')
   } catch (err: any) {
     message.error(err.message || '删除失败')

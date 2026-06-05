@@ -109,6 +109,18 @@ public class StyleCardService {
         cardMapper.deleteById(id);
     }
 
+    public List<String> tags() {
+        return cardMapper.selectList(new LambdaQueryWrapper<StyleCard>()
+                        .eq(StyleCard::getStatus, 1))
+                .stream()
+                .map(StyleCard::getTag)
+                .filter(tag -> tag != null && !tag.isBlank())
+                .map(String::trim)
+                .distinct()
+                .sorted(String.CASE_INSENSITIVE_ORDER)
+                .toList();
+    }
+
     private void applyDto(StyleCard card, StyleCardSaveDTO dto) {
         card.setProjectId(PUBLIC_LIBRARY_PROJECT_ID);
         card.setName(dto.getName());

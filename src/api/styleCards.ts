@@ -33,6 +33,24 @@ export interface StyleCard {
   createdAt: string
 }
 
+export interface StyleCardPayload {
+  projectId: number
+  name: string
+  type: 'character' | 'style'
+  content: string
+  negativePrompt?: string
+  modelName?: string
+  providerId?: number
+  refAssetId?: number
+  cfg?: number
+  steps?: number
+  size?: string
+  paramsJson?: string
+  previewUrl?: string
+  tag?: string
+  status?: number
+}
+
 export const styleCardApi = {
   async list(params?: {
     projectId?: number
@@ -58,11 +76,15 @@ export const styleCardApi = {
     return request.get(`/api/style-cards/${id}`)
   },
 
-  async create(params: Omit<StyleCard, 'id' | 'status' | 'createdAt'>) {
+  async getTags() {
+    return request.get<string[]>('/api/style-cards/tags')
+  },
+
+  async create(params: StyleCardPayload) {
     return request.post('/api/style-cards', { ...params, status: 1 })
   },
 
-  async update(id: number, params: Partial<StyleCard>) {
+  async update(id: number, params: Partial<StyleCardPayload>) {
     return request.put(`/api/style-cards/${id}`, params)
   },
 

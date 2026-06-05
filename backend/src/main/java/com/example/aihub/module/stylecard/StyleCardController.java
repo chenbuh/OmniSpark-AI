@@ -48,6 +48,11 @@ public class StyleCardController {
         return ApiResult.ok(styleCardService.get(id, StpUtil.getLoginIdAsLong()));
     }
 
+    @GetMapping("/tags")
+    public ApiResult<List<String>> tags() {
+        return ApiResult.ok(styleCardService.tags());
+    }
+
     @PostMapping
     public ApiResult<StyleCardVO> create(@Valid @RequestBody StyleCardSaveDTO dto) {
         return ApiResult.ok(styleCardService.create(dto));
