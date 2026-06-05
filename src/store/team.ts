@@ -57,12 +57,34 @@ export const useTeamStore = defineStore('team', {
     },
     async createTeam(name: string, description?: string) {
       const res = await teamApi.createTeam({ name, description })
+      const beforeIds = new Set(
+        this.teams
+          .map(item => item.id)
+          .filter(id => Number.isFinite(id) && id > 0)
+      )
       await this.refresh()
-      return this.normalizeTeam(res.data)
+      const responseId = parseRequiredTeamId((res as any).data?.id)
+      if (responseId !== null) {
+        const createdById = this.teams.find(item => item.id === responseId)
+        if (createdById) {
+          return createdById
+        }
+      }
+      const createdByDiff = this.teams.find(item =>
+        !beforeIds.has(item.id)
+        && item.name === name
+      )
+      if (createdByDiff) {
+        return createdByDiff
+      }
+      throw new Error('团队创建结果待确认')
     },
     async deleteTeam(id: number) {
       await teamApi.deleteTeam(id)
-      this.teams = this.teams.filter(t => t.id !== id)
+      await this.refresh()
+      if (this.teams.some(team => team.id === id)) {
+        throw new Error('团队删除结果待确认')
+      }
     },
     clear() {
       this.teams = []
@@ -77,4 +99,12 @@ function parseOptionalNumber(value: unknown): number | null {
   }
   const parsed = Number(value)
   return Number.isNaN(parsed) ? null : parsed
+}
+
+function parseRequiredTeamId(value: unknown): number | null {
+  const parsed = Number(value)
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    return null
+  }
+  return parsed
 }

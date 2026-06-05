@@ -303,6 +303,14 @@ function resolveOptionValue(options: ProviderMetaOption[], preferredValue?: stri
   return options[0]?.value || fallbackValue
 }
 
+function requireSavedProvider(provider: ModelProvider, action: 'create' | 'update') {
+  const hasValidId = Number.isFinite(provider.id) && provider.id > 0
+  if (!hasValidId || !provider.name || !provider.type || !provider.baseUrl || !provider.modelName) {
+    throw new Error(action === 'create' ? '模型提供商创建结果待确认' : '模型提供商更新结果待确认')
+  }
+  return provider
+}
+
 async function loadProviderMeta() {
   providerMetaLoadState.value = 'loading'
   try {
@@ -451,10 +459,10 @@ const handleSave = async () => {
     if (!preserveUnknownDefault.value || defaultTouched.value) {
       payload.isDefault = form.isDefault
     }
-    await providerStore.updateProvider(editingId.value, payload)
+    requireSavedProvider(await providerStore.updateProvider(editingId.value, payload), 'update')
     message.success('模型提供商配置更新成功')
   } else {
-    await providerStore.addProvider({
+    requireSavedProvider(await providerStore.addProvider({
       projectId: projectStore.activeProjectId,
       name: form.name,
       type: form.type,
@@ -464,7 +472,7 @@ const handleSave = async () => {
       enabled: form.enabled,
       isDefault: form.isDefault,
       configJson
-    })
+    }), 'create')
     message.success('新模型提供商配置已注入当前空间')
   }
   showModal.value = false

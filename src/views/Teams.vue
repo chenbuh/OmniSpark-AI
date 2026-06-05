@@ -225,6 +225,10 @@ function canManage(member: any) {
   return selectedTeam.value?.ownerId === userStore.userInfo?.id && member.role !== 'owner'
 }
 
+function hasValidTeamId(team: Team | null | undefined) {
+  return !!team && Number.isFinite(team.id) && team.id > 0
+}
+
 async function loadTeams() {
   teamsLoading.value = true
   try {
@@ -263,12 +267,15 @@ const handleCreateTeam = async () => {
   if (!createForm.value.name) { message.error('请输入团队名称'); return }
   creating.value = true
   try {
-    await teamStore.createTeam(createForm.value.name, createForm.value.description)
+    const createdTeam = await teamStore.createTeam(createForm.value.name, createForm.value.description)
+    if (!hasValidTeamId(createdTeam)) {
+      throw new Error('团队创建结果待确认')
+    }
     teamsReady.value = true
     createForm.value = { name: '', description: '' }
     showCreateModal.value = false
     message.success('团队创建成功！')
-  } catch { message.error('创建失败') }
+  } catch (err: any) { message.error(err.message || '创建失败') }
   finally { creating.value = false }
 }
 
@@ -283,10 +290,14 @@ const handleTeamAction = (key: string, team: Team) => {
       positiveText: '解散',
       negativeText: '取消',
       onPositiveClick: async () => {
-        await teamStore.deleteTeam(team.id)
-        if (selectedTeam.value?.id === team.id) selectedTeam.value = null
-        membersReady.value = false
-        message.success('团队已解散')
+        try {
+          await teamStore.deleteTeam(team.id)
+          if (selectedTeam.value?.id === team.id) selectedTeam.value = null
+          membersReady.value = false
+          message.success('团队已解散')
+        } catch (err: any) {
+          message.error(err.message || '解散失败')
+        }
       }
     })
   }
@@ -296,20 +307,33 @@ const handleEditTeam = async () => {
   try {
     await teamApi.updateTeam(editForm.value.id, { name: editForm.value.name, description: editForm.value.description })
     await loadTeams()
+    const refreshedTeam = teamStore.teams.find(t => t.id === editForm.value.id)
+    if (!refreshedTeam || refreshedTeam.name !== editForm.value.name || (refreshedTeam.description || '') !== (editForm.value.description || '')) {
+      throw new Error('团队更新结果待确认')
+    }
     if (selectedTeam.value?.id === editForm.value.id) {
-      selectedTeam.value = teamStore.teams.find(t => t.id === editForm.value.id) || selectedTeam.value
+      selectedTeam.value = refreshedTeam
     }
     showEditModal.value = false
     message.success('已更新')
-  } catch { message.error('更新失败') }
+  } catch (err: any) { message.error(err.message || '更新失败') }
 }
 
 const handleInviteMember = async () => {
   if (!inviteForm.value.username || !selectedTeam.value) { message.error('请输入用户名'); return }
   inviting.value = true
   try {
-    await teamApi.inviteMember({ teamId: selectedTeam.value.id, username: inviteForm.value.username, role: inviteForm.value.role })
+    const invitedUsername = inviteForm.value.username.trim()
+    const invitedRes = await teamApi.inviteMember({ teamId: selectedTeam.value.id, username: invitedUsername, role: inviteForm.value.role })
+    const invitedMember = (invitedRes as any).data
+    if (!invitedMember || typeof invitedMember !== 'object' || Array.isArray(invitedMember)) {
+      throw new Error('邀请结果待确认')
+    }
     await loadMembers(selectedTeam.value.id)
+    const matchedMember = teamStore.currentMembers.find(member => member.username === invitedUsername)
+    if (!matchedMember) {
+      throw new Error('邀请结果待确认')
+    }
     inviteForm.value = { username: '', role: 'member' }
     showInviteModal.value = false
     message.success('邀请成功！')
@@ -325,9 +349,16 @@ const handleRemoveMember = async (member: any) => {
     positiveText: '移除',
     negativeText: '取消',
     onPositiveClick: async () => {
-      await teamApi.removeMember(selectedTeam.value!.id, member.userId)
-      await loadMembers(selectedTeam.value!.id)
-      message.success(`已移除 ${memberDisplayName(member)}`)
+      try {
+        await teamApi.removeMember(selectedTeam.value!.id, member.userId)
+        await loadMembers(selectedTeam.value!.id)
+        if (teamStore.currentMembers.some(item => item.userId === member.userId)) {
+          throw new Error('成员移除结果待确认')
+        }
+        message.success(`已移除 ${memberDisplayName(member)}`)
+      } catch (err: any) {
+        message.error(err.message || '移除失败')
+      }
     }
   })
 }
