@@ -231,8 +231,9 @@
           <div v-if="!taskCompleted && (generating || (activeTask && (activeTask.status === 'pending' || activeTask.status === 'running')))" class="loading-state">
             <div class="pulsing-glow"></div>
             <n-progress
+              v-if="activeTaskProgress !== null"
               type="circle"
-              :percentage="submitting ? 5 : Math.max(0, Math.min(100, Number(activeTask?.progress ?? 0)))"
+              :percentage="activeTaskProgress"
               :color="'#10b981'"
               :rail-color="'rgba(255, 255, 255, 0.05)'"
               :stroke-width="6"
@@ -240,11 +241,18 @@
             >
               <template #default>
                 <div class="progress-inner">
-                  <span class="pct">{{ submitting ? 5 : Math.max(0, Math.min(100, Number(activeTask?.progress ?? 0))) }}%</span>
-                  <span class="time">{{ submitting ? '提交中...' : formatElapsed(runningElapsed) }}</span>
+                  <span class="pct">{{ activeTaskProgress }}%</span>
+                  <span class="time">{{ formatElapsed(runningElapsed) }}</span>
                 </div>
               </template>
             </n-progress>
+            <div v-else class="progress-pending">
+              <n-spin size="large" />
+              <div class="progress-inner progress-inner--pending">
+                <span class="pct">{{ submitting ? '提交中' : '待同步' }}</span>
+                <span class="time">{{ submitting ? '正在提交任务...' : formatElapsed(runningElapsed) }}</span>
+              </div>
+            </div>
             <div class="loading-info">
               <h3>{{ submitting ? '正在提交任务...' : '画面构图渲染中...' }}</h3>
               <p class="progress-step-text">{{ submitting ? '正在向模型服务提交生成请求' : (activeTask?.progressText || '等待进度更新...') }}</p>
@@ -537,9 +545,7 @@ const form = reactive({
   quality: '',
   count: 1,
   cfg: 7.5,
-  steps: 25,
-  runtimeProgress: 8,
-  runtimeElapsedSeconds: 0
+  steps: 25
 })
 
 const runningElapsed = computed(() => {
@@ -1337,6 +1343,11 @@ const activeTask = computed(() => {
     return currentProjHistory[0]
   }
   return null
+})
+
+const activeTaskProgress = computed(() => {
+  const progress = activeTask.value?.progress
+  return typeof progress === 'number' ? Math.max(0, Math.min(100, progress)) : null
 })
 
 const formatElapsed = (seconds: number) => {
@@ -2268,6 +2279,22 @@ onBeforeUnmount(() => {
 .progress-inner .time {
   font-size: 10px;
   color: #9ca3af;
+}
+
+.progress-pending {
+  width: 160px;
+  height: 160px;
+  border-radius: 50%;
+  border: 6px solid rgba(255, 255, 255, 0.05);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+}
+
+.progress-inner--pending .pct {
+  font-size: 16px;
 }
 
 .loading-info {

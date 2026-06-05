@@ -33,7 +33,7 @@
               </div>
               <div class="team-info">
                 <span class="team-name">{{ team.name }}</span>
-                <span class="team-meta">{{ team.memberCount ?? 0 }} 成员</span>
+                <span class="team-meta">{{ formatMemberCount(team.memberCount) }}</span>
               </div>
               <n-dropdown v-if="team.ownerId === userStore.userInfo?.id" trigger="click" :options="teamActions" @select="(key: string) => handleTeamAction(key, team)">
                 <n-button size="tiny" quaternary @click.stop><template #icon><MoreVertical /></template></n-button>
@@ -183,6 +183,10 @@ const filteredMembers = computed(() => {
   const q = memberSearch.value.toLowerCase()
   return teamStore.currentMembers.filter(m => m.nickname?.toLowerCase().includes(q) || m.username?.toLowerCase().includes(q))
 })
+
+function formatMemberCount(memberCount?: number) {
+  return typeof memberCount === 'number' ? `${memberCount} 成员` : '成员数待确认'
+}
 
 function roleType(role: string) {
   return role === 'owner' ? 'warning' : role === 'admin' ? 'info' : 'default'

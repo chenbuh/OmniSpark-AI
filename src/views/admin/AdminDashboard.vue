@@ -169,15 +169,16 @@ const taskTotalLabel = computed(() => taskTotal.value == null ? (loading.value ?
 const circum = 2 * Math.PI * 70 // 439.8
 const donutSegments = computed(() => {
   const segments = [
-    { key: 'pending', color: '#6366f1', value: toOptionalNumber(stats.value.pendingTasks) ?? 0 },
-    { key: 'running', color: '#f59e0b', value: toOptionalNumber(stats.value.runningTasks) ?? 0 },
-    { key: 'success', color: '#10b981', value: toOptionalNumber(stats.value.successTasks) ?? 0 },
-    { key: 'failed', color: '#ef4444', value: toOptionalNumber(stats.value.failedTasks) ?? 0 }
-  ]
+    { key: 'pending', color: '#6366f1', value: toOptionalNumber(stats.value.pendingTasks) },
+    { key: 'running', color: '#f59e0b', value: toOptionalNumber(stats.value.runningTasks) },
+    { key: 'success', color: '#10b981', value: toOptionalNumber(stats.value.successTasks) },
+    { key: 'failed', color: '#ef4444', value: toOptionalNumber(stats.value.failedTasks) }
+  ].filter((segment): segment is { key: string, color: string, value: number } => segment.value != null)
 
   let offset = 0
   return segments.flatMap((segment) => {
-    const length = (taskTotal.value ?? 0) > 0 ? (segment.value / (taskTotal.value ?? 0)) * circum : 0
+    const total = taskTotal.value
+    const length = total != null && total > 0 ? (segment.value / total) * circum : 0
     if (length <= 0) return []
 
     const current = {

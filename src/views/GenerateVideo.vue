@@ -144,8 +144,9 @@
           <div v-if="generating || (activeTask && (activeTask.status === 'pending' || activeTask.status === 'running'))" class="loading-state">
             <div class="pulsing-glow"></div>
             <n-progress
+              v-if="activeTaskProgress !== null"
               type="circle"
-              :percentage="generating ? 5 : Math.max(0, Math.min(100, Number(activeTask?.progress ?? 0)))"
+              :percentage="activeTaskProgress"
               :color="'#f59e0b'"
               :rail-color="'rgba(255, 255, 255, 0.05)'"
               :stroke-width="6"
@@ -153,11 +154,18 @@
             >
               <template #default>
                 <div class="progress-inner">
-                  <span class="pct" style="color: #f59e0b;">{{ generating ? 5 : Math.max(0, Math.min(100, Number(activeTask?.progress ?? 0))) }}%</span>
-                  <span class="time">{{ generating ? '提交中...' : '任务进行中' }}</span>
+                  <span class="pct" style="color: #f59e0b;">{{ activeTaskProgress }}%</span>
+                  <span class="time">任务进行中</span>
                 </div>
               </template>
             </n-progress>
+            <div v-else class="progress-pending">
+              <n-spin size="large" />
+              <div class="progress-inner progress-inner--pending">
+                <span class="pct" style="color: #f59e0b;">{{ generating ? '提交中' : '待同步' }}</span>
+                <span class="time">{{ generating ? '正在提交任务...' : '任务进行中' }}</span>
+              </div>
+            </div>
             <div class="loading-info">
               <h3>视频多帧合成中...</h3>
               <p class="progress-step-text" style="color: #f59e0b;">{{ generating ? '正在向模型服务提交视频生成请求' : (activeTask?.progressText || '正在同步视频任务进度...') }}</p>
@@ -429,6 +437,11 @@ const activeTask = computed(() => {
     return hist[0]
   }
   return null
+})
+
+const activeTaskProgress = computed(() => {
+  const progress = activeTask.value?.progress
+  return typeof progress === 'number' ? Math.max(0, Math.min(100, progress)) : null
 })
 
 const stopTaskPolling = () => {
@@ -919,6 +932,22 @@ onBeforeUnmount(() => {
 .progress-inner .time {
   font-size: 10px;
   color: #9ca3af;
+}
+
+.progress-pending {
+  width: 160px;
+  height: 160px;
+  border-radius: 50%;
+  border: 6px solid rgba(255, 255, 255, 0.05);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+}
+
+.progress-inner--pending .pct {
+  font-size: 16px;
 }
 
 .loading-info {

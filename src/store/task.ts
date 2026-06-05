@@ -10,7 +10,7 @@ export interface GenerationTask {
   prompt: string
   negativePrompt?: string
   status: 'pending' | 'running' | 'success' | 'failed'
-  progress: number
+  progress?: number
   progressText: string
   modelName: string
   options?: any
@@ -27,6 +27,7 @@ export const useTaskStore = defineStore('task', {
   }),
   actions: {
     normalizeTask(task: any): GenerationTask {
+      const normalizedProgress = normalizeProgress(task.progress)
       return {
         id: Number(task.id),
         projectId: Number(task.projectId),
@@ -35,7 +36,7 @@ export const useTaskStore = defineStore('task', {
         prompt: task.prompt || '',
         negativePrompt: task.negativePrompt || undefined,
         status: task.status,
-        progress: Number(task.progress ?? 0),
+        progress: normalizedProgress == null ? undefined : normalizedProgress,
         progressText: task.progressText || '',
         modelName: task.modelName || '',
         options: task.options,
@@ -81,3 +82,14 @@ export const useTaskStore = defineStore('task', {
     }
   }
 })
+
+function normalizeProgress(value: unknown): number | null {
+  if (value == null || value === '') {
+    return null
+  }
+  const parsed = Number(value)
+  if (Number.isNaN(parsed)) {
+    return null
+  }
+  return Math.max(0, Math.min(100, parsed))
+}

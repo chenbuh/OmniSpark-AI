@@ -67,11 +67,12 @@
             <td>
               <div class="progress-cell">
                 <div class="pct-row">
-                  <span class="pct-num" :class="task.status">{{ task.progress }}%</span>
+                  <span class="pct-num" :class="task.status">{{ formatTaskProgress(task.progress) }}</span>
                   <span class="status-lbl">{{ statusLabel(task.status) }}</span>
                 </div>
-                <n-progress type="line" :percentage="task.progress" :status="task.status==='success'?'success':task.status==='failed'?'error':'warning'" :show-indicator="false" :height="4" />
-                <span class="step-lbl" v-if="task.status==='running'">{{ task.progressText }}</span>
+                <n-progress v-if="task.progress != null" type="line" :percentage="task.progress" :status="task.status==='success'?'success':task.status==='failed'?'error':'warning'" :show-indicator="false" :height="4" />
+                <span v-else class="step-lbl">进度待确认</span>
+                <span class="step-lbl" v-if="task.status==='running' && task.progressText">{{ task.progressText }}</span>
               </div>
             </td>
             <td><span class="date-lbl">{{ String(task.createdAt||'').substring(5,16) }}</span></td>
@@ -102,9 +103,10 @@
         <div class="drawer-inner" v-if="selectedTask">
           <div class="detail-status-bar">
             <n-tag :type="selectedTask.status==='success'?'success':selectedTask.status==='failed'?'error':'warning'" size="medium" round>{{ statusLabel(selectedTask.status) }}</n-tag>
-            <n-progress type="circle" :percentage="selectedTask.progress" :status="selectedTask.status==='success'?'success':selectedTask.status==='failed'?'error':'warning'" :stroke-width="5" :width="70">
-              <template #default><span class="dr-pct">{{ selectedTask.progress }}%</span></template>
+            <n-progress v-if="selectedTask.progress != null" type="circle" :percentage="selectedTask.progress" :status="selectedTask.status==='success'?'success':selectedTask.status==='failed'?'error':'warning'" :stroke-width="5" :width="70">
+              <template #default><span class="dr-pct">{{ formatTaskProgress(selectedTask.progress) }}</span></template>
             </n-progress>
+            <div v-else class="detail-progress-pending">进度待确认</div>
           </div>
           <div class="detail-section">
             <h4 class="section-title">基础信息</h4>
@@ -211,6 +213,7 @@ const getProviderName = (id: number) => providerStore.providers.find(p => p.id =
 const statusLabel = (s: string) => s === 'pending' ? '排队中' : s === 'running' ? '渲染中' : s === 'success' ? '成功' : s === 'failed' ? '失败' : (s || '未知')
 const taskTypeLabel = (taskType: string) => taskType === 'image' ? '生图' : taskType === 'video' ? '视频' : (taskType || '未知类型')
 const taskTypeTagType = (taskType: string) => taskType === 'image' ? 'success' : taskType === 'video' ? 'warning' : 'default'
+const formatTaskProgress = (progress?: number) => typeof progress === 'number' ? `${progress}%` : '-'
 
 async function refresh() {
   if (isRefreshing) return
@@ -344,5 +347,6 @@ const handleClearAll = async () => {
 .related-asset-thumb:hover .thumb-overlay { opacity: 1; }
 .overlay-icon-sm { width: 20px; height: 20px; color: #fff; }
 .detail-actions { display: flex; flex-direction: column; gap: 8px; padding-top: 12px; border-top: 1px solid var(--border-color); }
+.detail-progress-pending { width: 70px; text-align: center; font-size: 12px; color: var(--text-muted); }
 .glass-drawer { background: rgba(11,15,23,0.95) !important; backdrop-filter: blur(20px); }
 </style>

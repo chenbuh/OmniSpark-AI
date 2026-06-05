@@ -129,7 +129,7 @@
                       <n-tag size="small" :type="runStatusType(run.status)">{{ runStatusLabel(run.status) }}</n-tag>
                       <span class="run-time">{{ formatRunTime(run) }}</span>
                     </div>
-                    <span class="run-step">进行到步骤 {{ (run.currentStep ?? 0) + 1 }}</span>
+                    <span class="run-step">{{ formatRunCurrentStep(run.currentStep) }}</span>
                   </div>
 
                   <div v-if="run.errorMessage" class="run-error">
@@ -137,9 +137,9 @@
                   </div>
 
                   <div v-if="parseRunResults(run).length > 0" class="run-results">
-                    <div v-for="result in parseRunResults(run)" :key="`${run.id}-${result.stepIndex}`" class="run-result-item">
+                    <div v-for="(result, idx) in parseRunResults(run)" :key="`${run.id}-${result.stepIndex ?? 'unknown'}-${idx}`" class="run-result-item">
                       <div class="run-result-head">
-                        <span>步骤 {{ (result.stepIndex ?? 0) + 1 }} · {{ stepTypeLabel(result.stepType || '') }}</span>
+                        <span>{{ formatRunResultStep(result.stepIndex) }} · {{ stepTypeLabel(result.stepType || '') }}</span>
                         <n-tag size="tiny" :type="result.status === 'success' ? 'success' : 'error'">{{ result.status === 'success' ? '成功' : '失败' }}</n-tag>
                       </div>
                       <div class="run-result-body">
@@ -847,6 +847,14 @@ function parseRunResults(run: WorkflowRunVO): RunResult[] {
   } catch {
     return []
   }
+}
+
+function formatRunCurrentStep(currentStep?: number) {
+  return typeof currentStep === 'number' ? `进行到步骤 ${currentStep + 1}` : '步骤进度待确认'
+}
+
+function formatRunResultStep(stepIndex: unknown) {
+  return typeof stepIndex === 'number' ? `步骤 ${stepIndex + 1}` : '步骤待确认'
 }
 
 watch(() => projectStore.activeProjectId, async () => {

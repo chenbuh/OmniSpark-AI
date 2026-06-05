@@ -36,7 +36,7 @@
             <td><n-ellipsis :line-clamp="1" :tooltip="true">{{ t.prompt }}</n-ellipsis></td>
             <td><n-tag size="mini" type="info" :bordered="false"><code>{{ t.modelName }}</code></n-tag></td>
             <td><n-tag size="small" :type="statusTagType(t.status)">{{ statusLabel(t.status) }}</n-tag></td>
-            <td>{{ t.progress }}%</td>
+            <td>{{ formatTaskProgress(t.progress) }}</td>
             <td>
               <n-space :size="4">
                 <n-button size="tiny" quaternary @click="showDetail(t)"><template #icon><FileText /></template></n-button>
@@ -60,7 +60,7 @@
             <div class="ds-row"><span class="ds-lbl">状态</span>
               <n-tag :type="statusTagType(detail.status)" round>{{ statusLabel(detail.status) }}</n-tag>
             </div>
-            <div class="ds-row"><span class="ds-lbl">进度</span><span>{{ detail.progress }}%</span></div>
+            <div class="ds-row"><span class="ds-lbl">进度</span><span>{{ formatTaskProgress(detail.progress) }}</span></div>
             <div class="ds-row" v-if="detail.progressText"><span class="ds-lbl">进度描述</span><span class="ds-val">{{ detail.progressText }}</span></div>
             <div class="ds-row"><span class="ds-lbl">类型</span><span>{{ taskTypeLabel(detail.taskType) }}</span></div>
             <div class="ds-row"><span class="ds-lbl">项目</span><span>项目 #{{ detail.projectId }}</span></div>
@@ -120,6 +120,11 @@ const statusLabel = (status: string) => status === 'pending' ? '排队中' : sta
 const taskTypeLabel = (taskType: string) => taskType === 'image' ? '生图' : taskType === 'video' ? '视频' : (taskType || '未知类型')
 const statusTagType = (status: string) => status === 'success' ? 'success' : status === 'failed' ? 'error' : 'warning'
 const taskTypeTagType = (taskType: string) => taskType === 'image' ? 'success' : taskType === 'video' ? 'warning' : 'default'
+const formatTaskProgress = (progress: unknown) => {
+  if (progress == null || progress === '') return '-'
+  const normalized = Number(progress)
+  return Number.isNaN(normalized) ? '-' : `${Math.max(0, Math.min(100, normalized))}%`
+}
 
 async function loadTaskMeta() {
   try {
