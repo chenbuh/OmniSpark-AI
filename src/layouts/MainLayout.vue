@@ -222,7 +222,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, h, reactive, watch, onMounted } from 'vue'
+import { ref, computed, h, reactive, watch, onMounted, onUnmounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useMessage, NIcon } from 'naive-ui'
 import { authApi } from '@/api/auth'
@@ -230,7 +230,7 @@ import { useUserStore } from '@/store/user'
 import { useProjectStore } from '@/store/project'
 import { useTeamStore } from '@/store/team'
 import { projectShareApi } from '@/api/projectShares'
-import { API_BASE_URL } from '@/api/request'
+import request, { API_BASE_URL } from '@/api/request'
 import { formatUserRole } from '@/utils/role'
 import {
   LayoutDashboard, Image, Video, ClipboardList, Library,
@@ -305,7 +305,84 @@ function requireExportPayload(value: unknown) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
     throw new Error('项目导出结果待确认')
   }
-  return value
+  const payload = value as Record<string, any>
+  const version = typeof payload.version === 'string' ? payload.version.trim() : ''
+  const exportedAt = typeof payload.exportedAt === 'string' ? payload.exportedAt.trim() : ''
+  const project = payload.project
+  if (!version || !exportedAt || !project || typeof project !== 'object' || Array.isArray(project)) {
+    throw new Error('项目导出结果待确认')
+  }
+  const projectId = Number((project as Record<string, any>).id)
+  const projectName = typeof (project as Record<string, any>).name === 'string'
+    ? (project as Record<string, any>).name.trim()
+    : ''
+  if (!Number.isFinite(projectId) || projectId <= 0 || !projectName) {
+    throw new Error('项目导出结果待确认')
+  }
+  const providers = Array.isArray(payload.providers) ? payload.providers : null
+  const promptTemplates = Array.isArray(payload.promptTemplates) ? payload.promptTemplates : null
+  const styleCards = Array.isArray(payload.styleCards) ? payload.styleCards : null
+  const workflows = Array.isArray(payload.workflows) ? payload.workflows : null
+  const assets = Array.isArray(payload.assets) ? payload.assets : null
+  if (!providers || !promptTemplates || !styleCards || !workflows || !assets) {
+    throw new Error('项目导出结果待确认')
+  }
+  return {
+    ...payload,
+    version,
+    exportedAt,
+    canaryToken: typeof payload.canaryToken === 'string' ? payload.canaryToken : '',
+    project: {
+      ...(project as Record<string, any>),
+      id: projectId,
+      name: projectName
+    },
+    providers,
+    promptTemplates,
+    styleCards,
+    workflows,
+    assets
+  }
+}
+
+function requireImportPayload(value: unknown) {
+  const payload = requireExportPayload(value)
+  if (typeof payload.canaryToken !== 'string' && payload.canaryToken != null) {
+    throw new Error('导入文件内容待确认')
+  }
+  return payload
+}
+
+function normalizeNotificationItem(value: unknown) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new Error('通知数据待确认')
+  }
+  const item = value as Record<string, any>
+  const id = Number(item.id)
+  const title = typeof item.title === 'string' ? item.title.trim() : ''
+  const content = typeof item.content === 'string' ? item.content.trim() : ''
+  const type = typeof item.type === 'string' ? item.type.trim() : ''
+  const isRead = normalizeNotificationReadFlag(item.isRead)
+  if (!Number.isFinite(id) || id <= 0 || !title || !content || !type || isRead === null) {
+    throw new Error('通知数据待确认')
+  }
+  return {
+    ...item,
+    id,
+    title,
+    content,
+    type,
+    isRead,
+    relatedId: item.relatedId == null || item.relatedId === '' ? null : Number(item.relatedId),
+    createdAt: typeof item.createdAt === 'string' ? item.createdAt : ''
+  }
+}
+
+function normalizeNotificationList(value: unknown) {
+  if (!Array.isArray(value)) {
+    throw new Error('通知数据待确认')
+  }
+  return value.map(item => normalizeNotificationItem(item))
 }
 
 const teamOptions = computed(() => {
@@ -609,25 +686,15 @@ const handleProjectAction = async (key: string) => {
         if (!file) return
         try {
           const text = await file.text()
-          const data = JSON.parse(text)
-          const base = API_BASE_URL
-          const token = localStorage.getItem('satoken') || ''
-          const res = await fetch(`${base}/api/projects/import`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', 'satoken': token },
-            body: JSON.stringify(data)
-        })
-        const json = await res.json()
-        if (json.code === 200) {
-          const importedProjectId = requireImportedProjectId(json.data?.projectId)
+          const data = requireImportPayload(JSON.parse(text))
+          const res = await request.post('/api/projects/import', data)
+          const importedProjectId = requireImportedProjectId((res as any).data?.projectId)
           await projectStore.refresh()
-          if (!projectStore.projects.some(project => project.id === importedProjectId)) {
+          const importedProject = projectStore.projects.find(project => project.id === importedProjectId)
+          if (!importedProject || importedProject.name !== data.project.name) {
             throw new Error('项目导入结果待确认')
           }
           message.success('项目导入成功！')
-        } else {
-          message.error(json.message || '导入失败')
-        }
       } catch (err: any) {
         message.error('导入失败: ' + (err.message || '文件格式错误'))
       }
@@ -665,37 +732,26 @@ const handleExportProject = async () => {
     return
   }
   try {
-    const base = API_BASE_URL
-    const token = localStorage.getItem('satoken') || ''
-    const res = await fetch(`${base}/api/projects/${projectStore.activeProjectId}/export`, {
-      method: 'POST',
-      headers: { 'satoken': token }
-    })
-    if (!res.ok) {
-      throw new Error(`导出接口返回 ${res.status}`)
+    const res = await request.post(`/api/projects/${projectStore.activeProjectId}/export`)
+    const exportPayload = requireExportPayload((res as any).data)
+    if (exportPayload.project.id !== projectStore.activeProjectId) {
+      throw new Error('项目导出结果待确认')
     }
-    const json = await res.json()
-    if (json.code === 200) {
-      const exportPayload = requireExportPayload(json.data)
-      const blobContent = JSON.stringify(json.data, null, 2)
-      if (!blobContent.trim()) {
-        throw new Error('项目导出结果待确认')
-      }
-      const blob = new Blob([blobContent], { type: 'application/json' })
-      if (blob.size <= 0) {
-        throw new Error('项目导出结果待确认')
-      }
-      const url = URL.createObjectURL(blob)
-      const a = document.createElement('a')
-      a.href = url
-      a.download = `project_${projectStore.activeProjectId}_${Date.now()}.json`
-      a.click()
-      URL.revokeObjectURL(url)
-      void exportPayload
-      message.success('项目导出成功！')
-    } else {
-      message.error(json.message || '导出失败')
+    const blobContent = JSON.stringify(exportPayload, null, 2)
+    if (!blobContent.trim()) {
+      throw new Error('项目导出结果待确认')
     }
+    const blob = new Blob([blobContent], { type: 'application/json' })
+    if (blob.size <= 0) {
+      throw new Error('项目导出结果待确认')
+    }
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `project_${projectStore.activeProjectId}_${Date.now()}.json`
+    a.click()
+    URL.revokeObjectURL(url)
+    message.success('项目导出成功！')
   } catch (err: any) {
     message.error('导出失败: ' + (err.message || '网络错误'))
   }
@@ -705,6 +761,9 @@ const handleExportProject = async () => {
 const notifications = ref<any[] | null>(null)
 const unreadCount = ref<number | null>(null)
 let stompClient: any = null
+let notificationPollTimer: ReturnType<typeof setInterval> | null = null
+const NOTIFICATION_HEADERS = { 'X-No-Cache': '1' }
+let notificationErrorNotified = false
 
 const unreadBadgeValue = computed(() => unreadCount.value == null ? false : unreadCount.value)
 const unreadCountLabel = computed(() => unreadCount.value == null ? '未读待确认' : `${unreadCount.value} 未读`)
@@ -712,25 +771,28 @@ const hasUnreadNotifications = computed(() => (unreadCount.value ?? 0) > 0)
 
 const loadNotifications = async () => {
   try {
-    const base = 'http://localhost:8080'
-    const token = localStorage.getItem('satoken') || ''
     const [unreadRes, allRes] = await Promise.all([
-      fetch(`${base}/api/notifications/unread`, { headers: { 'satoken': token } }),
-      fetch(`${base}/api/notifications?limit=20`, { headers: { 'satoken': token } })
+      request.get('/api/notifications/unread', {
+        params: { limit: 50 },
+        headers: NOTIFICATION_HEADERS
+      }),
+      request.get('/api/notifications', {
+        params: { limit: 20 },
+        headers: NOTIFICATION_HEADERS
+      })
     ])
-    if (!unreadRes.ok || !allRes.ok) {
-      throw new Error('通知接口返回异常状态')
-    }
-    const unreadJson = await unreadRes.json()
-    const allJson = await allRes.json()
-    if (!Array.isArray(unreadJson.data) || !Array.isArray(allJson.data)) {
-      throw new Error('通知数据待确认')
-    }
-    unreadCount.value = unreadJson.data.length
-    notifications.value = allJson.data
-  } catch {
+    const unreadItems = normalizeNotificationList((unreadRes as any).data)
+    const allItems = normalizeNotificationList((allRes as any).data)
+    unreadCount.value = unreadItems.length
+    notifications.value = allItems
+    notificationErrorNotified = false
+  } catch (err: any) {
     unreadCount.value = null
     notifications.value = null
+    if (!notificationErrorNotified) {
+      message.error(err.message || '通知数据待确认')
+      notificationErrorNotified = true
+    }
   }
 }
 
@@ -747,20 +809,27 @@ const connectWebSocket = async () => {
     const SockJS = (window as any).SockJS
     if (!SockJS) return
     const StompJs = await import('@stomp/stompjs')
-    const socket = new SockJS('http://localhost:8080/ws')
+    const socket = new SockJS(new URL('/ws', API_BASE_URL).toString())
     stompClient = new StompJs.Client({
       webSocketFactory: () => socket,
       reconnectDelay: 5000,
       onConnect: () => {
         stompClient?.subscribe(`/topic/notifications/${userId}`, (msg: any) => {
           try {
-            const notif = JSON.parse(msg.body)
+            const notif = normalizeNotificationItem(JSON.parse(msg.body))
             if (notifications.value === null) {
               notifications.value = []
             }
-            notifications.value.unshift(notif)
-            if (!notif.isRead) unreadCount.value = (unreadCount.value ?? 0) + 1
-          } catch {}
+            notifications.value = [
+              notif,
+              ...notifications.value.filter((item: any) => Number(item.id) !== notif.id)
+            ].slice(0, 20)
+            if (normalizeNotificationReadFlag(notif.isRead) !== true) {
+              unreadCount.value = (unreadCount.value ?? 0) + 1
+            }
+          } catch {
+            void loadNotifications()
+          }
         })
       }
     })
@@ -768,10 +837,39 @@ const connectWebSocket = async () => {
   } catch { /* WebSocket not available, fall back to polling */ }
 }
 
+function startNotificationPolling() {
+  if (notificationPollTimer) {
+    clearInterval(notificationPollTimer)
+  }
+  notificationPollTimer = setInterval(() => {
+    if (userStore.isLoggedIn && document.visibilityState === 'visible') {
+      void loadNotifications()
+    }
+  }, 30000)
+}
+
+function stopNotificationRealtime() {
+  if (notificationPollTimer) {
+    clearInterval(notificationPollTimer)
+    notificationPollTimer = null
+  }
+  if (stompClient) {
+    try {
+      stompClient.deactivate()
+    } catch {}
+    stompClient = null
+  }
+}
+
 watch(() => userStore.isLoggedIn, (val) => {
   if (val) {
-    loadNotifications()
-    connectWebSocket()
+    void loadNotifications()
+    void connectWebSocket()
+    startNotificationPolling()
+  } else {
+    stopNotificationRealtime()
+    notifications.value = null
+    unreadCount.value = null
   }
 })
 
@@ -781,34 +879,29 @@ onMounted(() => {
     const msg = (e as CustomEvent).detail || '系统维护中'
     message.warning(msg, { duration: 0, closable: true })
   })
+  if (userStore.isLoggedIn) {
+    void loadNotifications()
+    void connectWebSocket()
+    startNotificationPolling()
+  }
 })
 
-// 如果已登录则直接加载
-if (userStore.isLoggedIn) {
-  loadNotifications()
-  // 页面可见时轮询更新
-  setInterval(() => {
-    if (userStore.isLoggedIn) loadNotifications()
-  }, 30000) // 30秒轮询兜底
-}
+onUnmounted(() => {
+  stopNotificationRealtime()
+})
 
 const handleMarkRead = async (n: any) => {
   if (normalizeNotificationReadFlag(n?.isRead) === true) return
   try {
-    const base = 'http://localhost:8080'
-    const res = await fetch(`${base}/api/notifications/${n.id}/read`, {
-      method: 'POST',
-      headers: { 'satoken': localStorage.getItem('satoken') || '' }
-    })
-    if (!res.ok) {
-      throw new Error(`通知已读接口返回 ${res.status}`)
-    }
+    await request.post(`/api/notifications/${n.id}/read`, null, { headers: NOTIFICATION_HEADERS })
     await loadNotifications()
     const confirmed = notifications.value?.find((item: any) => Number(item.id) === Number(n.id))
     if (!confirmed || normalizeNotificationReadFlag(confirmed.isRead) !== true) {
       throw new Error('通知已读结果待确认')
     }
-  } catch {}
+  } catch (err: any) {
+    message.error(err.message || '通知已读失败')
+  }
 }
 
 // 点击通知查看详情
@@ -831,14 +924,7 @@ const handleNotificationClick = async (n: any) => {
 
 const handleMarkAllRead = async () => {
   try {
-    const base = 'http://localhost:8080'
-    const res = await fetch(`${base}/api/notifications/read-all`, {
-      method: 'POST',
-      headers: { 'satoken': localStorage.getItem('satoken') || '' }
-    })
-    if (!res.ok) {
-      throw new Error(`通知全部已读接口返回 ${res.status}`)
-    }
+    await request.post('/api/notifications/read-all', null, { headers: NOTIFICATION_HEADERS })
     await loadNotifications()
     if (unreadCount.value !== 0) {
       throw new Error('通知全部已读结果待确认')
@@ -846,7 +932,9 @@ const handleMarkAllRead = async () => {
     if (notifications.value?.some((item: any) => normalizeNotificationReadFlag(item.isRead) !== true)) {
       throw new Error('通知全部已读结果待确认')
     }
-  } catch {}
+  } catch (err: any) {
+    message.error(err.message || '通知全部已读失败')
+  }
 }
 
 // 头像下拉选择
