@@ -54,6 +54,7 @@
         <n-tab v-for="item in assetTypeTabs" :key="item.value" :name="item.value">{{ item.label }}</n-tab>
         <n-tab name="favorite">我的收藏</n-tab>
       </n-tabs>
+      <div v-if="assetTypeItemsLoadState === 'error'" class="filter-status">资产分类待确认，请稍后重试。</div>
     </n-card>
 
     <div v-if="loading && assetRecords === null" class="loading-box">
@@ -389,6 +390,7 @@ const assetRecords = ref<Asset[] | null>(null)
 const filteredTotal = ref<number | null>(null)
 const versionHistory = ref<Asset[] | null>(null)
 const assetTypeItems = ref<DataDictItem[]>([])
+const assetTypeItemsLoadState = ref<'loading' | 'ready' | 'error'>('loading')
 
 const subtitles = ref<SubtitleVO[] | null>(null)
 const subGenerating = ref(false)
@@ -478,12 +480,18 @@ function assetTypeLabel(assetType?: string | null) {
 }
 
 async function loadAssetTypeItems() {
+  assetTypeItemsLoadState.value = 'loading'
   try {
     const res = await dictApi.getItems('asset_category')
-    const items = Array.isArray((res as any).data) ? (res as any).data : []
+    if (!Array.isArray((res as any).data)) {
+      throw new Error('资产分类待确认')
+    }
+    const items = (res as any).data
     assetTypeItems.value = items
+    assetTypeItemsLoadState.value = 'ready'
   } catch {
     assetTypeItems.value = []
+    assetTypeItemsLoadState.value = 'error'
   }
   if (activeTab.value !== 'all' && activeTab.value !== 'favorite'
     && !assetTypeItems.value.some(item => item.itemCode === activeTab.value)) {
@@ -940,6 +948,12 @@ onUnmounted(() => {
 
 .filter-card {
   margin-bottom: 20px;
+}
+
+.filter-status {
+  margin-top: 10px;
+  font-size: 12px;
+  color: #f59e0b;
 }
 
 .toolbar-top {

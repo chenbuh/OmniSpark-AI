@@ -13,6 +13,7 @@
         </n-space>
         <span class="count">共 {{ totalDisplay }} 个资产</span>
       </div>
+      <div v-if="assetTypeItemsLoadState === 'error'" class="status-note">资产类型选项待确认，请稍后重试。</div>
 
       <div v-if="loadingAssets && assets === null" class="loading-box">
         <n-spin size="small" />
@@ -96,6 +97,7 @@ const page = ref(1)
 const pageSize = 12
 const total = ref<number | null>(null)
 const assetTypeItems = ref<DataDictItem[]>([])
+const assetTypeItemsLoadState = ref<'loading' | 'ready' | 'error'>('loading')
 const totalDisplay = computed(() => total.value == null ? '-' : total.value)
 
 const typeOptions = computed(() => [
@@ -116,12 +118,18 @@ function assetTypeLabel(assetType?: string | null) {
 }
 
 async function loadAssetTypeItems() {
+  assetTypeItemsLoadState.value = 'loading'
   try {
     const res = await dictApi.getItems('asset_category')
-    const items = Array.isArray((res as any).data) ? (res as any).data : []
+    if (!Array.isArray((res as any).data)) {
+      throw new Error('资产类型待确认')
+    }
+    const items = (res as any).data
     assetTypeItems.value = items
+    assetTypeItemsLoadState.value = 'ready'
   } catch {
     assetTypeItems.value = []
+    assetTypeItemsLoadState.value = 'error'
   }
 }
 
@@ -186,6 +194,7 @@ function downloadAsset() {
 .subtitle { font-size: 13px; color: var(--text-muted); margin: 0; }
 .glass-card { background: rgba(15,23,42,0.4) !important; backdrop-filter: blur(16px); border: 1px solid var(--border-color) !important; border-radius: 16px !important; }
 .toolbar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; flex-wrap: wrap; gap: 8px; }
+.status-note { margin-bottom: 12px; font-size: 12px; color: #f59e0b; }
 .loading-box { display: flex; justify-content: center; padding: 24px 0; }
 .count { font-size: 12px; color: var(--text-muted); }
 .pager { display: flex; justify-content: flex-end; margin-top: 16px; }

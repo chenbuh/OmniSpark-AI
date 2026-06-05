@@ -17,6 +17,7 @@
               </n-button>
             </div>
           </template>
+          <div v-if="dictsLoadState === 'error'" class="status-note">字典列表待确认，请稍后重试。</div>
           <div v-for="d in dicts || []" :key="d.id" class="dict-item" :class="{ active: activeDict?.id === d.id }" @click="selectDict(d)">
             <div class="dict-info">
               <span class="dict-name">{{ d.dictName }}</span>
@@ -41,6 +42,7 @@
               </n-space>
             </div>
           </template>
+          <div v-if="itemsLoadState === 'error'" class="status-note">字典条目待确认，请稍后重试。</div>
 
           <n-table :single-line="false" class="dict-table">
             <thead>
@@ -125,17 +127,25 @@ const dictForm = reactive({ code: '', name: '', description: '' })
 const showItemEditor = ref(false)
 const editingItem = ref<any>(null)
 const itemForm = reactive({ code: '', name: '', sortOrder: 0 })
+const dictsLoadState = ref<'loading' | 'ready' | 'error'>('loading')
+const itemsLoadState = ref<'loading' | 'ready' | 'error'>('ready')
 const dictCountDisplay = computed(() => dicts.value === null ? '-' : dicts.value.length)
 const itemCountDisplay = computed(() => items.value === null ? '-' : items.value.length)
 
 onMounted(loadDicts)
 
 async function loadDicts() {
+  dictsLoadState.value = 'loading'
   try {
     const res = await request.get('/api/admin/dict')
-    dicts.value = (res as any).data || []
+    if (!Array.isArray((res as any).data)) {
+      throw new Error('字典数据待确认')
+    }
+    dicts.value = (res as any).data
+    dictsLoadState.value = 'ready'
   } catch (err: any) {
     dicts.value = null
+    dictsLoadState.value = 'error'
     message.error(err.message || '加载数据字典失败')
   }
 }
@@ -143,11 +153,17 @@ async function loadDicts() {
 async function selectDict(d: any) {
   activeDict.value = d
   items.value = null
+  itemsLoadState.value = 'loading'
   try {
     const res = await request.get(`/api/admin/dict/${d.id}/items`)
-    items.value = (res as any).data || []
+    if (!Array.isArray((res as any).data)) {
+      throw new Error('字典条目待确认')
+    }
+    items.value = (res as any).data
+    itemsLoadState.value = 'ready'
   } catch (err: any) {
     items.value = null
+    itemsLoadState.value = 'error'
     message.error(err.message || '加载字典项失败')
   }
 }
@@ -171,6 +187,7 @@ async function handleDeleteDict(id: number) {
     if (activeDict.value?.id === id) {
       activeDict.value = null
       items.value = []
+      itemsLoadState.value = 'ready'
     }
     message.success('已删除')
   }
@@ -223,6 +240,7 @@ async function handleDeleteItem(id: number) {
 .subtitle { font-size: 13px; color: #9ca3af; margin: 0; }
 .glass-card { background: rgba(15,23,42,0.4) !important; backdrop-filter: blur(16px); border: 1px solid rgba(255,255,255,0.08) !important; border-radius: 16px !important; }
 .card-header { display: flex; justify-content: space-between; align-items: center; font-weight: 600; color: #e5e7eb; }
+.status-note { margin-bottom: 12px; font-size: 12px; color: #f59e0b; }
 .dict-item { display: flex; align-items: center; justify-content: space-between; padding: 8px 10px; border-radius: 8px; cursor: pointer; margin-bottom: 4px; transition: background .2s; }
 .dict-item:hover { background: rgba(255,255,255,0.03); }
 .dict-item.active { background: rgba(16,185,129,0.06); border: 1px solid rgba(16,185,129,0.2); }
