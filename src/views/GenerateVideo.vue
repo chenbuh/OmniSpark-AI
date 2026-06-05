@@ -145,7 +145,7 @@
             <div class="pulsing-glow"></div>
             <n-progress
               type="circle"
-              :percentage="generating ? form.runtimeProgress : Math.max(0, Math.min(100, Number(activeTask?.progress ?? 0)))"
+              :percentage="generating ? 5 : Math.max(0, Math.min(100, Number(activeTask?.progress ?? 0)))"
               :color="'#f59e0b'"
               :rail-color="'rgba(255, 255, 255, 0.05)'"
               :stroke-width="6"
@@ -153,14 +153,14 @@
             >
               <template #default>
                 <div class="progress-inner">
-                  <span class="pct" style="color: #f59e0b;">{{ generating ? form.runtimeProgress : Math.max(0, Math.min(100, Number(activeTask?.progress ?? 0))) }}%</span>
-                  <span class="time">{{ generating ? formatElapsed(form.runtimeElapsedSeconds) : '任务进行中' }}</span>
+                  <span class="pct" style="color: #f59e0b;">{{ generating ? 5 : Math.max(0, Math.min(100, Number(activeTask?.progress ?? 0))) }}%</span>
+                  <span class="time">{{ generating ? '提交中...' : '任务进行中' }}</span>
                 </div>
               </template>
             </n-progress>
             <div class="loading-info">
               <h3>视频多帧合成中...</h3>
-              <p class="progress-step-text" style="color: #f59e0b;">{{ generating ? getVideoProgressHint(form.runtimeElapsedSeconds) : (activeTask?.progressText || '正在同步视频任务进度...') }}</p>
+              <p class="progress-step-text" style="color: #f59e0b;">{{ generating ? '正在向模型服务提交视频生成请求' : (activeTask?.progressText || '正在同步视频任务进度...') }}</p>
             </div>
           </div>
 
@@ -299,7 +299,6 @@ const selectedImageAsset = ref<Asset | null>(null)
 const selectedEndAsset = ref<Asset | null>(null)
 const assetPickerMode = ref<'start' | 'end'>('start')
 const activeTaskId = ref<number | null>(null)
-let localProgressTimer: ReturnType<typeof setInterval> | null = null
 let taskPollingTimer: ReturnType<typeof setInterval> | null = null
 let taskSyncing = false
 
@@ -309,9 +308,7 @@ const form = reactive({
   prompt: '',
   duration: '5s',
   cameraMotion: 'zoom_in',
-  motionSpeed: 5,
-  runtimeProgress: 6,
-  runtimeElapsedSeconds: 0
+  motionSpeed: 5
 })
 
 const durations = computed(() => {
@@ -433,38 +430,6 @@ const activeTask = computed(() => {
   return null
 })
 
-const formatElapsed = (seconds: number) => {
-  const minutes = Math.floor(seconds / 60)
-  const remain = seconds % 60
-  return `已耗时 ${String(minutes).padStart(2, '0')}:${String(remain).padStart(2, '0')}`
-}
-
-const getVideoProgressHint = (seconds: number) => {
-  if (seconds < 5) return '已提交请求，正在初始化视频渲染管线...'
-  if (seconds < 14) return '正在生成关键帧并规划镜头运动...'
-  if (seconds < 24) return '正在补齐中间帧与动态细节...'
-  return '正在编码视频并回传结果，请稍候...'
-}
-
-const startLocalGenerationFeedback = () => {
-  stopLocalGenerationFeedback()
-  form.runtimeProgress = 6
-  form.runtimeElapsedSeconds = 0
-  localProgressTimer = window.setInterval(() => {
-    form.runtimeElapsedSeconds += 1
-    form.runtimeProgress = Math.min(90, 6 + Math.round(form.runtimeElapsedSeconds * 3))
-  }, 1000)
-}
-
-const stopLocalGenerationFeedback = () => {
-  if (localProgressTimer) {
-    clearInterval(localProgressTimer)
-    localProgressTimer = null
-  }
-  form.runtimeProgress = 6
-  form.runtimeElapsedSeconds = 0
-}
-
 const stopTaskPolling = () => {
   if (taskPollingTimer) {
     clearInterval(taskPollingTimer)
@@ -474,7 +439,6 @@ const stopTaskPolling = () => {
 
 const finishGeneratingState = () => {
   generating.value = false
-  stopLocalGenerationFeedback()
   stopTaskPolling()
 }
 
@@ -594,8 +558,6 @@ const handleStartGenerate = async () => {
   stopTaskPolling()
   activeTaskId.value = null
   generating.value = true
-  startLocalGenerationFeedback()
-  let keepGenerating = false
   try {
     const res = await generationApi.generateVideo({
       projectId: projectStore.activeProjectId,
@@ -624,7 +586,6 @@ const handleStartGenerate = async () => {
     } else if (task.status === 'failed') {
       message.error(task.errorMessage || '视频生成失败')
     } else {
-      keepGenerating = true
       await taskStore.refresh({ projectId: projectStore.activeProjectId })
       message.info('视频任务已提交，正在持续获取最新生成进度...')
       startTaskPolling(task.id)
@@ -632,10 +593,7 @@ const handleStartGenerate = async () => {
   } catch (err: any) {
     message.error(err.message || '生成失败')
   } finally {
-    if (!keepGenerating) {
-      generating.value = false
-      stopLocalGenerationFeedback()
-    }
+    generating.value = false
   }
 }
 
