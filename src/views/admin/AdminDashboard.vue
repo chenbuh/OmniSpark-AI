@@ -68,8 +68,9 @@
               <text x="100" y="115" text-anchor="middle" fill="#6b7280" font-size="10">总任务</text>
               </svg>
               <div class="donut-legend">
-                <div class="legend-item"><span class="dot" style="background:#10b981"></span>成功 {{ stats.successTasks ?? 0 }}</div>
+                <div class="legend-item"><span class="dot" style="background:#6366f1"></span>排队中 {{ stats.pendingTasks ?? 0 }}</div>
                 <div class="legend-item"><span class="dot" style="background:#f59e0b"></span>运行中 {{ stats.runningTasks ?? 0 }}</div>
+                <div class="legend-item"><span class="dot" style="background:#10b981"></span>成功 {{ stats.successTasks ?? 0 }}</div>
                 <div class="legend-item"><span class="dot" style="background:#ef4444"></span>失败 {{ stats.failedTasks ?? 0 }}</div>
               </div>
             </div>
@@ -156,12 +157,13 @@ const barY = (c: number) => barChartH - 30 - (c / maxCount.value) * (barChartH -
 const barH = (c: number) => (c / maxCount.value) * (barChartH - 50)
 
 // 环形图
-const taskTotal = computed(() => (stats.value.successTasks || 0) + (stats.value.runningTasks || 0) + (stats.value.failedTasks || 0))
+const taskTotal = computed(() => (stats.value.pendingTasks || 0) + (stats.value.runningTasks || 0) + (stats.value.successTasks || 0) + (stats.value.failedTasks || 0))
 const circum = 2 * Math.PI * 70 // 439.8
 const donutSegments = computed(() => {
   const segments = [
-    { key: 'success', color: '#10b981', value: stats.value.successTasks || 0 },
+    { key: 'pending', color: '#6366f1', value: stats.value.pendingTasks || 0 },
     { key: 'running', color: '#f59e0b', value: stats.value.runningTasks || 0 },
+    { key: 'success', color: '#10b981', value: stats.value.successTasks || 0 },
     { key: 'failed', color: '#ef4444', value: stats.value.failedTasks || 0 }
   ]
 
@@ -225,12 +227,6 @@ onMounted(async () => {
     dailyTasks.value = trends.dailyTasks || []
     dailyUsers.value = trends.dailyUsers || []
     recentUsers.value = (usersRes as any).data?.records || []
-
-    // 计算 running 数量
-    const total = (stats.value.totalTasks || 0)
-    const success = (stats.value.successTasks || 0)
-    const failed = (stats.value.failedTasks || 0)
-    stats.value.runningTasks = Math.max(0, total - success - failed)
   } catch (err: any) {
     message.error(err.message || '加载仪表盘数据失败')
   }

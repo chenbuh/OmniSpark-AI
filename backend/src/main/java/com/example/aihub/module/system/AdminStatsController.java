@@ -48,6 +48,12 @@ public class AdminStatsController {
         stats.put("totalProjects", projectMapper.selectCount(null));
         stats.put("totalTasks", taskMapper.selectCount(null));
         stats.put("totalAssets", assetMapper.selectCount(null));
+        stats.put("pendingTasks", taskMapper.selectCount(
+                new LambdaQueryWrapper<GenerationTask>()
+                        .eq(GenerationTask::getStatus, "pending")));
+        stats.put("runningTasks", taskMapper.selectCount(
+                new LambdaQueryWrapper<GenerationTask>()
+                        .eq(GenerationTask::getStatus, "running")));
         stats.put("successTasks", taskMapper.selectCount(
                 new LambdaQueryWrapper<GenerationTask>()
                         .eq(GenerationTask::getStatus, "success")));
@@ -150,6 +156,8 @@ public class AdminStatsController {
             csv.append("总项目数,").append(stats.getOrDefault("totalProjects", 0)).append("\n");
             csv.append("总任务数,").append(stats.getOrDefault("totalTasks", 0)).append("\n");
             csv.append("总资产数,").append(stats.getOrDefault("totalAssets", 0)).append("\n");
+            csv.append("排队任务数,").append(stats.getOrDefault("pendingTasks", 0)).append("\n");
+            csv.append("运行任务数,").append(stats.getOrDefault("runningTasks", 0)).append("\n");
             csv.append("成功任务数,").append(stats.getOrDefault("successTasks", 0)).append("\n");
             csv.append("失败任务数,").append(stats.getOrDefault("failedTasks", 0)).append("\n");
         }
