@@ -17,8 +17,12 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.time.Duration;
 import java.time.LocalDateTime;
+import java.util.List;
 import java.util.LinkedHashMap;
 import java.util.Map;
 
@@ -33,6 +37,12 @@ public class VersionController {
 
     @Value("${app.build-time:unknown}")
     private String buildTime;
+
+    @Value("${app.build-commit:}")
+    private String buildCommit;
+
+    @Value("${app.build-branch:}")
+    private String buildBranch;
 
     @Value("${app.update.prefer-release:true}")
     private boolean preferRelease;
@@ -77,8 +87,12 @@ public class VersionController {
     @GetMapping
     public ApiResult<Map<String, Object>> version() {
         Map<String, Object> info = new LinkedHashMap<>();
+        String currentCommitSha = displayCurrentCommitSha();
         info.put("currentVersion", displayCurrentVersion());
         info.put("buildTime", displayBuildTime());
+        info.put("currentBranch", displayCurrentBranch());
+        info.put("currentCommitSha", currentCommitSha);
+        info.put("currentCommitShortSha", abbreviateSha(currentCommitSha));
         info.put("serverTime", LocalDateTime.now().toString());
         info.put("javaVersion", System.getProperty("java.version"));
         info.put("osName", System.getProperty("os.name"));
@@ -124,10 +138,14 @@ public class VersionController {
 
     private Map<String, Object> baseCheckResult() {
         Map<String, Object> result = new LinkedHashMap<>();
+        String currentCommitSha = displayCurrentCommitSha();
         result.put("currentVersion", displayCurrentVersion());
         result.put("checkTime", LocalDateTime.now().toString());
         result.put("sourceType", "unknown");
         result.put("sourceLabel", "未知来源");
+        result.put("currentBranch", displayCurrentBranch());
+        result.put("currentCommitSha", currentCommitSha);
+        result.put("currentCommitShortSha", abbreviateSha(currentCommitSha));
         result.put("repositoryUrl", buildRepoUrl());
         result.put("defaultBranch", githubBranch);
         return result;
@@ -215,13 +233,23 @@ public class VersionController {
         result.put("sourceType", "commit");
         result.put("sourceLabel", "GitHub 最新提交");
         result.put("latestVersion", currentVersion);
-        result.put("hasUpdate", false);
+        String currentCommitSha = displayCurrentCommitSha();
+        boolean canCompareCommit = !currentCommitSha.isBlank();
+        boolean hasUpdate = canCompareCommit && !sha.equalsIgnoreCase(currentCommitSha);
+        result.put("hasUpdate", hasUpdate);
+        result.put("commitComparisonAvailable", canCompareCommit);
         result.put("latestCommitSha", sha);
-        result.put("latestCommitShortSha", sha.substring(0, Math.min(7, sha.length())));
+        result.put("latestCommitShortSha", abbreviateSha(sha));
         result.put("latestCommitMessage", truncate(commitNode.path("message").asText(""), 500));
         result.put("releasePublishedAt", commitNode.path("committer").path("date").asText(""));
         result.put("releaseUrl", node.path("html_url").asText(buildRepoUrl()));
-        result.put("error", "仓库尚未发布版本标签或 Release，当前仅展示远程主分支最新提交");
+        if (!canCompareCommit) {
+            result.put("error", "仓库尚未发布版本标签或 Release，且当前部署未注入提交信息，暂时无法判断是否落后于远程主分支");
+        } else if (hasUpdate) {
+            result.put("error", "仓库尚未发布版本标签或 Release，当前根据主分支提交差异判断存在更新");
+        } else {
+            result.put("error", "仓库尚未发布版本标签或 Release，当前已与远程主分支最新提交保持一致");
+        }
         return true;
     }
 
@@ -299,6 +327,24 @@ public class VersionController {
         return sanitizeBuildValue(buildTime, "开发环境未注入");
     }
 
+    private String displayCurrentCommitSha() {
+        String configured = sanitizeBuildValue(buildCommit, "");
+        if (!configured.isBlank()) {
+            return configured;
+        }
+        String localCommit = readLocalGitCommitSha();
+        return localCommit == null ? "" : localCommit;
+    }
+
+    private String displayCurrentBranch() {
+        String configured = sanitizeBuildValue(buildBranch, "");
+        if (!configured.isBlank()) {
+            return configured;
+        }
+        String localBranch = readLocalGitBranch();
+        return localBranch == null ? "" : localBranch;
+    }
+
     private String comparisonCurrentVersion() {
         return sanitizeBuildValue(currentVersion, "");
     }
@@ -338,6 +384,108 @@ public class VersionController {
             return value == null ? "" : value;
         }
         return value.substring(0, maxLength);
+    }
+
+    private String abbreviateSha(String sha) {
+        if (sha == null || sha.isBlank()) {
+            return "";
+        }
+        return sha.substring(0, Math.min(7, sha.length()));
+    }
+
+    private String readLocalGitCommitSha() {
+        try {
+            Path gitDir = resolveGitDir();
+            if (gitDir == null) {
+                return null;
+            }
+            String headContent = readTrimmed(gitDir.resolve("HEAD"));
+            if (headContent == null || headContent.isBlank()) {
+                return null;
+            }
+            if (!headContent.startsWith("ref:")) {
+                return headContent;
+            }
+            String ref = headContent.substring(4).trim();
+            String sha = readTrimmed(gitDir.resolve(ref));
+            if (sha != null && !sha.isBlank()) {
+                return sha;
+            }
+            return readPackedRef(gitDir, ref);
+        } catch (Exception ignored) {
+            return null;
+        }
+    }
+
+    private String readLocalGitBranch() {
+        try {
+            Path gitDir = resolveGitDir();
+            if (gitDir == null) {
+                return null;
+            }
+            String headContent = readTrimmed(gitDir.resolve("HEAD"));
+            if (headContent == null || !headContent.startsWith("ref:")) {
+                return null;
+            }
+            String ref = headContent.substring(4).trim();
+            int lastSlash = ref.lastIndexOf('/');
+            return lastSlash >= 0 ? ref.substring(lastSlash + 1) : ref;
+        } catch (Exception ignored) {
+            return null;
+        }
+    }
+
+    private Path resolveGitDir() {
+        Path current = Paths.get("").toAbsolutePath().normalize();
+        while (current != null) {
+            Path gitPath = current.resolve(".git");
+            if (Files.isDirectory(gitPath)) {
+                return gitPath;
+            }
+            if (Files.isRegularFile(gitPath)) {
+                String pointer = readTrimmed(gitPath);
+                if (pointer != null && pointer.startsWith("gitdir:")) {
+                    String relativePath = pointer.substring("gitdir:".length()).trim();
+                    return current.resolve(relativePath).normalize();
+                }
+            }
+            current = current.getParent();
+        }
+        return null;
+    }
+
+    private String readPackedRef(Path gitDir, String ref) {
+        Path packedRefsPath = gitDir.resolve("packed-refs");
+        if (!Files.exists(packedRefsPath)) {
+            return null;
+        }
+        try {
+            List<String> lines = Files.readAllLines(packedRefsPath);
+            for (String line : lines) {
+                String trimmed = line.trim();
+                if (trimmed.isBlank() || trimmed.startsWith("#") || trimmed.startsWith("^")) {
+                    continue;
+                }
+                String[] parts = trimmed.split("\\s+", 2);
+                if (parts.length == 2 && ref.equals(parts[1].trim())) {
+                    return parts[0].trim();
+                }
+            }
+        } catch (Exception ignored) {
+            return null;
+        }
+        return null;
+    }
+
+    private String readTrimmed(Path path) {
+        try {
+            if (path == null || !Files.exists(path)) {
+                return null;
+            }
+            return Files.readString(path).trim();
+        } catch (Exception ignored) {
+            return null;
+        }
     }
 
     private String safeMessage(Exception e) {

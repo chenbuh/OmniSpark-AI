@@ -16,6 +16,10 @@
           <n-descriptions v-else-if="version" :column="1">
             <n-descriptions-item label="版本号"><n-tag type="success">{{ version.currentVersion }}</n-tag></n-descriptions-item>
             <n-descriptions-item label="构建时间">{{ version.buildTime }}</n-descriptions-item>
+            <n-descriptions-item v-if="version.currentBranch" label="当前分支">{{ version.currentBranch }}</n-descriptions-item>
+            <n-descriptions-item v-if="version.currentCommitShortSha" label="当前提交">
+              <span class="mono">{{ version.currentCommitShortSha }}</span>
+            </n-descriptions-item>
             <n-descriptions-item label="服务器时间">{{ version.serverTime }}</n-descriptions-item>
             <n-descriptions-item label="Java 版本">{{ version.javaVersion }}</n-descriptions-item>
             <n-descriptions-item label="操作系统">{{ version.osName }} ({{ version.osArch }})</n-descriptions-item>
@@ -51,6 +55,10 @@
           <div v-else class="update-result">
             <n-descriptions :column="1">
               <n-descriptions-item label="当前版本">{{ updateCheck.currentVersion }}</n-descriptions-item>
+              <n-descriptions-item v-if="updateCheck.currentBranch" label="当前分支">{{ updateCheck.currentBranch }}</n-descriptions-item>
+              <n-descriptions-item v-if="updateCheck.currentCommitShortSha" label="当前提交">
+                <span class="mono">{{ updateCheck.currentCommitShortSha }}</span>
+              </n-descriptions-item>
               <n-descriptions-item label="远程版本">{{ updateCheck.latestVersion || '-' }}</n-descriptions-item>
               <n-descriptions-item label="数据来源">{{ updateCheck.sourceLabel || '-' }}</n-descriptions-item>
               <n-descriptions-item label="检查时间">{{ formatDateTime(updateCheck.checkTime) }}</n-descriptions-item>
@@ -62,14 +70,16 @@
               </n-descriptions-item>
               <n-descriptions-item label="状态">
                 <n-tag v-if="updateCheck.hasUpdate" type="error">发现可用更新</n-tag>
+                <n-tag v-else-if="updateCheck.sourceType === 'commit' && !updateCheck.currentCommitShortSha" type="warning">当前提交待确认</n-tag>
                 <n-tag v-else-if="updateCheck.sourceType === 'commit'" type="warning">仓库未发布版本</n-tag>
                 <n-tag v-else type="success">已是最新版本</n-tag>
               </n-descriptions-item>
             </n-descriptions>
 
             <n-alert v-if="updateCheck.hasUpdate" type="warning" style="margin-top:12px;">
-              <template #header>新版本 {{ updateCheck.latestVersion }} 可用</template>
+              <template #header>{{ updateCheck.sourceType === 'commit' ? '主分支有新提交可同步' : `新版本 ${updateCheck.latestVersion} 可用` }}</template>
               <div v-if="updateCheck.releaseNotes" class="notes-text">{{ updateCheck.releaseNotes }}</div>
+              <div v-else-if="updateCheck.sourceType === 'commit' && updateCheck.latestCommitMessage" class="notes-text">{{ updateCheck.latestCommitMessage }}</div>
               <div class="action-row">
                 <n-button v-if="updateCheck.downloadUrl" size="small" type="primary" @click="openUrl(updateCheck.downloadUrl)">下载安装包</n-button>
                 <n-button size="small" tertiary type="primary" @click="openUrl(updateCheck.releaseUrl || updateCheck.repositoryUrl)">查看版本详情</n-button>
@@ -108,6 +118,9 @@ import request from '@/api/request'
 interface VersionInfo {
   currentVersion?: string
   buildTime?: string
+  currentBranch?: string
+  currentCommitSha?: string
+  currentCommitShortSha?: string
   serverTime?: string
   javaVersion?: string
   osName?: string
@@ -119,6 +132,9 @@ interface VersionInfo {
 
 interface UpdateCheckInfo {
   currentVersion?: string
+  currentBranch?: string
+  currentCommitSha?: string
+  currentCommitShortSha?: string
   latestVersion?: string
   sourceType?: string
   sourceLabel?: string
@@ -203,6 +219,9 @@ function normalizeVersionInfo(payload: unknown): VersionInfo {
   return {
     currentVersion: payload.currentVersion,
     buildTime: payload.buildTime,
+    currentBranch: typeof payload.currentBranch === 'string' ? payload.currentBranch : '',
+    currentCommitSha: typeof payload.currentCommitSha === 'string' ? payload.currentCommitSha : '',
+    currentCommitShortSha: typeof payload.currentCommitShortSha === 'string' ? payload.currentCommitShortSha : '',
     serverTime: payload.serverTime,
     javaVersion: payload.javaVersion,
     osName: payload.osName,
@@ -228,6 +247,9 @@ function normalizeUpdateCheckInfo(payload: unknown): UpdateCheckInfo {
 
   return {
     currentVersion: payload.currentVersion,
+    currentBranch: typeof payload.currentBranch === 'string' ? payload.currentBranch : '',
+    currentCommitSha: typeof payload.currentCommitSha === 'string' ? payload.currentCommitSha : '',
+    currentCommitShortSha: typeof payload.currentCommitShortSha === 'string' ? payload.currentCommitShortSha : '',
     latestVersion: typeof payload.latestVersion === 'string' ? payload.latestVersion : '',
     sourceType: payload.sourceType,
     sourceLabel: payload.sourceLabel,

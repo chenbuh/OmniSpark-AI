@@ -31,6 +31,8 @@ spring:
 app:
   version: ${APP_VERSION:@project.version@}
   build-time: ${APP_BUILD_TIME:@maven.build.timestamp@}
+  build-commit: ${APP_BUILD_COMMIT:}
+  build-branch: ${APP_BUILD_BRANCH:}
   bootstrap:
     admin:
       username: ${APP_BOOTSTRAP_ADMIN_USERNAME:admin}
