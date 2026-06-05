@@ -209,6 +209,38 @@ onMounted(async () => {
   await loadUsers()
 })
 
+function requireUsersPage(value: unknown) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new Error('用户数据待确认')
+  }
+  const records = (value as any).records
+  const count = (value as any).total
+  if (!Array.isArray(records) || typeof count !== 'number') {
+    throw new Error('用户数据待确认')
+  }
+  return {
+    records,
+    total: count
+  }
+}
+
+function requireCreatedUserResult(value: unknown) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new Error('用户创建结果待确认')
+  }
+  const id = Number((value as any).id)
+  const username = typeof (value as any).username === 'string' ? (value as any).username.trim() : ''
+  const role = typeof (value as any).role === 'string' ? (value as any).role.trim() : ''
+  if (!Number.isFinite(id) || id <= 0 || !username || !role) {
+    throw new Error('用户创建结果待确认')
+  }
+  return {
+    id,
+    username,
+    initialPassword: typeof (value as any).initialPassword === 'string' ? (value as any).initialPassword : ''
+  }
+}
+
 async function loadRoleOptions() {
   roleOptionsLoadState.value = 'loading'
   try {
@@ -248,12 +280,9 @@ async function loadUsers() {
     const params: Record<string, any> = { page: page.value, pageSize }
     if (search.value) params.search = search.value
     const res = await request.get('/api/admin/users', { params })
-    const data = (res as any).data
-    if (!Array.isArray(data.records)) {
-      throw new Error('用户数据待确认')
-    }
+    const data = requireUsersPage((res as any).data)
     users.value = data.records
-    total.value = typeof data.total === 'number' ? data.total : null
+    total.value = data.total
   } catch (err: any) {
     users.value = null
     total.value = null
@@ -277,6 +306,7 @@ async function handleCreate() {
   }
   creating.value = true
   try {
+    const searchKeyword = search.value.trim().toLowerCase()
     const params = new URLSearchParams({ username: createForm.value.username })
     if (createForm.value.password) {
       params.set('encryptedPassword', await encryptPassword(createForm.value.password))
@@ -286,8 +316,16 @@ async function handleCreate() {
     const res = await request.post('/api/admin/users', params.toString(), {
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' }
     })
+    const createdUser = requireCreatedUserResult((res as any).data)
+    await loadUsers()
+    const shouldAppearInCurrentList = !searchKeyword
+      || createdUser.username.toLowerCase().includes(searchKeyword)
+      || (createForm.value.nickname || '').trim().toLowerCase().includes(searchKeyword)
+    if (page.value === 1 && shouldAppearInCurrentList && !users.value?.some(user => Number(user.id) === createdUser.id)) {
+      throw new Error('用户创建结果待确认')
+    }
     showCreate.value = false
-    const initial = (res as any).data?.initialPassword
+    const initial = createdUser.initialPassword
     if (!createForm.value.password) {
       if (typeof initial !== 'string' || !initial) {
         throw new Error('初始密码待确认')
@@ -301,7 +339,6 @@ async function handleCreate() {
       message.success('用户已创建')
     }
     resetCreateForm()
-    await loadUsers()
   } catch (err: any) {
     message.error(err.message || '创建失败')
   } finally {
@@ -313,17 +350,26 @@ async function handleCreate() {
 async function handleUpdateRole(id: number, role: string) {
   try {
     await request.put(`/api/admin/users/${id}/role?role=${role}`)
+    await loadUsers()
+    const updatedUser = users.value?.find(user => Number(user.id) === id)
+    if (!updatedUser || updatedUser.role !== role) {
+      throw new Error('角色更新结果待确认')
+    }
     message.success('角色已更新')
-  } catch { message.error('更新失败') }
+  } catch (err: any) { message.error(err.message || '更新失败') }
 }
 
 // --- 状态切换 ---
 async function handleToggleStatus(u: any, enabled: boolean) {
   try {
     await request.put(`/api/admin/users/${u.id}/status?status=${enabled ? 1 : 0}`)
-    u.status = enabled ? 1 : 0
+    await loadUsers()
+    const updatedUser = users.value?.find(user => Number(user.id) === Number(u.id))
+    if (!updatedUser || normalizeUserStatus(updatedUser.status) !== (enabled ? 1 : 0)) {
+      throw new Error('用户状态待确认')
+    }
     message.success(enabled ? '已启用' : '已禁用')
-  } catch { message.error('操作失败') }
+  } catch (err: any) { message.error(err.message || '操作失败') }
 }
 
 function normalizeUserStatus(value: unknown): number | null {
@@ -354,9 +400,12 @@ async function confirmEdit(id: number) {
   editingId.value = null
   try {
     await request.put(`/api/admin/users/${id}/nickname?nickname=${encodeURIComponent(name)}`)
+    await loadUsers()
+    const user = users.value?.find(u => Number(u.id) === id)
+    if (user && (user.nickname || '') !== name) {
+      throw new Error('昵称更新结果待确认')
+    }
     message.success('昵称已更新')
-    const user = users.value?.find(u => u.id === id)
-    if (user) user.nickname = name
   } catch (err: any) {
     message.error(err.message || '更新失败')
   }
@@ -397,10 +446,13 @@ async function handleDeleteUser(u: any) {
     onPositiveClick: async () => {
       try {
         await request.delete(`/api/admin/users/${u.id}`)
-        message.success('已删除')
         // 删除当前页最后一条时回退一页,再重新请求保持 total 同步
         if ((users.value?.length || 0) === 1 && page.value > 1) page.value--
         await loadUsers()
+        if (users.value?.some(user => Number(user.id) === Number(u.id))) {
+          throw new Error('删除结果待确认')
+        }
+        message.success('已删除')
       } catch (err: any) { message.error(err.message || '删除失败') }
     }
   })
@@ -413,7 +465,13 @@ async function handleExport() {
     const r = await fetch(`${API_BASE_URL}/api/admin/users/export`, {
       headers: { 'satoken': token || '' }
     })
+    if (!r.ok) {
+      throw new Error(`导出接口返回 ${r.status}`)
+    }
     const blob = await r.blob()
+    if (blob.size <= 0) {
+      throw new Error('导出结果待确认')
+    }
     const url = URL.createObjectURL(blob)
     const link = document.createElement('a')
     link.href = url
@@ -461,6 +519,9 @@ function triggerImport() {
           })
         }
         await loadUsers()
+        if (importResult.success > 0 && total.value === null) {
+          throw new Error('导入结果待确认')
+        }
       } else message.error((res as any).message || '导入失败')
     } catch (err: any) { message.error('导入失败: ' + (err.message || '文件格式错误')) }
   }

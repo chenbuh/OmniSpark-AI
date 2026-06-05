@@ -214,6 +214,48 @@ const sortOptions = [
   { label: '最多评论', value: 'comments' }
 ]
 
+function requireTemplatePage(value: unknown) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new Error('模板数据待确认')
+  }
+  const records = (value as any).records
+  const count = (value as any).total
+  if (!Array.isArray(records) || typeof count !== 'number') {
+    throw new Error('模板数据待确认')
+  }
+  return {
+    records: records as PromptTemplate[],
+    total: count
+  }
+}
+
+function requireTemplateResult(value: unknown, action: 'create' | 'update') {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new Error(action === 'create' ? '模板创建结果待确认' : '模板更新结果待确认')
+  }
+  const id = Number((value as any).id)
+  const name = typeof (value as any).name === 'string' ? (value as any).name.trim() : ''
+  const content = typeof (value as any).content === 'string' ? (value as any).content.trim() : ''
+  if (!Number.isFinite(id) || id <= 0 || !name || !content) {
+    throw new Error(action === 'create' ? '模板创建结果待确认' : '模板更新结果待确认')
+  }
+  return {
+    id,
+    name,
+    content
+  }
+}
+
+function requireLikeToggleResult(value: unknown) {
+  if (value === 1 || value === '1' || value === true || value === 'true') {
+    return 1
+  }
+  if (value === 0 || value === '0' || value === false || value === 'false') {
+    return 0
+  }
+  throw new Error('点赞结果待确认')
+}
+
 async function loadTemplates() {
   loadingTemplates.value = true
   try {
@@ -225,14 +267,9 @@ async function loadTemplates() {
       page: page.value,
       pageSize: pageSize.value
     })
-    const records = res.data?.records
-    if (!Array.isArray(records)) {
-      templates.value = null
-      totalTemplates.value = null
-      return
-    }
-    templates.value = records
-    totalTemplates.value = typeof res.data?.total === 'number' ? res.data.total : null
+    const data = requireTemplatePage((res as any).data)
+    templates.value = data.records
+    totalTemplates.value = data.total
   } catch {
     templates.value = null
     totalTemplates.value = null
@@ -347,7 +384,7 @@ function handleApplyToVideo(tpl: PromptTemplate) {
 async function handleLike(tpl: PromptTemplate) {
   try {
     const res = await request.post(`/api/prompt-templates/${tpl.id}/like`)
-    const liked = (res as any).data
+    const liked = requireLikeToggleResult((res as any).data)
     tpl.liked = liked
     tpl.likesCount = updateKnownCount(tpl.likesCount, liked ? 1 : -1)
   } catch (err: any) {
@@ -397,7 +434,8 @@ const handleSave = async () => {
   saving.value = true
   try {
     if (editingId.value) {
-      await templateApi.update(editingId.value, {
+      const currentEditingId = editingId.value
+      const res = await templateApi.update(currentEditingId, {
         projectId: projectStore.activeProjectId,
         name: form.name,
         tag: form.tag.trim() || undefined,
@@ -405,9 +443,10 @@ const handleSave = async () => {
         negativePrompt: form.negativePrompt || undefined,
         modelName: form.modelName || undefined
       })
+      requireTemplateResult((res as any).data, 'update')
       message.success('模板已更新！')
     } else {
-      await templateApi.createTemplate({
+      const res = await templateApi.createTemplate({
         projectId: projectStore.activeProjectId,
         name: form.name,
         tag: form.tag.trim() || undefined,
@@ -415,6 +454,7 @@ const handleSave = async () => {
         negativePrompt: form.negativePrompt || undefined,
         modelName: form.modelName || undefined
       })
+      requireTemplateResult((res as any).data, 'create')
       message.success('新提示词模板已收录！')
     }
     await Promise.all([loadTemplateTags(), loadTemplates()])
@@ -437,6 +477,9 @@ const handleDelete = async (id: number) => {
       try {
         await templateApi.deleteTemplate(id)
         await Promise.all([loadTemplateTags(), loadTemplates()])
+        if (templates.value?.some(item => Number(item.id) === id)) {
+          throw new Error('模板删除结果待确认')
+        }
         message.success('已删除')
       } catch (err: any) {
         message.error(err.message || '删除失败')

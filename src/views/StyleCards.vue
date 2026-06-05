@@ -315,6 +315,48 @@ const sortOptions = [
   { label: '最多点赞', value: 'likes' },
   { label: '最多评论', value: 'comments' }
 ]
+
+function requireStyleCardPage(value: unknown) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new Error('卡片数据待确认')
+  }
+  const records = (value as any).records
+  const count = (value as any).total
+  if (!Array.isArray(records) || typeof count !== 'number') {
+    throw new Error('卡片数据待确认')
+  }
+  return {
+    records: records as StyleCard[],
+    total: count
+  }
+}
+
+function requireStyleCardResult(value: unknown, action: 'create' | 'update') {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new Error(action === 'create' ? '卡片创建结果待确认' : '卡片更新结果待确认')
+  }
+  const id = Number((value as any).id)
+  const name = typeof (value as any).name === 'string' ? (value as any).name.trim() : ''
+  const content = typeof (value as any).content === 'string' ? (value as any).content.trim() : ''
+  if (!Number.isFinite(id) || id <= 0 || !name || !content) {
+    throw new Error(action === 'create' ? '卡片创建结果待确认' : '卡片更新结果待确认')
+  }
+  return {
+    id,
+    name,
+    content
+  }
+}
+
+function requireStyleCardLikeResult(value: unknown) {
+  if (value === 1 || value === '1' || value === true || value === 'true') {
+    return 1
+  }
+  if (value === 0 || value === '0' || value === false || value === 'false') {
+    return 0
+  }
+  throw new Error('点赞结果待确认')
+}
 const tagOptions = computed(() => {
   const values = new Set<string>(styleCardTags.value)
   if (form.tag?.trim()) {
@@ -342,14 +384,9 @@ async function loadCards() {
       page: page.value,
       pageSize: pageSize.value
     })
-    const records = res.data?.records
-    if (!Array.isArray(records)) {
-      cards.value = null
-      totalCards.value = null
-      return
-    }
-    cards.value = records
-    totalCards.value = typeof res.data?.total === 'number' ? res.data.total : null
+    const data = requireStyleCardPage((res as any).data)
+    cards.value = data.records
+    totalCards.value = data.total
   } catch {
     cards.value = null
     totalCards.value = null
@@ -482,11 +519,15 @@ async function handleUploadFile(e: Event) {
     formData.append('projectId', String(projectStore.activeProjectId))
     formData.append('file', file)
     const res = await assetApi.uploadAsset(formData)
-    if (typeof res.data?.fileUrl !== 'string' || !res.data.fileUrl) {
+    const fileUrl = typeof res.data?.fileUrl === 'string' ? res.data.fileUrl : ''
+    if (!fileUrl) {
       throw new Error('预览图地址待确认')
     }
-    form.previewUrl = toRelativeUrl(res.data.fileUrl)
+    form.previewUrl = toRelativeUrl(fileUrl)
     await assetStore.refresh({ projectId: projectStore.activeProjectId })
+    if (!imageAssets.value.some(asset => asset.fileUrl.includes(form.previewUrl))) {
+      throw new Error('预览图上传结果待确认')
+    }
     message.success('预览图已上传')
   } catch (err: any) {
     message.error(err.message || '上传失败')
@@ -545,10 +586,12 @@ async function handleSave() {
   } satisfies StyleCardPayload
   try {
     if (editingCard.value) {
-      await styleCardApi.update(editingCard.value.id, payload)
+      const res = await styleCardApi.update(editingCard.value.id, payload)
+      requireStyleCardResult((res as any).data, 'update')
       message.success('卡片已更新')
     } else {
-      await styleCardApi.create(payload)
+      const res = await styleCardApi.create(payload)
+      requireStyleCardResult((res as any).data, 'create')
       message.success('卡片已创建')
     }
     showAddModal.value = false
@@ -562,7 +605,7 @@ async function handleSave() {
 async function handleLike(card: StyleCard) {
   try {
     const res = await request.post(`/api/style-cards/${card.id}/like`)
-    const liked = (res as any).data
+    const liked = requireStyleCardLikeResult((res as any).data)
     card.liked = liked
     card.likesCount = updateKnownCount(card.likesCount, liked ? 1 : -1)
   } catch (err: any) {
@@ -588,6 +631,9 @@ async function handleDelete(id: number) {
   try {
     await styleCardApi.delete(id)
     await Promise.all([loadStyleCardTags(), loadCards()])
+    if (cards.value?.some(item => Number(item.id) === id)) {
+      throw new Error('卡片删除结果待确认')
+    }
     message.success('已删除')
   } catch (err: any) {
     message.error(err.message || '删除失败')
