@@ -140,16 +140,54 @@ const summaryTopIps = computed(() => Array.isArray(summary.value.topIps) ? summa
 const summaryTopPaths = computed(() => Array.isArray(summary.value.topPaths) ? summary.value.topPaths : [])
 const summaryStatusCodes = computed(() => Array.isArray(summary.value.statusCodes) ? summary.value.statusCodes : [])
 
+function isPlainObject(value: unknown): value is Record<string, any> {
+  return !!value && typeof value === 'object' && !Array.isArray(value)
+}
+
+function normalizeSummaryRows(value: unknown) {
+  if (!Array.isArray(value)) {
+    throw new Error('访问日志汇总待确认')
+  }
+  return value.map((item) => {
+    if (!isPlainObject(item)) {
+      throw new Error('访问日志汇总待确认')
+    }
+    const count = toOptionalNumber(item.count)
+    if (count == null) {
+      throw new Error('访问日志汇总待确认')
+    }
+    return {
+      name: typeof item.name === 'string' ? item.name : '',
+      count
+    }
+  })
+}
+
 async function loadSummary() {
   summaryLoading.value = true
   summaryLoadState.value = 'loading'
   try {
     const res = await request.get('/api/admin/access-logs/summary', { params: { minutes: 60 } })
     const data = (res as any).data
-    if (!data || typeof data !== 'object' || Array.isArray(data)) {
+    if (!isPlainObject(data)) {
       throw new Error('访问日志汇总待确认')
     }
-    summary.value = data
+    const windowMinutes = toOptionalNumber(data.windowMinutes)
+    const totalRequests = toOptionalNumber(data.total)
+    const rateLimited = toOptionalNumber(data.rateLimited)
+    const riskHits = toOptionalNumber(data.riskHits)
+    if (windowMinutes == null || totalRequests == null || rateLimited == null || riskHits == null) {
+      throw new Error('访问日志汇总待确认')
+    }
+    summary.value = {
+      windowMinutes,
+      total: totalRequests,
+      rateLimited,
+      riskHits,
+      topIps: normalizeSummaryRows(data.topIps),
+      topPaths: normalizeSummaryRows(data.topPaths),
+      statusCodes: normalizeSummaryRows(data.statusCodes)
+    }
     summaryLoadState.value = 'ready'
   } catch (err: any) {
     summary.value = {}

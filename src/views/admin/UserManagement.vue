@@ -288,7 +288,10 @@ async function handleCreate() {
     })
     showCreate.value = false
     const initial = (res as any).data?.initialPassword
-    if (initial) {
+    if (!createForm.value.password) {
+      if (typeof initial !== 'string' || !initial) {
+        throw new Error('初始密码待确认')
+      }
       dialog.success({
         title: '用户已创建',
         content: `初始密码：${initial}（请妥善转交用户，关闭后将无法再次查看）`,
@@ -370,16 +373,15 @@ async function handleResetPassword(u: any) {
       try {
         const res = await request.put(`/api/admin/users/${u.id}/reset-password`)
         const initial = (res as any).data?.initialPassword
-        if (initial) {
-          dialog.success({
-            title: '密码已重置',
-            content: `用户「${u.username}」的新密码：${initial}（请妥善转交，关闭后无法再次查看）`,
-            positiveText: '我已记录'
-          })
-        } else {
-          message.success(`用户「${u.username}」密码已重置`)
+        if (typeof initial !== 'string' || !initial) {
+          throw new Error('重置后的初始密码待确认')
         }
-      } catch { message.error('操作失败') }
+        dialog.success({
+          title: '密码已重置',
+          content: `用户「${u.username}」的新密码：${initial}（请妥善转交，关闭后无法再次查看）`,
+          positiveText: '我已记录'
+        })
+      } catch (err: any) { message.error(err.message || '操作失败') }
     }
   })
 }
@@ -448,6 +450,9 @@ function triggerImport() {
         }
         message.success(`导入完成：成功 ${importResult.success} 条，失败 ${importResult.failed} 条`)
         const generatedCredentials = Array.isArray(importResult.generatedCredentials) ? importResult.generatedCredentials : []
+        if (generatedCredentials.some((item: any) => !item || typeof item !== 'object' || typeof item.username !== 'string' || typeof item.initialPassword !== 'string' || !item.initialPassword)) {
+          throw new Error('导入结果待确认')
+        }
         if (generatedCredentials.length > 0) {
           dialog.success({
             title: '导入成功',

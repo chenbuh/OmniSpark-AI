@@ -80,6 +80,20 @@ const editValue = ref('')
 const configsLoadState = ref<'loading' | 'ready' | 'error'>('loading')
 const healthLoadState = ref<'loading' | 'ready' | 'error'>('loading')
 
+function isPlainObject(value: unknown): value is Record<string, any> {
+  return !!value && typeof value === 'object' && !Array.isArray(value)
+}
+
+function normalizeConfigItem(item: unknown) {
+  if (!isPlainObject(item)) {
+    throw new Error('系统配置待确认')
+  }
+  if (typeof item.id !== 'number' || typeof item.configKey !== 'string' || typeof item.configValue !== 'string' || typeof item.configGroup !== 'string') {
+    throw new Error('系统配置待确认')
+  }
+  return item
+}
+
 async function loadConfigs() {
   loadingConfigs.value = true
   configsLoadState.value = 'loading'
@@ -89,7 +103,7 @@ async function loadConfigs() {
     if (!Array.isArray(data)) {
       throw new Error('系统配置待确认')
     }
-    configs.value = data
+    configs.value = data.map((item: unknown) => normalizeConfigItem(item))
     configsLoadState.value = 'ready'
   } catch (err: any) {
     configs.value = null
@@ -105,10 +119,20 @@ async function loadHealth() {
   try {
     const res = await request.get('/api/admin/health')
     const data = (res as any).data
-    if (!data || typeof data !== 'object' || Array.isArray(data)) {
+    if (!isPlainObject(data)) {
       throw new Error('系统健康状态待确认')
     }
-    health.value = data
+    if (typeof data.status !== 'string' || typeof data.database !== 'string' || typeof data.redis !== 'string' || typeof data.version !== 'string') {
+      throw new Error('系统健康状态待确认')
+    }
+    health.value = {
+      status: data.status,
+      database: data.database,
+      redis: data.redis,
+      version: data.version,
+      uptimeReadable: typeof data.uptimeReadable === 'string' ? data.uptimeReadable : '',
+      startedAt: typeof data.startedAt === 'string' ? data.startedAt : ''
+    }
     healthLoadState.value = 'ready'
   } catch (err: any) {
     health.value = null
