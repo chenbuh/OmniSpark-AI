@@ -560,9 +560,7 @@ const qualityOptions = computed(() => generationMeta.value.image?.qualityOptions
 const defaultImageResolution = computed(() => generationMeta.value.image?.defaults?.resolution || resolutionOptions.value[0]?.value || '1k')
 const defaultImageQuality = computed(() => generationMeta.value.image?.defaults?.quality || qualityOptions.value[0]?.value || 'standard')
 
-const supportsImageGeneration = (type: string) => {
-  return type === 'image' || type === 'openai' || type === 'custom'
-}
+const allowedImageProviderTypes = computed(() => generationMeta.value.image?.allowedProviderTypes || [])
 
 const resolutionBaseMap: Record<'1k' | '2k' | '4k', number> = {
   '1k': 1024,
@@ -658,7 +656,7 @@ const resolvedSizeLabel = computed(() => {
 const providerOptions = computed(() => {
   return providerStore
     .getProvidersByProject(projectStore.activeProjectId)
-    .filter(p => supportsImageGeneration(p.type))
+    .filter(p => allowedImageProviderTypes.value.includes(p.type))
     .map(p => ({
       label: p.name,
       value: p.id
@@ -679,11 +677,14 @@ const taskHistory = computed(() => {
 const initDefaults = () => {
   const providers = providerStore
     .getProvidersByProject(projectStore.activeProjectId)
-    .filter(p => supportsImageGeneration(p.type))
+    .filter(p => allowedImageProviderTypes.value.includes(p.type))
   if (providers.length > 0) {
     const defaultProvider = providers.find(p => p.isDefault) || providers[0]
     form.providerId = defaultProvider.id
     handleProviderChange(defaultProvider.id)
+  } else {
+    form.providerId = null
+    modelOptions.value = []
   }
 }
 

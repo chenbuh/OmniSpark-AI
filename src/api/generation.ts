@@ -7,6 +7,7 @@ export interface GenerationMetaOption {
 
 export interface GenerationMetaVO {
   image?: {
+    allowedProviderTypes?: string[]
     resolutionOptions?: GenerationMetaOption[]
     qualityOptions?: GenerationMetaOption[]
     defaults?: {
@@ -15,6 +16,7 @@ export interface GenerationMetaVO {
     }
   }
   video?: {
+    allowedProviderTypes?: string[]
     durationOptions?: GenerationMetaOption[]
     cameraMotionOptions?: GenerationMetaOption[]
     defaults?: {

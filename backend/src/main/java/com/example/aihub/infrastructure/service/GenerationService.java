@@ -64,6 +64,8 @@ public class GenerationService {
     private static final String DEFAULT_IMAGE_QUALITY = "standard";
     private static final String DEFAULT_VIDEO_DURATION = "5s";
     private static final String DEFAULT_VIDEO_CAMERA_MOTION = "zoom_in";
+    private static final Set<String> SUPPORTED_IMAGE_PROVIDER_TYPES = Set.of("image", "openai", "custom");
+    private static final Set<String> SUPPORTED_VIDEO_PROVIDER_TYPES = Set.of("video", "openai", "custom");
     private static final Set<String> SUPPORTED_IMAGE_RESOLUTIONS = Set.of("custom", "1k", "2k", "4k");
     private static final Set<String> SUPPORTED_IMAGE_QUALITIES = Set.of("standard", "high", "ultra");
     private static final Set<String> SUPPORTED_VIDEO_DURATIONS = Set.of("5s", "10s");
@@ -116,6 +118,7 @@ public class GenerationService {
     public Map<String, Object> meta() {
         return Map.of(
                 "image", Map.of(
+                        "allowedProviderTypes", SUPPORTED_IMAGE_PROVIDER_TYPES,
                         "resolutionOptions", IMAGE_RESOLUTION_OPTIONS,
                         "qualityOptions", IMAGE_QUALITY_OPTIONS,
                         "defaults", Map.of(
@@ -124,6 +127,7 @@ public class GenerationService {
                         )
                 ),
                 "video", Map.of(
+                        "allowedProviderTypes", SUPPORTED_VIDEO_PROVIDER_TYPES,
                         "durationOptions", VIDEO_DURATION_OPTIONS,
                         "cameraMotionOptions", VIDEO_CAMERA_MOTION_OPTIONS,
                         "defaults", Map.of(
@@ -173,7 +177,7 @@ public class GenerationService {
         }
         projectAccessGuard.assertAccess(dto.getProjectId());
         dto.setOptions(normalizeImageOptions(dto.getOptions()));
-        ModelProvider provider = requireProvider(dto.getProviderId(), dto.getProjectId());
+        ModelProvider provider = requireProvider(dto.getProviderId(), dto.getProjectId(), "image");
         Long userId = SecurityUtil.loginUserId();
         String modelName = resolveModelName(dto.getModelName(), dto.getOptions(), provider.getModelName());
         GenerationTask task = createTask(dto.getProjectId(), provider.getId(), "image", dto.getPrompt(),
@@ -185,7 +189,7 @@ public class GenerationService {
     public GenerationTaskVO generateImage(ImageGenerateDTO dto) {
         projectAccessGuard.assertAccess(dto.getProjectId());
         dto.setOptions(normalizeImageOptions(dto.getOptions()));
-        ModelProvider provider = requireProvider(dto.getProviderId(), dto.getProjectId());
+        ModelProvider provider = requireProvider(dto.getProviderId(), dto.getProjectId(), "image");
         Long userId = SecurityUtil.loginUserId();
         String modelName = resolveModelName(dto.getModelName(), dto.getOptions(), provider.getModelName());
         GenerationTask task = createTask(dto.getProjectId(), provider.getId(), "image", dto.getPrompt(),
@@ -198,7 +202,7 @@ public class GenerationService {
         projectAccessGuard.assertAccess(dto.getProjectId());
         dto.setDuration(normalizeVideoDuration(dto.getDuration()));
         dto.setOptions(normalizeVideoOptions(dto.getOptions()));
-        ModelProvider provider = requireProvider(dto.getProviderId(), dto.getProjectId());
+        ModelProvider provider = requireProvider(dto.getProviderId(), dto.getProjectId(), "video");
         String modelName = resolveModelName(dto.getModelName(), dto.getOptions(), provider.getModelName());
         GenerationTask task = createTask(dto.getProjectId(), provider.getId(), "video", dto.getPrompt(),
                 null, dto.getDuration(), null, dto.getOptions(), null, dto.getSourceAssetId(), modelName);
@@ -541,7 +545,7 @@ public class GenerationService {
         } catch (Exception ignored) {}
     }
 
-    private ModelProvider requireProvider(Long providerId, Long projectId) {
+    private ModelProvider requireProvider(Long providerId, Long projectId, String taskType) {
         ModelProvider provider = providerMapper.selectById(providerId);
         if (provider == null) {
             throw new BusinessException("模型提供商不存在");
@@ -552,6 +556,11 @@ public class GenerationService {
         }
         if (provider.getEnabled() != null && provider.getEnabled() == 0) {
             throw new BusinessException("当前模型提供商已禁用");
+        }
+        String providerType = provider.getType() == null ? "" : provider.getType().trim().toLowerCase(Locale.ROOT);
+        Set<String> allowedTypes = "video".equals(taskType) ? SUPPORTED_VIDEO_PROVIDER_TYPES : SUPPORTED_IMAGE_PROVIDER_TYPES;
+        if (!allowedTypes.contains(providerType)) {
+            throw new BusinessException(("video".equals(taskType) ? "当前提供商不支持视频生成" : "当前提供商不支持图片生成"));
         }
         return provider;
     }

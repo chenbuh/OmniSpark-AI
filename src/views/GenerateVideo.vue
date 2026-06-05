@@ -334,9 +334,7 @@ const imageAssets = computed(() => {
     .filter(a => a.assetType === 'image')
 })
 
-const supportsVideoGeneration = (type: string) => {
-  return type === 'video' || type === 'openai' || type === 'custom'
-}
+const allowedVideoProviderTypes = computed(() => generationMeta.value.video?.allowedProviderTypes || [])
 
 function resolveOptionValue(options: GenerationMetaOption[], preferredValue?: string, fallbackValue = '') {
   if (preferredValue && options.length === 0) return preferredValue
@@ -358,7 +356,7 @@ async function loadGenerationMeta() {
 const providerOptions = computed(() => {
   return providerStore
     .getProvidersByProject(projectStore.activeProjectId)
-    .filter(p => supportsVideoGeneration(p.type))
+    .filter(p => allowedVideoProviderTypes.value.includes(p.type))
     .map(p => ({
       label: p.name,
       value: p.id
@@ -377,11 +375,14 @@ const taskHistory = computed(() => {
 const initDefaults = () => {
   const providers = providerStore
     .getProvidersByProject(projectStore.activeProjectId)
-    .filter(p => supportsVideoGeneration(p.type))
+    .filter(p => allowedVideoProviderTypes.value.includes(p.type))
   if (providers.length > 0) {
     const defaultProvider = providers.find(p => p.isDefault) || providers[0]
     form.providerId = defaultProvider.id
     handleProviderChange(defaultProvider.id)
+  } else {
+    form.providerId = null
+    modelOptions.value = []
   }
 }
 
