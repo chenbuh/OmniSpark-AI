@@ -340,12 +340,6 @@ import {
 
 type SortKey = 'latest' | 'oldest' | 'size' | 'name' | 'favorite'
 
-const defaultAssetTypeItems: DataDictItem[] = [
-  { id: 1, dictId: 0, itemCode: 'image', itemName: '图像', sortOrder: 10, status: 1 },
-  { id: 2, dictId: 0, itemCode: 'video', itemName: '视频', sortOrder: 20, status: 1 },
-  { id: 3, dictId: 0, itemCode: 'reference', itemName: '参考素材', sortOrder: 30, status: 1 }
-]
-
 const route = useRoute()
 const router = useRouter()
 const message = useMessage()
@@ -376,7 +370,7 @@ const assetStats = ref<AssetStats>({
 const assetRecords = ref<Asset[]>([])
 const filteredTotal = ref(0)
 const versionHistory = ref<Asset[]>([])
-const assetTypeItems = ref<DataDictItem[]>([...defaultAssetTypeItems])
+const assetTypeItems = ref<DataDictItem[]>([])
 
 const subtitles = ref<SubtitleVO[]>([])
 const subGenerating = ref(false)
@@ -458,18 +452,16 @@ function assetTypeLabel(assetType?: string | null) {
   if (!normalized) {
     return '未分类'
   }
-  return assetTypeItems.value.find(item => item.itemCode === normalized)?.itemName
-    || defaultAssetTypeItems.find(item => item.itemCode === normalized)?.itemName
-    || normalized
+  return assetTypeItems.value.find(item => item.itemCode === normalized)?.itemName || normalized
 }
 
 async function loadAssetTypeItems() {
   try {
     const res = await dictApi.getItems('asset_category')
     const items = Array.isArray((res as any).data) ? (res as any).data : []
-    assetTypeItems.value = items.length > 0 ? items : [...defaultAssetTypeItems]
+    assetTypeItems.value = items
   } catch {
-    assetTypeItems.value = [...defaultAssetTypeItems]
+    assetTypeItems.value = []
   }
   if (activeTab.value !== 'all' && activeTab.value !== 'favorite'
     && !assetTypeItems.value.some(item => item.itemCode === activeTab.value)) {
