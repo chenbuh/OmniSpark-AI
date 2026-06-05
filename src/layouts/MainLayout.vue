@@ -660,10 +660,20 @@ const handleExportProject = async () => {
       method: 'POST',
       headers: { 'satoken': token }
     })
+    if (!res.ok) {
+      throw new Error(`导出接口返回 ${res.status}`)
+    }
     const json = await res.json()
     if (json.code === 200) {
       const exportPayload = requireExportPayload(json.data)
-      const blob = new Blob([JSON.stringify(json.data, null, 2)], { type: 'application/json' })
+      const blobContent = JSON.stringify(json.data, null, 2)
+      if (!blobContent.trim()) {
+        throw new Error('项目导出结果待确认')
+      }
+      const blob = new Blob([blobContent], { type: 'application/json' })
+      if (blob.size <= 0) {
+        throw new Error('项目导出结果待确认')
+      }
       const url = URL.createObjectURL(blob)
       const a = document.createElement('a')
       a.href = url
@@ -711,6 +721,12 @@ const loadNotifications = async () => {
     unreadCount.value = null
     notifications.value = null
   }
+}
+
+function normalizeNotificationReadFlag(value: unknown): boolean | null {
+  if (value === 1 || value === '1' || value === true || value === 'true') return true
+  if (value === 0 || value === '0' || value === false || value === 'false') return false
+  return null
 }
 
 const connectWebSocket = async () => {
@@ -766,15 +782,21 @@ if (userStore.isLoggedIn) {
 }
 
 const handleMarkRead = async (n: any) => {
-  if (n.isRead) return
+  if (normalizeNotificationReadFlag(n?.isRead) === true) return
   try {
     const base = 'http://localhost:8080'
-    await fetch(`${base}/api/notifications/${n.id}/read`, {
+    const res = await fetch(`${base}/api/notifications/${n.id}/read`, {
       method: 'POST',
       headers: { 'satoken': localStorage.getItem('satoken') || '' }
     })
-    n.isRead = 1
-    unreadCount.value = unreadCount.value == null ? null : Math.max(0, unreadCount.value - 1)
+    if (!res.ok) {
+      throw new Error(`通知已读接口返回 ${res.status}`)
+    }
+    await loadNotifications()
+    const confirmed = notifications.value?.find((item: any) => Number(item.id) === Number(n.id))
+    if (!confirmed || normalizeNotificationReadFlag(confirmed.isRead) !== true) {
+      throw new Error('通知已读结果待确认')
+    }
   } catch {}
 }
 
@@ -799,12 +821,20 @@ const handleNotificationClick = async (n: any) => {
 const handleMarkAllRead = async () => {
   try {
     const base = 'http://localhost:8080'
-    await fetch(`${base}/api/notifications/read-all`, {
+    const res = await fetch(`${base}/api/notifications/read-all`, {
       method: 'POST',
       headers: { 'satoken': localStorage.getItem('satoken') || '' }
     })
-    notifications.value?.forEach((n: any) => n.isRead = 1)
-    unreadCount.value = 0
+    if (!res.ok) {
+      throw new Error(`通知全部已读接口返回 ${res.status}`)
+    }
+    await loadNotifications()
+    if (unreadCount.value !== 0) {
+      throw new Error('通知全部已读结果待确认')
+    }
+    if (notifications.value?.some((item: any) => normalizeNotificationReadFlag(item.isRead) !== true)) {
+      throw new Error('通知全部已读结果待确认')
+    }
   } catch {}
 }
 
