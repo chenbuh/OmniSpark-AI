@@ -1669,7 +1669,11 @@ const handleOptimizePrompt = async () => {
       providerId: form.providerId || undefined,
       prompt: rawPrompt
     })
-    const payload = ((res as any).data || {}) as PromptOptimizeResult
+    const payloadRaw = (res as any).data
+    if (!payloadRaw || typeof payloadRaw !== 'object' || Array.isArray(payloadRaw)) {
+      throw new Error('提示词润色接口未返回有效结果')
+    }
+    const payload = payloadRaw as PromptOptimizeResult
     const optimizedPrompt = typeof payload.prompt === 'string' ? payload.prompt.trim() : ''
     if (!optimizedPrompt) {
       throw new Error('提示词润色接口未返回有效结果')

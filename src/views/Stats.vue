@@ -13,6 +13,7 @@
         </n-button>
       </n-space>
     </div>
+    <div v-if="statsLoadState === 'error'" class="status-note">统计数据待确认，请稍后重试。</div>
 
     <div class="stats-summary-grid">
       <n-card v-for="card in summaryCards" :key="card.key" class="glass-card summary-card" :bordered="false">
@@ -31,7 +32,13 @@
               <small>{{ scopeDetailLabel }}内的每日创作节奏</small>
             </div>
           </template>
-          <div class="trend-chart-box">
+          <div v-if="statsLoadState === 'error'" class="stats-empty-box">
+            <n-empty description="趋势数据待确认，请稍后重试。" style="padding: 24px 0;" />
+          </div>
+          <div v-else-if="trendDays.length === 0" class="stats-empty-box">
+            <n-empty description="暂无趋势数据" style="padding: 24px 0;" />
+          </div>
+          <div v-else class="trend-chart-box">
             <svg viewBox="0 0 760 280" class="trend-chart">
               <defs>
                 <linearGradient id="taskTrendFill" x1="0" y1="0" x2="0" y2="1">
@@ -192,7 +199,7 @@
               <span v-else class="pending-text">权重数据待确认</span>
             </div>
           </div>
-          <n-empty v-else description="暂无项目数据" style="padding: 20px 0;" />
+          <n-empty v-else :description="statsLoadState === 'error' ? '项目排行待确认，请稍后重试。' : '暂无项目数据'" style="padding: 20px 0;" />
         </n-card>
       </n-col>
 
@@ -216,7 +223,7 @@
               </div>
             </div>
           </div>
-          <n-empty v-else description="暂无近期活动" style="padding: 20px 0;" />
+          <n-empty v-else :description="statsLoadState === 'error' ? '近期活动待确认，请稍后重试。' : '暂无近期活动'" style="padding: 20px 0;" />
         </n-card>
       </n-col>
     </n-row>
@@ -242,6 +249,7 @@ type ScopeMode = 'all' | 'current'
 const projectStore = useProjectStore()
 
 const loading = ref(false)
+const statsLoadState = ref<'loading' | 'ready' | 'error'>('loading')
 const scopeMode = ref<ScopeMode>('all')
 const dashboard = ref<StatsDashboard>(createEmptyDashboard())
 const suppressAutoReload = ref(false)
@@ -486,6 +494,10 @@ function normalizeDateTime(value?: string) {
   return String(value || '').replace('T', ' ').substring(0, 19)
 }
 
+function isPlainObject(value: unknown): value is Record<string, any> {
+  return !!value && typeof value === 'object' && !Array.isArray(value)
+}
+
 function toOptionalNumber(value: unknown): number | null {
   if (value === null || value === undefined || value === '') {
     return null
@@ -512,55 +524,71 @@ function activityTypeClass(item: StatsActivity) {
   return item.status === 'failed' ? 'error' : item.type
 }
 
-function normalizeDashboard(data?: Partial<StatsDashboard>): StatsDashboard {
+function normalizeDashboard(data: unknown): StatsDashboard {
+  if (!isPlainObject(data)) {
+    throw new Error('统计数据待确认')
+  }
+  if (!isPlainObject(data.overview) || !isPlainObject(data.distribution)) {
+    throw new Error('统计数据待确认')
+  }
+  if (!Array.isArray(data.trends) || !Array.isArray(data.projectRankings) || !Array.isArray(data.recentActivities)) {
+    throw new Error('统计数据待确认')
+  }
   const base = createEmptyDashboard()
   return {
     overview: {
       ...base.overview,
-      ...(data?.overview || {})
+      ...data.overview
     },
     distribution: {
       ...base.distribution,
-      ...(data?.distribution || {})
+      ...data.distribution
     },
-    trends: (data?.trends || []).map(item => ({
-      date: item.date || '--',
-      taskCount: toOptionalNumber(item.taskCount),
-      quotaUsed: toOptionalNumber(item.quotaUsed)
+    trends: data.trends.map((item: any) => ({
+      date: item?.date || '--',
+      taskCount: toOptionalNumber(item?.taskCount),
+      quotaUsed: toOptionalNumber(item?.quotaUsed)
     })),
-    projectRankings: (data?.projectRankings || []).map(item => ({
+    projectRankings: data.projectRankings.map((item: any) => ({
       ...item,
-      rank: toOptionalNumber(item.rank),
-      projectId: toOptionalNumber(item.projectId),
-      taskCount: toOptionalNumber(item.taskCount),
-      successTaskCount: toOptionalNumber(item.successTaskCount),
-      successRate: toOptionalNumber(item.successRate),
-      assetCount: toOptionalNumber(item.assetCount),
-      quotaUsed: toOptionalNumber(item.quotaUsed),
-      weightPercent: toOptionalNumber(item.weightPercent),
-      lastActiveAt: normalizeDateTime(item.lastActiveAt)
+      rank: toOptionalNumber(item?.rank),
+      projectId: toOptionalNumber(item?.projectId),
+      taskCount: toOptionalNumber(item?.taskCount),
+      successTaskCount: toOptionalNumber(item?.successTaskCount),
+      successRate: toOptionalNumber(item?.successRate),
+      assetCount: toOptionalNumber(item?.assetCount),
+      quotaUsed: toOptionalNumber(item?.quotaUsed),
+      weightPercent: toOptionalNumber(item?.weightPercent),
+      lastActiveAt: normalizeDateTime(item?.lastActiveAt)
     })),
-    recentActivities: (data?.recentActivities || []).map(item => ({
+    recentActivities: data.recentActivities.map((item: any) => ({
       ...item,
-      createdAt: normalizeDateTime(item.createdAt)
+      createdAt: normalizeDateTime(item?.createdAt)
     }))
   }
 }
 
 async function loadStatsData() {
   loading.value = true
+  statsLoadState.value = 'loading'
   try {
     clearCache('stats/dashboard')
     clearCache('tasks')
     clearCache('assets')
-    await projectStore.refresh()
+    try {
+      await projectStore.refresh()
+    } catch (projectErr) {
+      console.error(projectErr)
+    }
     const res = await request.get('/api/stats/dashboard', {
       params: { projectId: selectedProjectId.value },
       headers: { 'x-no-cache': '1' }
     })
     dashboard.value = normalizeDashboard(res.data)
+    statsLoadState.value = 'ready'
   } catch (err: any) {
     dashboard.value = createEmptyDashboard()
+    statsLoadState.value = 'error'
     console.error(err)
   } finally {
     loading.value = false
@@ -569,17 +597,24 @@ async function loadStatsData() {
 
 async function refreshPageData() {
   loading.value = true
+  statsLoadState.value = 'loading'
   try {
     suppressAutoReload.value = true
-    await projectStore.refresh()
+    try {
+      await projectStore.refresh()
+    } catch (projectErr) {
+      console.error(projectErr)
+    }
     clearCache('stats/dashboard')
     const res = await request.get('/api/stats/dashboard', {
       params: { projectId: selectedProjectId.value },
       headers: { 'x-no-cache': '1' }
     })
     dashboard.value = normalizeDashboard(res.data)
+    statsLoadState.value = 'ready'
   } catch (err: any) {
     dashboard.value = createEmptyDashboard()
+    statsLoadState.value = 'error'
     console.error(err)
   } finally {
     suppressAutoReload.value = false
@@ -644,6 +679,12 @@ onUnmounted(() => {
   margin: 0;
 }
 
+.status-note {
+  margin-bottom: 16px;
+  font-size: 12px;
+  color: #fca5a5;
+}
+
 .glass-card {
   background: rgba(15, 23, 42, 0.4) !important;
   backdrop-filter: blur(16px);
@@ -662,6 +703,13 @@ onUnmounted(() => {
   display: flex;
   flex-direction: column;
   gap: 8px;
+}
+
+.stats-empty-box {
+  min-height: 260px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .summary-label {

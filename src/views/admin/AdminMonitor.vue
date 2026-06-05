@@ -81,7 +81,7 @@
           <tr><th>路径</th><th style="width:200px">使用率</th><th style="width:120px">已用</th><th style="width:120px">可用</th><th style="width:120px">总量</th></tr>
         </thead>
         <tbody>
-          <tr v-for="disk in (data.disks || [])" :key="disk.path">
+          <tr v-for="disk in diskRows" :key="disk.path">
             <td><code>{{ disk.path }}</code></td>
             <td>
               <n-progress type="line" :percentage="disk.usagePercent" :height="8"
@@ -90,6 +90,9 @@
             <td>{{ disk.usedReadable }}</td>
             <td>{{ disk.freeReadable }}</td>
             <td>{{ disk.totalReadable }}</td>
+          </tr>
+          <tr v-if="diskRows.length === 0">
+            <td colspan="5" class="empty-row">暂无磁盘数据</td>
           </tr>
         </tbody>
       </n-table>
@@ -102,7 +105,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted } from 'vue'
+import { computed, ref, onMounted, onUnmounted } from 'vue'
 import { useMessage } from 'naive-ui'
 import request from '@/api/request'
 
@@ -112,6 +115,7 @@ const loading = ref(false)
 const data = ref<any>({})
 const monitorLoadState = ref<'loading' | 'ready' | 'error'>('loading')
 const circum = 2 * Math.PI * 50 // 314.16
+const diskRows = computed(() => Array.isArray(data.value.disks) ? data.value.disks : [])
 
 let autoTimer: any = null
 let inFlight = false
@@ -140,6 +144,9 @@ async function loadData() {
     const res = await request.get('/api/admin/monitor')
     const nextData = (res as any).data
     if (!nextData || typeof nextData !== 'object' || Array.isArray(nextData)) {
+      throw new Error('监控数据待确认')
+    }
+    if (!Array.isArray(nextData.disks)) {
       throw new Error('监控数据待确认')
     }
     data.value = nextData
@@ -203,6 +210,7 @@ function toOptionalNumber(value: unknown): number | null {
 .monitor-table { background: transparent !important; }
 .monitor-table th { background: rgba(255,255,255,0.02) !important; color: #9ca3af !important; font-size: 12px; }
 .monitor-table td { color: var(--text-secondary); padding: 8px; font-size: 13px; }
+.empty-row { text-align: center; color: #9ca3af; padding: 16px 0; }
 
 .disk-summary { font-size: 12px; color: #9ca3af; padding: 8px 0 0; text-align: center; }
 </style>

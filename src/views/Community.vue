@@ -469,7 +469,15 @@ async function handleImageUpload(event: Event) {
     formData.append('projectId', String(projectStore.activeProjectId))
     formData.append('file', file)
     const res = await assetApi.uploadAsset(formData)
-    form.imageUrl = toRelativeUrl(res.data?.fileUrl || res.data?.thumbUrl || '')
+    const uploadedUrl = typeof res.data?.fileUrl === 'string' && res.data.fileUrl
+      ? res.data.fileUrl
+      : typeof res.data?.thumbUrl === 'string' && res.data.thumbUrl
+        ? res.data.thumbUrl
+        : ''
+    if (!uploadedUrl) {
+      throw new Error('效果图地址待确认')
+    }
+    form.imageUrl = toRelativeUrl(uploadedUrl)
     message.success('效果图上传成功')
   } catch (err: any) {
     message.error(err.message || '图片上传失败')

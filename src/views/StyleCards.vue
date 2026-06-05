@@ -482,7 +482,10 @@ async function handleUploadFile(e: Event) {
     formData.append('projectId', String(projectStore.activeProjectId))
     formData.append('file', file)
     const res = await assetApi.uploadAsset(formData)
-    form.previewUrl = toRelativeUrl(res.data?.fileUrl || '')
+    if (typeof res.data?.fileUrl !== 'string' || !res.data.fileUrl) {
+      throw new Error('预览图地址待确认')
+    }
+    form.previewUrl = toRelativeUrl(res.data.fileUrl)
     await assetStore.refresh({ projectId: projectStore.activeProjectId })
     message.success('预览图已上传')
   } catch (err: any) {

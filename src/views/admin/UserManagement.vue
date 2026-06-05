@@ -436,8 +436,18 @@ function triggerImport() {
         headers: { 'Content-Type': 'text/plain;charset=UTF-8' }
       })
       if ((res as any).code === 200) {
-        message.success(`导入完成：成功 ${(res as any).data?.success} 条，失败 ${(res as any).data?.failed} 条`)
-        const generatedCredentials = Array.isArray((res as any).data?.generatedCredentials) ? (res as any).data.generatedCredentials : []
+        const importResult = (res as any).data
+        if (!importResult || typeof importResult !== 'object' || Array.isArray(importResult)) {
+          throw new Error('导入结果待确认')
+        }
+        if (typeof importResult.success !== 'number' || typeof importResult.failed !== 'number') {
+          throw new Error('导入结果待确认')
+        }
+        if (importResult.generatedCredentials != null && !Array.isArray(importResult.generatedCredentials)) {
+          throw new Error('导入结果待确认')
+        }
+        message.success(`导入完成：成功 ${importResult.success} 条，失败 ${importResult.failed} 条`)
+        const generatedCredentials = Array.isArray(importResult.generatedCredentials) ? importResult.generatedCredentials : []
         if (generatedCredentials.length > 0) {
           dialog.success({
             title: '导入成功',
