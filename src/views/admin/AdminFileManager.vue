@@ -139,6 +139,16 @@ const totalSizeDisplay = computed(() => {
   return stats.value.totalSizeReadable ?? '-'
 })
 
+function requireFileList(value: unknown) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new Error('目录内容待确认')
+  }
+  if (!Array.isArray((value as any).items)) {
+    throw new Error('目录内容待确认')
+  }
+  return value as { items: any[] }
+}
+
 onMounted(() => { loadStats(); loadFiles() })
 
 async function loadFiles(path?: string) {
@@ -147,10 +157,7 @@ async function loadFiles(path?: string) {
   fileListLoadState.value = 'loading'
   try {
     const res = await request.get('/api/admin/files', { params: { path: currentPath.value } })
-    const data = (res as any).data
-    if (!data || typeof data !== 'object' || !Array.isArray(data.items)) {
-      throw new Error('目录内容待确认')
-    }
+    const data = requireFileList((res as any).data)
     items.value = data.items
     fileListLoadState.value = 'ready'
   } catch {
@@ -196,9 +203,12 @@ function previewFile(item: any) {
 async function handleDelete(item: any) {
   try {
     await request.delete('/api/admin/files', { params: { path: item.relativePath } })
-    message.success('已删除')
     await loadFiles(currentPath.value)
-  } catch { message.error('删除失败') }
+    if (items.value?.some(entry => entry.relativePath === item.relativePath)) {
+      throw new Error('文件删除结果待确认')
+    }
+    message.success('已删除')
+  } catch (err: any) { message.error(err.message || '删除失败') }
 }
 
 function switchView() { viewMode.value = viewMode.value === 'grid' ? 'list' : 'grid' }

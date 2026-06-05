@@ -166,6 +166,14 @@ try {
   currentUserId.value = info.id || null
 } catch {}
 
+function requireDeletedCommentCount(value: unknown) {
+  const parsed = Number(value)
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    throw new Error('评论删除结果待确认')
+  }
+  return parsed
+}
+
 async function loadComments() {
   if (!commentEndpoint.value) {
     comments.value = []
@@ -264,11 +272,18 @@ async function removeComment(comment: PublicComment) {
   }
   deletingId.value = comment.id
   try {
-    await request.delete(`${commentEndpoint.value}/${comment.id}`)
+    const res = await request.delete(`${commentEndpoint.value}/${comment.id}`)
+    requireDeletedCommentCount((res as any).data)
     if (replyTargetId.value === comment.id || activeReplyRootId.value === comment.id || comment.parentId === activeReplyRootId.value) {
       cancelReply()
     }
     await loadComments()
+    const stillExists = comments.value?.some(item =>
+      item.id === comment.id || item.replies?.some(reply => reply.id === comment.id)
+    )
+    if (stillExists) {
+      throw new Error('评论删除结果待确认')
+    }
     message.success('评论已删除')
   } catch (err: any) {
     message.error(err.message || '删除评论失败')

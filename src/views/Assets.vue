@@ -471,6 +471,36 @@ const subtitleRows = computed(() => {
   }))
 })
 
+function requireAssetResult(value: unknown, action: 'upload' | 'favorite') {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new Error(action === 'upload' ? '资产上传结果待确认' : '资产状态待确认')
+  }
+  const normalized = assetStore.normalizeAsset(value)
+  if (!Number.isFinite(normalized.id) || normalized.id <= 0 || !normalized.fileUrl || !normalized.thumbUrl) {
+    throw new Error(action === 'upload' ? '资产上传结果待确认' : '资产状态待确认')
+  }
+  return normalized
+}
+
+function requireSubtitleResult(value: unknown, action: 'generate' | 'update' | 'voice') {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    if (action === 'generate') throw new Error('字幕识别结果待确认')
+    if (action === 'update') throw new Error('字幕更新结果待确认')
+    throw new Error('配音结果待确认')
+  }
+  const id = Number((value as any).id)
+  if (!Number.isFinite(id) || id <= 0) {
+    if (action === 'generate') throw new Error('字幕识别结果待确认')
+    if (action === 'update') throw new Error('字幕更新结果待确认')
+    throw new Error('配音结果待确认')
+  }
+  return {
+    id,
+    srtContent: typeof (value as any).srtContent === 'string' ? (value as any).srtContent : '',
+    voiceUrl: typeof (value as any).voiceUrl === 'string' ? (value as any).voiceUrl.trim() : ''
+  }
+}
+
 function formatSummaryValue(value: number | null) {
   return value == null ? '-' : value
 }
@@ -646,13 +676,17 @@ async function handleUploadChange(event: Event) {
     formData.append('projectId', String(projectStore.activeProjectId))
     formData.append('file', file)
     const res = await assetApi.uploadAsset(formData)
-    const uploaded = assetStore.normalizeAsset(res.data)
+    const uploaded = requireAssetResult((res as any).data, 'upload')
     await assetStore.refresh({ projectId: projectStore.activeProjectId, limit: 100 })
     assetTab.value = 'own'
     activeTab.value = 'reference'
     page.value = 1
     await loadAssets()
-    handleOpenDetail(assetRecords.value?.find(item => item.id === uploaded.id) || uploaded)
+    const refreshedAsset = assetRecords.value?.find(item => item.id === uploaded.id)
+    if (!refreshedAsset) {
+      throw new Error('资产上传结果待确认')
+    }
+    handleOpenDetail(refreshedAsset)
     message.success(`素材已上传到共享资产库: ${file.name}`)
   } catch (err: any) {
     message.error(err.message || '上传失败')
@@ -675,6 +709,10 @@ async function handleToggleFavorite(asset: Asset) {
       selectedAsset.value = updated
     }
     await loadAssets()
+    const refreshedAsset = assetRecords.value?.find(item => item.id === asset.id)
+    if (!refreshedAsset || refreshedAsset.favorite !== updated.favorite) {
+      throw new Error('资产状态待确认')
+    }
     message.success(updated.favorite ? '资产已加入收藏' : '已取消收藏')
   } catch (err: any) {
     message.error(err.message || '收藏操作失败')
@@ -780,14 +818,18 @@ async function handleGenerateSubtitle() {
   }
   subGenerating.value = true
   try {
-    await subtitleApi.generate({
+    const res = await subtitleApi.generate({
       assetId: selectedAsset.value.id,
       projectId: selectedAsset.value.projectId,
       prompt: selectedAsset.value.prompt || undefined,
       language: 'zh'
     })
-    message.success('字幕识别成功')
+    const generated = requireSubtitleResult((res as any).data, 'generate')
     await loadSubtitles()
+    if (!subtitles.value?.some(item => Number(item.id) === generated.id)) {
+      throw new Error('字幕识别结果待确认')
+    }
+    message.success('字幕识别成功')
   } catch (err: any) {
     message.error(err.message || '字幕识别失败')
   } finally {
@@ -804,10 +846,16 @@ function openSubtitleEditor(id: number, content: string) {
 async function handleSaveSubtitle() {
   if (!editSubtitleId.value) return
   try {
-    await subtitleApi.update(editSubtitleId.value, { srtContent: editSubtitleContent.value })
+    const subtitleId = editSubtitleId.value
+    const res = await subtitleApi.update(subtitleId, { srtContent: editSubtitleContent.value })
+    const updated = requireSubtitleResult((res as any).data, 'update')
+    await loadSubtitles()
+    const refreshedSubtitle = subtitles.value?.find(item => Number(item.id) === subtitleId)
+    if (!refreshedSubtitle || refreshedSubtitle.srtContent !== updated.srtContent) {
+      throw new Error('字幕更新结果待确认')
+    }
     message.success('字幕已更新')
     showSubEditor.value = false
-    await loadSubtitles()
   } catch (err: any) {
     message.error(err.message || '保存失败')
   }
@@ -816,9 +864,14 @@ async function handleSaveSubtitle() {
 async function handleGenerateVoice(id: number) {
   voiceLoading.value = true
   try {
-    await subtitleApi.generateVoice(id)
-    message.success('配音生成成功')
+    const res = await subtitleApi.generateVoice(id)
+    requireSubtitleResult((res as any).data, 'voice')
     await loadSubtitles()
+    const refreshedSubtitle = subtitles.value?.find(item => Number(item.id) === id)
+    if (!refreshedSubtitle || !resolveAssetUrl(refreshedSubtitle.voiceUrl)) {
+      throw new Error('配音结果待确认')
+    }
+    message.success('配音生成成功')
   } catch (err: any) {
     message.error(err.message || '配音失败')
   } finally {
@@ -829,7 +882,10 @@ async function handleGenerateVoice(id: number) {
 async function handleDeleteSubtitle(id: number) {
   try {
     await subtitleApi.delete(id)
-    subtitles.value = subtitles.value?.filter(item => item.id !== id) || []
+    await loadSubtitles()
+    if (subtitles.value?.some(item => Number(item.id) === id)) {
+      throw new Error('字幕删除结果待确认')
+    }
     message.success('字幕已删除')
   } catch (err: any) {
     message.error(err.message || '删除失败')
@@ -851,6 +907,9 @@ async function handleDeleteAsset() {
       page.value -= 1
     } else {
       await loadAssets()
+    }
+    if (assetRecords.value?.some(item => item.id === id)) {
+      throw new Error('资产删除结果待确认')
     }
     message.success('资产已删除')
   } catch (err: any) {

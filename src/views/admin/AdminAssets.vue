@@ -100,6 +100,21 @@ const assetTypeItems = ref<DataDictItem[]>([])
 const assetTypeItemsLoadState = ref<'loading' | 'ready' | 'error'>('loading')
 const totalDisplay = computed(() => total.value == null ? '-' : total.value)
 
+function requireAssetPage(value: unknown) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new Error('资产数据待确认')
+  }
+  const records = (value as any).records
+  const count = (value as any).total
+  if (!Array.isArray(records) || typeof count !== 'number') {
+    throw new Error('资产数据待确认')
+  }
+  return {
+    records,
+    total: count
+  }
+}
+
 const typeOptions = computed(() => [
   ...assetTypeItems.value.map(item => ({ label: item.itemName, value: item.itemCode }))
 ])
@@ -146,12 +161,9 @@ async function loadAssets() {
     if (typeFilter.value) params.assetType = typeFilter.value
     if (searchText.value) params.search = searchText.value
     const res = await request.get('/api/admin/assets', { params })
-    const data = (res as any).data
-    if (!Array.isArray(data.records)) {
-      throw new Error('资产数据待确认')
-    }
+    const data = requireAssetPage((res as any).data)
     assets.value = data.records
-    total.value = typeof data.total === 'number' ? data.total : null
+    total.value = data.total
   } catch (err: any) {
     assets.value = null
     total.value = null
@@ -164,9 +176,12 @@ async function loadAssets() {
 async function handleDelete(id: number) {
   try {
     await request.delete(`/api/admin/assets/${id}`)
-    message.success('已删除')
     if ((assets.value?.length || 0) === 1 && page.value > 1) page.value--
     await loadAssets()
+    if (assets.value?.some(asset => Number(asset.id) === id)) {
+      throw new Error('资产删除结果待确认')
+    }
+    message.success('已删除')
   } catch (err: any) { message.error(err.message || '删除失败') }
 }
 
