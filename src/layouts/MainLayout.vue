@@ -230,7 +230,11 @@ import { useUserStore } from '@/store/user'
 import { useProjectStore } from '@/store/project'
 import { useTeamStore } from '@/store/team'
 import { projectShareApi } from '@/api/projectShares'
+import { providerApi } from '@/api/providers'
 import request, { API_BASE_URL } from '@/api/request'
+import { templateApi } from '@/api/templates'
+import { styleCardApi } from '@/api/styleCards'
+import { workflowApi } from '@/api/workflows'
 import { formatUserRole } from '@/utils/role'
 import {
   LayoutDashboard, Image, Video, ClipboardList, Library,
@@ -316,6 +320,9 @@ function requireExportPayload(value: unknown) {
   const projectName = typeof (project as Record<string, any>).name === 'string'
     ? (project as Record<string, any>).name.trim()
     : ''
+  const projectDescription = typeof (project as Record<string, any>).description === 'string'
+    ? (project as Record<string, any>).description.trim()
+    : ''
   if (!Number.isFinite(projectId) || projectId <= 0 || !projectName) {
     throw new Error('项目导出结果待确认')
   }
@@ -335,7 +342,8 @@ function requireExportPayload(value: unknown) {
     project: {
       ...(project as Record<string, any>),
       id: projectId,
-      name: projectName
+      name: projectName,
+      description: projectDescription
     },
     providers,
     promptTemplates,
@@ -351,6 +359,85 @@ function requireImportPayload(value: unknown) {
     throw new Error('导入文件内容待确认')
   }
   return payload
+}
+
+function requireImportedProjectRecord(
+  value: unknown,
+  expected: { name: string; description: string }
+) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new Error('项目导入结果待确认')
+  }
+  const record = value as Record<string, unknown>
+  const id = Number(record.id)
+  const name = typeof record.name === 'string' ? record.name.trim() : ''
+  const description = typeof record.description === 'string' ? record.description.trim() : ''
+  if (!Number.isFinite(id) || id <= 0) {
+    throw new Error('项目导入结果待确认')
+  }
+  if (name !== expected.name || description !== expected.description) {
+    throw new Error('项目导入结果待确认')
+  }
+  return {
+    id,
+    name,
+    description
+  }
+}
+
+function requirePageTotal(value: unknown, errorMessage: string) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new Error(errorMessage)
+  }
+  const total = Number((value as Record<string, unknown>).total)
+  if (!Number.isFinite(total) || total < 0) {
+    throw new Error(errorMessage)
+  }
+  return total
+}
+
+async function verifyImportedProjectData(
+  projectId: number,
+  payload: ReturnType<typeof requireImportPayload>
+) {
+  await projectStore.refresh()
+  const expectedProjectName = `${payload.project.name} (导入)`
+  const expectedProjectDescription = typeof payload.project.description === 'string'
+    ? payload.project.description.trim()
+    : ''
+  const importedProject = requireImportedProjectRecord(
+    projectStore.projects.find(project => project.id === projectId),
+    {
+      name: expectedProjectName,
+      description: expectedProjectDescription
+    }
+  )
+  const [providersRes, templatesRes, styleCardsRes, workflowsRes] = await Promise.all([
+    providerApi.getProviders(projectId),
+    templateApi.getTemplates({ projectId, page: 1, pageSize: 1 }),
+    styleCardApi.list({ projectId, page: 1, pageSize: 1 }),
+    workflowApi.list(projectId)
+  ])
+  const providers = Array.isArray((providersRes as any).data) ? (providersRes as any).data : null
+  const templateTotal = requirePageTotal((templatesRes as any).data, '项目导入结果待确认')
+  const styleCardTotal = requirePageTotal((styleCardsRes as any).data, '项目导入结果待确认')
+  const workflows = Array.isArray((workflowsRes as any).data) ? (workflowsRes as any).data : null
+  if (!providers || !workflows) {
+    throw new Error('项目导入结果待确认')
+  }
+  if (providers.length !== payload.providers.length) {
+    throw new Error('项目导入结果待确认')
+  }
+  if (templateTotal !== payload.promptTemplates.length) {
+    throw new Error('项目导入结果待确认')
+  }
+  if (styleCardTotal !== payload.styleCards.length) {
+    throw new Error('项目导入结果待确认')
+  }
+  if (workflows.length !== payload.workflows.length) {
+    throw new Error('项目导入结果待确认')
+  }
+  return importedProject
 }
 
 function normalizeNotificationItem(value: unknown) {
@@ -689,11 +776,8 @@ const handleProjectAction = async (key: string) => {
           const data = requireImportPayload(JSON.parse(text))
           const res = await request.post('/api/projects/import', data)
           const importedProjectId = requireImportedProjectId((res as any).data?.projectId)
-          await projectStore.refresh()
-          const importedProject = projectStore.projects.find(project => project.id === importedProjectId)
-          if (!importedProject || importedProject.name !== data.project.name) {
-            throw new Error('项目导入结果待确认')
-          }
+          const importedProject = await verifyImportedProjectData(importedProjectId, data)
+          projectStore.setActiveProject(importedProject.id)
           message.success('项目导入成功！')
       } catch (err: any) {
         message.error('导入失败: ' + (err.message || '文件格式错误'))
