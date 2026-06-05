@@ -339,6 +339,7 @@ import { useMessage } from 'naive-ui'
 import { useAssetStore } from '@/store/asset'
 import { useModelProviderStore } from '@/store/provider'
 import { useProjectStore } from '@/store/project'
+import { generationApi, type GenerationMetaVO } from '@/api/generation'
 import {
   workflowApi,
   type WorkflowMetaOption,
@@ -388,11 +389,14 @@ const editForm = reactive({
 })
 const stepDrafts = ref<WorkflowStep[]>([])
 const workflowMeta = ref<WorkflowMetaVO>(emptyWorkflowMeta())
+const generationMeta = ref<GenerationMetaVO>({})
 
 const stepTypeOptions = computed(() => workflowMeta.value.stepTypes || [])
 const imageSizeOptions = computed(() => workflowMeta.value.imageSizes || [])
 const videoDurationOptions = computed(() => workflowMeta.value.videoDurations || [])
 const subtitleLanguageOptions = computed(() => workflowMeta.value.subtitleLanguages || [])
+const allowedImageProviderTypes = computed(() => generationMeta.value.image?.allowedProviderTypes || [])
+const allowedVideoProviderTypes = computed(() => generationMeta.value.video?.allowedProviderTypes || [])
 const defaultImageSize = computed(() => workflowMeta.value.defaults?.imageSize || imageSizeOptions.value[0]?.value || '')
 const defaultVideoDuration = computed(() => workflowMeta.value.defaults?.videoDuration || videoDurationOptions.value[0]?.value || '')
 const defaultSubtitleLanguage = computed(() => workflowMeta.value.defaults?.subtitleLanguage || subtitleLanguageOptions.value[0]?.value || '')
@@ -430,16 +434,13 @@ const imageAssetOptions = computed(() => {
 
 function providerOptions(type: WorkflowStepType) {
   const providers = providerStore.getProvidersByProject(projectStore.activeProjectId)
+  const allowedTypes = type === 'image'
+    ? allowedImageProviderTypes.value
+    : type === 'video'
+      ? allowedVideoProviderTypes.value
+      : []
   return providers
-    .filter(provider => {
-      if (type === 'image') {
-        return provider.type === 'image' || provider.type === 'openai' || provider.type === 'custom'
-      }
-      if (type === 'video') {
-        return provider.type === 'video' || provider.type === 'openai' || provider.type === 'custom'
-      }
-      return true
-    })
+    .filter(provider => allowedTypes.includes(provider.type))
     .map(provider => ({
       label: `${provider.name} (#${provider.id})`,
       value: provider.id
@@ -575,12 +576,22 @@ async function loadPageData() {
   try {
     await Promise.allSettled([
       loadWorkflowMeta(),
+      loadGenerationMeta(),
       providerStore.refresh(projectStore.activeProjectId),
       assetStore.refresh(),
       loadWorkflows()
     ])
   } finally {
     loading.value = false
+  }
+}
+
+async function loadGenerationMeta() {
+  try {
+    const res = await generationApi.getMeta()
+    generationMeta.value = ((res as any).data || {}) as GenerationMetaVO
+  } catch {
+    generationMeta.value = {}
   }
 }
 
