@@ -9,7 +9,7 @@ import com.example.aihub.common.result.PageResult;
 import com.example.aihub.common.util.PagingUtil;
 import com.example.aihub.infrastructure.entity.GenerationTask;
 import com.example.aihub.infrastructure.mapper.GenerationTaskMapper;
-import com.example.aihub.infrastructure.service.AssetService;
+import com.example.aihub.infrastructure.service.GenerationService;
 import com.example.aihub.infrastructure.vo.GenerationTaskVO;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.*;
@@ -24,7 +24,7 @@ import java.util.stream.Collectors;
 @SaCheckRole("admin")
 public class AdminTasksController {
     private final GenerationTaskMapper taskMapper;
-    private final AssetService assetService;
+    private final GenerationService generationService;
 
     @GetMapping
     public ApiResult<PageResult<GenerationTaskVO>> list(
@@ -50,9 +50,7 @@ public class AdminTasksController {
 
     @DeleteMapping("/{id}")
     public ApiResult<Void> delete(@PathVariable Long id) {
-        // 先清理任务关联的资产(DB 记录 + 物理文件),再删任务,避免遗留孤儿文件
-        assetService.deleteByTaskId(id);
-        taskMapper.deleteById(id);
+        generationService.adminDelete(id);
         return ApiResult.ok();
     }
 }

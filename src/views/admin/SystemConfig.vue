@@ -44,6 +44,8 @@
         <n-descriptions-item label="数据库">{{ health.database }}</n-descriptions-item>
         <n-descriptions-item label="Redis">{{ health.redis }}</n-descriptions-item>
         <n-descriptions-item label="版本">{{ health.version }}</n-descriptions-item>
+        <n-descriptions-item label="运行时长">{{ health.uptimeReadable || '-' }}</n-descriptions-item>
+        <n-descriptions-item label="启动时间">{{ health.startedAt || '-' }}</n-descriptions-item>
       </n-descriptions>
     </n-card>
   </div>

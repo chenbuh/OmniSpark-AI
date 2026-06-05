@@ -1,6 +1,7 @@
 package com.example.aihub.infrastructure.service;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.example.aihub.common.exception.BusinessException;
 import com.example.aihub.common.security.UploadAccessSignatureService;
 import com.example.aihub.common.storage.UploadStorageResolver;
@@ -70,6 +71,7 @@ public class GenerationService {
     private final com.example.aihub.common.security.ProjectAccessGuard projectAccessGuard;
     private final UploadAccessSignatureService uploadAccessSignatureService;
     private final UploadStorageResolver uploadStorageResolver;
+    private final AssetService assetService;
     // 有界队列 + AbortPolicy：过载时拒绝而非无限堆积内存，由调用方捕获并提示用户稍后重试
     private final ThreadPoolExecutor generationExecutor = new ThreadPoolExecutor(
             4, 4,
@@ -192,7 +194,15 @@ public class GenerationService {
             throw new BusinessException("任务不存在");
         }
         projectAccessGuard.assertAccess(task.getProjectId());
-        taskMapper.deleteById(id);
+        deleteTaskInternal(id);
+    }
+
+    public void adminDelete(Long id) {
+        GenerationTask task = taskMapper.selectById(id);
+        if (task == null) {
+            return;
+        }
+        deleteTaskInternal(id);
     }
 
     @PreDestroy
@@ -873,6 +883,14 @@ public class GenerationService {
 
     private GenerationTaskVO toTaskVO(GenerationTask task) {
         return VoMapper.copy(task, GenerationTaskVO.class);
+    }
+
+    private void deleteTaskInternal(Long taskId) {
+        assetService.deleteByTaskId(taskId);
+        quotaRecordMapper.update(null, new LambdaUpdateWrapper<com.example.aihub.infrastructure.entity.QuotaRecord>()
+                .eq(com.example.aihub.infrastructure.entity.QuotaRecord::getTaskId, taskId)
+                .set(com.example.aihub.infrastructure.entity.QuotaRecord::getTaskId, null));
+        taskMapper.deleteById(taskId);
     }
 
     private record MediaRecord(String fileName, String fileUrl, String thumbUrl, String mimeType, Long fileSize) {

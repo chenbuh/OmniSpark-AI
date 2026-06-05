@@ -2,6 +2,7 @@ package com.example.aihub.infrastructure.service;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
+import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.example.aihub.common.exception.BusinessException;
 import com.example.aihub.common.result.PageResult;
 import com.example.aihub.common.security.UploadAccessSignatureService;
@@ -11,9 +12,11 @@ import com.example.aihub.common.util.SecurityUtil;
 import com.example.aihub.common.util.VoMapper;
 import com.example.aihub.infrastructure.entity.Asset;
 import com.example.aihub.infrastructure.entity.ProjectShare;
+import com.example.aihub.infrastructure.entity.StyleCard;
 import com.example.aihub.infrastructure.entity.TeamMember;
 import com.example.aihub.infrastructure.mapper.AssetMapper;
 import com.example.aihub.infrastructure.mapper.ProjectShareMapper;
+import com.example.aihub.infrastructure.mapper.StyleCardMapper;
 import com.example.aihub.infrastructure.mapper.TeamMemberMapper;
 import com.example.aihub.infrastructure.vo.AssetVO;
 import com.example.aihub.infrastructure.vo.AssetStatsVO;
@@ -45,9 +48,11 @@ public class AssetService {
     private final AssetMapper assetMapper;
     private final ProjectShareMapper projectShareMapper;
     private final TeamMemberMapper teamMemberMapper;
+    private final StyleCardMapper styleCardMapper;
     private final com.example.aihub.common.security.ProjectAccessGuard projectAccessGuard;
     private final UploadAccessSignatureService uploadAccessSignatureService;
     private final UploadStorageResolver uploadStorageResolver;
+    private final SubtitleService subtitleService;
 
     public List<AssetVO> list(Long projectId, String assetType, Long taskId, int limit) {
         int safeLimit = PagingUtil.clampLimit(limit, 100, 100);
@@ -212,8 +217,11 @@ public class AssetService {
             throw new BusinessException("资产不存在");
         }
         projectAccessGuard.assertAccess(asset.getProjectId());
+        detachAssetReferences(List.of(asset.getId()));
+        subtitleService.deleteByAssetIds(List.of(asset.getId()));
         assetMapper.deleteById(id);
         deleteAssetFile(asset.getFileUrl());
+        deleteAssetFile(asset.getThumbUrl());
     }
 
     /**
@@ -248,6 +256,7 @@ public class AssetService {
             return;
         }
         Set<String> localFiles = new LinkedHashSet<>();
+        List<Long> assetIds = assets.stream().map(Asset::getId).toList();
         for (Asset asset : assets) {
             if (asset.getFileUrl() != null && !asset.getFileUrl().isBlank()) {
                 localFiles.add(asset.getFileUrl());
@@ -256,6 +265,8 @@ public class AssetService {
                 localFiles.add(asset.getThumbUrl());
             }
         }
+        detachAssetReferences(assetIds);
+        subtitleService.deleteByAssetIds(assetIds);
         assetMapper.delete(new LambdaQueryWrapper<Asset>().eq(Asset::getProjectId, projectId));
         localFiles.forEach(this::deleteAssetFile);
     }
@@ -286,8 +297,11 @@ public class AssetService {
         if (asset == null) {
             return;
         }
+        detachAssetReferences(List.of(asset.getId()));
+        subtitleService.deleteByAssetIds(List.of(asset.getId()));
         assetMapper.deleteById(id);
         deleteAssetFile(asset.getFileUrl());
+        deleteAssetFile(asset.getThumbUrl());
     }
 
     /** 删除某任务关联的全部资产(DB 记录 + 物理文件),用于任务删除时清理产物。 */
@@ -295,10 +309,26 @@ public class AssetService {
     public void deleteByTaskId(Long taskId) {
         List<Asset> assets = assetMapper.selectList(
                 new LambdaQueryWrapper<Asset>().eq(Asset::getTaskId, taskId));
+        if (assets.isEmpty()) {
+            return;
+        }
+        List<Long> assetIds = assets.stream().map(Asset::getId).toList();
+        detachAssetReferences(assetIds);
+        subtitleService.deleteByAssetIds(assetIds);
         for (Asset asset : assets) {
             assetMapper.deleteById(asset.getId());
             deleteAssetFile(asset.getFileUrl());
+            deleteAssetFile(asset.getThumbUrl());
         }
+    }
+
+    private void detachAssetReferences(List<Long> assetIds) {
+        if (assetIds == null || assetIds.isEmpty()) {
+            return;
+        }
+        styleCardMapper.update(null, new LambdaUpdateWrapper<StyleCard>()
+                .in(StyleCard::getRefAssetId, assetIds)
+                .set(StyleCard::getRefAssetId, null));
     }
 
     private List<Long> resolveProjectIds(String scope, Long projectId) {
