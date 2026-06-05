@@ -34,7 +34,10 @@
             <td><n-ellipsis :line-clamp="1">{{ t.description }}</n-ellipsis></td>
             <td><n-tag size="small">{{ t.taskType }}</n-tag></td>
             <td><n-tag size="small" type="info">{{ t.cron }}</n-tag></td>
-            <td><n-switch :value="t.enabled === 1" @update:value="handleToggle(t.id)" /></td>
+            <td>
+              <n-tag v-if="normalizeBinaryStatus(t.enabled) === null" size="small" type="warning">状态待确认</n-tag>
+              <n-switch v-else :value="normalizeBinaryStatus(t.enabled) === true" @update:value="handleToggle(t.id)" />
+            </td>
             <td style="font-size:12px;">{{ t.lastRunAt ? t.lastRunAt.substring(0,19).replace('T',' ') : '-' }}</td>
             <td><n-tag size="small" :type="t.lastStatus === 'success' ? 'success' : t.lastStatus === 'failed' ? 'error' : 'default'">{{ t.lastStatus || '-' }}</n-tag></td>
             <td>
@@ -179,7 +182,18 @@ async function handleDelete(id: number) {
 }
 
 async function handleToggle(id: number) {
+  const task = tasks.value.find(item => item.id === id)
+  if (normalizeBinaryStatus(task?.enabled) === null) {
+    message.error('定时任务状态尚未明确，暂时无法切换')
+    return
+  }
   try { await request.post(`/api/admin/scheduled-tasks/${id}/toggle`); await load() } catch { message.error('操作失败') }
+}
+
+function normalizeBinaryStatus(value: unknown): boolean | null {
+  if (value === 1 || value === '1' || value === true || value === 'true') return true
+  if (value === 0 || value === '0' || value === false || value === 'false') return false
+  return null
 }
 
 async function handleRunNow(id: number) {
