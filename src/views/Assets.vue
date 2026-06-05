@@ -662,12 +662,11 @@ function handleApplyAsReference() {
     router.push({
       path: '/generate/video',
       query: {
-        sourceAssetId: String(asset.id),
         prompt: asset.prompt || '',
         model: asset.modelName || ''
       }
     })
-    message.success('已将该视频带入视频工作台继续创作')
+    message.success('已将该视频的提示词与模型带入视频工作台')
   } else {
     router.push({
       path: '/generate/image',

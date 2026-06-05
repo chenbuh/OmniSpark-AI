@@ -397,11 +397,13 @@ onMounted(async () => {
   
   // 处理从生图页“一键转视频”带入的参数
   if (route.query.sourceAssetId) {
-    videoMode.value = 'img2vid'
     const id = Number(route.query.sourceAssetId)
     const asset = assetStore.assets.find(a => a.id === id)
-    if (asset) {
+    if (asset && (asset.assetType === 'image' || asset.assetType === 'reference')) {
+      videoMode.value = 'img2vid'
       selectedImageAsset.value = asset
+    } else if (asset) {
+      message.warning('当前仅支持图片作为首帧参考，已仅带入提示词与模型')
     }
   }
   

@@ -1838,10 +1838,11 @@ const handleToVideo = () => {
       path: '/generate/video',
       query: {
         sourceAssetId: currentAsset.value.id.toString(),
-        prompt: `Convert this image to futuristic slow-motion animation: ${currentAsset.value.prompt}`
+        prompt: currentAsset.value.prompt || '',
+        model: currentAsset.value.modelName || ''
       }
     })
-    message.success('已自动载入本图作为首帧参考，并为您准备好视频生成文案！')
+    message.success('已将当前图片带入视频工作台作为首帧参考')
   }
 }
 
