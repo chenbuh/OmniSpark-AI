@@ -727,6 +727,68 @@ function sanitizeStep(step: WorkflowStep): WorkflowStep {
   return JSON.parse(JSON.stringify(step))
 }
 
+function normalizeComparableValue(value: unknown): unknown {
+  if (Array.isArray(value)) {
+    return value.map(item => normalizeComparableValue(item))
+  }
+  if (value && typeof value === 'object') {
+    return Object.keys(value as Record<string, unknown>)
+      .sort()
+      .reduce<Record<string, unknown>>((result, key) => {
+        result[key] = normalizeComparableValue((value as Record<string, unknown>)[key])
+        return result
+      }, {})
+  }
+  return value ?? null
+}
+
+function normalizeComparableWorkflowStep(step: WorkflowStep) {
+  return normalizeComparableValue(sanitizeStep(step))
+}
+
+function assertWorkflowMatchesExpected(
+  workflow: WorkflowRecord,
+  expected: { projectId: number; name: string; description: string; steps: WorkflowStep[] },
+  errorMessage: string
+) {
+  if (workflow.projectId !== expected.projectId) {
+    throw new Error(errorMessage)
+  }
+  if (workflow.name !== expected.name) {
+    throw new Error(errorMessage)
+  }
+  if (String(workflow.description || '') !== expected.description) {
+    throw new Error(errorMessage)
+  }
+  if (workflow.steps.length !== expected.steps.length) {
+    throw new Error(errorMessage)
+  }
+  const actualSignature = JSON.stringify(workflow.steps.map(step => normalizeComparableWorkflowStep(step)))
+  const expectedSignature = JSON.stringify(expected.steps.map(step => normalizeComparableWorkflowStep(step)))
+  if (actualSignature !== expectedSignature) {
+    throw new Error(errorMessage)
+  }
+}
+
+function assertWorkflowRunMatchesExpected(
+  run: WorkflowRunVO,
+  expected: { workflowId: number; projectId: number },
+  errorMessage: string
+) {
+  if (run.workflowId !== expected.workflowId || run.projectId !== expected.projectId) {
+    throw new Error(errorMessage)
+  }
+  if (run.status === 'failed') {
+    throw new Error(run.errorMessage || '工作流执行失败')
+  }
+  if (run.status !== 'success' && run.status !== 'running') {
+    throw new Error(errorMessage)
+  }
+  if (run.status === 'running' && typeof run.currentStep === 'number' && run.currentStep < 0) {
+    throw new Error(errorMessage)
+  }
+}
+
 function normalizeStep(step: WorkflowStep) {
   const normalized = defaultStep(step.type)
   Object.assign(step, normalized, step)
@@ -1076,19 +1138,19 @@ async function handleSave() {
     description: editForm.description.trim(),
     stepsJson: JSON.stringify(stepDrafts.value.map(step => sanitizeStep(step)))
   }
+  const expectedWorkflow = {
+    projectId: payload.projectId,
+    name: payload.name,
+    description: payload.description,
+    steps: stepDrafts.value.map(step => sanitizeStep(step))
+  }
 
   try {
     if (editorMode.value === 'edit' && editForm.id) {
       const res = await workflowApi.update(editForm.id, payload)
       const updated = normalizeWorkflow((res as any).data)
       const confirmed = await reloadWorkflowById(updated.id, '工作流更新结果待确认')
-      if (
-        confirmed.name !== payload.name
-        || String(confirmed.description || '') !== payload.description
-        || confirmed.steps.length !== stepDrafts.value.length
-      ) {
-        throw new Error('工作流更新结果待确认')
-      }
+      assertWorkflowMatchesExpected(confirmed, expectedWorkflow, '工作流更新结果待确认')
       selectedWorkflow.value = confirmed
       await loadRuns(confirmed.id)
       message.success('工作流已更新')
@@ -1096,13 +1158,7 @@ async function handleSave() {
       const res = await workflowApi.create(payload)
       const created = normalizeWorkflow((res as any).data)
       const confirmed = await reloadWorkflowById(created.id, '工作流创建结果待确认')
-      if (
-        confirmed.name !== payload.name
-        || String(confirmed.description || '') !== payload.description
-        || confirmed.steps.length !== stepDrafts.value.length
-      ) {
-        throw new Error('工作流创建结果待确认')
-      }
+      assertWorkflowMatchesExpected(confirmed, expectedWorkflow, '工作流创建结果待确认')
       selectedWorkflow.value = confirmed
       await loadRuns(confirmed.id)
       message.success('工作流已创建')
@@ -1134,16 +1190,16 @@ async function cloneWorkflow(workflow: WorkflowRecord) {
       description: workflow.description || '',
       stepsJson: JSON.stringify(workflow.steps.map(step => sanitizeStep(step)))
     }
+    const expectedWorkflow = {
+      projectId: payload.projectId,
+      name: payload.name,
+      description: payload.description,
+      steps: workflow.steps.map(step => sanitizeStep(step))
+    }
     const res = await workflowApi.create(payload)
     const cloned = normalizeWorkflow((res as any).data)
     const confirmed = await reloadWorkflowById(cloned.id, '工作流克隆结果待确认')
-    if (
-      confirmed.name !== payload.name
-      || String(confirmed.description || '') !== payload.description
-      || confirmed.steps.length !== workflow.steps.length
-    ) {
-      throw new Error('工作流克隆结果待确认')
-    }
+    assertWorkflowMatchesExpected(confirmed, expectedWorkflow, '工作流克隆结果待确认')
     selectedWorkflow.value = confirmed
     await loadRuns(confirmed.id)
     message.success('工作流已克隆')
@@ -1163,12 +1219,10 @@ async function handleExecute() {
     if (!confirmed) {
       throw new Error('工作流执行结果待确认')
     }
-    if (confirmed.status === 'failed') {
-      throw new Error(confirmed.errorMessage || '工作流执行失败')
-    }
-    if (confirmed.status !== 'success' && confirmed.status !== 'running') {
-      throw new Error('工作流执行状态待确认')
-    }
+    assertWorkflowRunMatchesExpected(confirmed, {
+      workflowId: selectedWorkflow.value.id,
+      projectId: projectStore.activeProjectId
+    }, '工作流执行结果待确认')
     await loadAssetLibrary()
     message.success(confirmed.status === 'success' ? '工作流执行完成' : '工作流已开始执行')
   } catch (err: any) {
