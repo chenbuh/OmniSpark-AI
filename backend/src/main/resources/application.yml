@@ -37,6 +37,8 @@ app:
       password: ${APP_BOOTSTRAP_ADMIN_PASSWORD:}
       nickname: ${APP_BOOTSTRAP_ADMIN_NICKNAME:管理员}
       avatar: ${APP_BOOTSTRAP_ADMIN_AVATAR:}
+  media:
+    ffmpeg-path: ${APP_FFMPEG_PATH:ffmpeg}
   update:
     prefer-release: ${APP_UPDATE_PREFER_RELEASE:true}
     cache-ttl-minutes: ${APP_UPDATE_CACHE_TTL_MINUTES:30}

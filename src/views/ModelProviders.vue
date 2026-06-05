@@ -2,7 +2,7 @@
   <div class="providers-container">
     <div class="page-header">
       <h2>模型配置中心 (Model Providers)</h2>
-      <p class="subtitle">管理并隔离当前项目空间下的 AI 模型提供商，支持图像、视频和真实 TTS 配音接口。</p>
+      <p class="subtitle">管理并隔离当前项目空间下的 AI 模型提供商，支持图像、视频、字幕转写和真实 TTS 配音接口。</p>
     </div>
 
     <!-- 列表操作卡 -->
@@ -137,11 +137,16 @@
           />
         </n-form-item>
 
-        <n-form-item label="模型具体名称 (Model Name)">
+        <n-form-item :label="form.type === 'audio' ? '配音模型 (TTS Model)' : '模型具体名称 (Model Name)'">
           <n-input v-model:value="form.modelName" :placeholder="form.type === 'audio' ? '例如: tts-1, gpt-4o-mini-tts' : '例如: dall-e-3, sora-1, claude-3'" />
         </n-form-item>
 
         <template v-if="form.type === 'audio'">
+          <n-form-item label="字幕转写模型 (可选)">
+            <n-input v-model:value="form.transcriptionModel" placeholder="例如: whisper-1, gpt-4o-mini-transcribe" />
+            <div class="field-hint">留空时默认复用上面的模型名；若配音和转写使用不同模型，建议单独填写。</div>
+          </n-form-item>
+
           <n-row :gutter="12">
             <n-col :span="12">
               <n-form-item label="语音音色 (Voice)">
@@ -220,6 +225,7 @@ const form = reactive({
   enabled: true,
   isDefault: false,
   configJson: '',
+  transcriptionModel: '',
   voice: '',
   responseFormat: 'mp3',
   speed: '',
@@ -304,6 +310,7 @@ const handleOpenAddModal = () => {
   form.enabled = true
   form.isDefault = false
   form.configJson = ''
+  form.transcriptionModel = ''
   form.voice = ''
   form.responseFormat = 'mp3'
   form.speed = ''
@@ -323,6 +330,7 @@ const handleOpenEditModal = (provider: ModelProvider) => {
   form.enabled = provider.enabled
   form.isDefault = provider.isDefault
   form.configJson = provider.configJson || ''
+  form.transcriptionModel = config.transcriptionModel || ''
   form.voice = config.voice || ''
   form.responseFormat = config.responseFormat || 'mp3'
   form.speed = config.speed ? String(config.speed) : ''
@@ -388,6 +396,7 @@ const buildConfigJson = () => {
     return form.configJson || ''
   }
   const payload: Record<string, any> = {}
+  if (form.transcriptionModel.trim()) payload.transcriptionModel = form.transcriptionModel.trim()
   if (form.voice.trim()) payload.voice = form.voice.trim()
   if (form.responseFormat.trim()) payload.responseFormat = form.responseFormat.trim()
   if (form.speed.trim()) {

@@ -20,11 +20,15 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.beans.factory.annotation.Value;
 
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Duration;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Locale;
 import java.util.UUID;
 
 @Service
@@ -37,7 +41,11 @@ public class SubtitleService {
     private final UploadAccessSignatureService uploadAccessSignatureService;
     private final UploadStorageResolver uploadStorageResolver;
     private final OpenAiSpeechClient speechClient;
+    private final OpenAiTranscriptionClient transcriptionClient;
     private final ObjectMapper objectMapper;
+
+    @Value("${app.media.ffmpeg-path:ffmpeg}")
+    private String ffmpegPath;
 
     public List<SubtitleVO> listByAsset(Long assetId, int limit) {
         requireAccessibleAsset(assetId);
@@ -56,21 +64,22 @@ public class SubtitleService {
         return toVO(sub);
     }
 
-    /**
-     * 从 prompt 自动生成 SRT 字幕
-     * 将 prompt 按空格/标点拆分为 3-5 段，每段分配时间
-     */
     @Transactional(rollbackFor = Exception.class)
     public SubtitleVO generate(SubtitleGenerateDTO dto) {
         Asset asset = requireAccessibleAsset(dto.getAssetId());
         if (!asset.getProjectId().equals(dto.getProjectId())) {
             throw new BusinessException("字幕所属项目与资产不一致");
         }
+        if (!"video".equalsIgnoreCase(asset.getAssetType())) {
+            throw new BusinessException("当前仅支持为视频资产生成字幕");
+        }
 
-        // 先删除该资产已有的字幕
+        List<Subtitle> existingSubtitles = subtitleMapper.selectList(
+                new LambdaQueryWrapper<Subtitle>().eq(Subtitle::getAssetId, dto.getAssetId()));
+        existingSubtitles.forEach(item -> deleteVoiceFile(item.getVoiceUrl()));
         subtitleMapper.delete(new LambdaQueryWrapper<Subtitle>().eq(Subtitle::getAssetId, dto.getAssetId()));
 
-        String srt = buildSrtFromPrompt(dto.getPrompt(), dto.getLanguage());
+        String srt = transcribeAssetToSrt(asset, dto.getLanguage(), dto.getPrompt());
         Subtitle sub = new Subtitle();
         sub.setAssetId(dto.getAssetId());
         sub.setProjectId(asset.getProjectId());
@@ -113,7 +122,7 @@ public class SubtitleService {
             OpenAiSpeechClient.SynthesizedAudio audio = speechClient.synthesize(
                     provider.getBaseUrl(),
                     provider.getApiKey(),
-                    provider.getModelName(),
+                    resolveSpeechModel(provider),
                     plainText,
                     speechOptions
             );
@@ -160,28 +169,67 @@ public class SubtitleService {
 
     // ===== 内部方法 =====
 
-    private String buildSrtFromPrompt(String prompt, String language) {
-        if (prompt == null || prompt.isBlank()) {
-            return "1\n00:00:01,000 --> 00:00:04,000\n无内容\n";
+    private String transcribeAssetToSrt(Asset asset, String language, String prompt) {
+        ModelProvider provider = resolveTranscriptionProvider(asset.getProjectId());
+        String modelName = resolveTranscriptionModel(provider);
+        OpenAiTranscriptionClient.MediaFile mediaFile = extractAudioForTranscription(asset);
+        String srt = transcriptionClient.transcribe(
+                provider.getBaseUrl(),
+                provider.getApiKey(),
+                modelName,
+                language,
+                prompt,
+                mediaFile
+        );
+        if (srt == null || srt.isBlank()) {
+            throw new BusinessException("转写结果为空，无法生成字幕");
         }
+        return srt;
+    }
 
-        // 按句子/逗号拆分
-        String[] sentences = prompt.split("[，。！？、,.;!?\\n]+");
-        StringBuilder sb = new StringBuilder();
-        int totalSec = Math.max(sentences.length * 3, 5);
-        int segSec = Math.max(totalSec / sentences.length, 2);
-
-        for (int i = 0; i < sentences.length; i++) {
-            String s = sentences[i].trim();
-            if (s.isBlank()) continue;
-            int startMin = 0;
-            int startSec = i * segSec;
-            int endSec = (i + 1) * segSec;
-            sb.append(i + 1).append("\n");
-            sb.append(String.format("00:%02d:%02d,000 --> 00:%02d:%02d,000%n", startMin, startSec, startMin, endSec));
-            sb.append(s).append("\n\n");
+    private OpenAiTranscriptionClient.MediaFile extractAudioForTranscription(Asset asset) {
+        Path sourcePath = uploadStorageResolver.resolveLocalUploadPath(asset.getFileUrl());
+        if (sourcePath == null || !Files.exists(sourcePath)) {
+            throw new BusinessException("找不到视频源文件，无法执行真实字幕转写");
         }
-        return sb.toString();
+        Path tempDir = null;
+        try {
+            tempDir = Files.createTempDirectory("subtitle-transcription-");
+            String safeBaseName = buildSafeBaseName(asset.getFileName());
+            Path audioPath = tempDir.resolve(safeBaseName + ".mp3");
+            Path ffmpegLogPath = tempDir.resolve("ffmpeg.log");
+            ProcessBuilder processBuilder = new ProcessBuilder(
+                    resolveFfmpegCommand(),
+                    "-y",
+                    "-i", sourcePath.toString(),
+                    "-vn",
+                    "-ac", "1",
+                    "-ar", "16000",
+                    "-codec:a", "libmp3lame",
+                    "-b:a", "128k",
+                    audioPath.toString()
+            );
+            processBuilder.redirectErrorStream(true);
+            processBuilder.redirectOutput(ffmpegLogPath.toFile());
+            Process process = processBuilder.start();
+            boolean finished = process.waitFor(Duration.ofMinutes(3).toMillis(), java.util.concurrent.TimeUnit.MILLISECONDS);
+            if (!finished) {
+                process.destroyForcibly();
+                throw new BusinessException("FFmpeg 提取音频超时");
+            }
+            String output = readTextFileQuietly(ffmpegLogPath);
+            if (process.exitValue() != 0 || !Files.exists(audioPath) || Files.size(audioPath) == 0) {
+                throw new BusinessException("FFmpeg 提取音频失败: " + abbreviate(output));
+            }
+            byte[] audioBytes = Files.readAllBytes(audioPath);
+            return new OpenAiTranscriptionClient.MediaFile(audioBytes, safeBaseName + ".mp3", "audio/mpeg");
+        } catch (BusinessException ex) {
+            throw ex;
+        } catch (Exception ex) {
+            throw new BusinessException("提取视频音轨失败: " + ex.getMessage());
+        } finally {
+            deleteDirectoryQuietly(tempDir);
+        }
     }
 
     private String extractPlainTextFromSrt(String srt) {
@@ -210,24 +258,59 @@ public class SubtitleService {
                 .orElseThrow(() -> new BusinessException("未找到可用的语音模型提供商，请先在模型配置中心添加并启用一个“语音/TTS”提供商"));
     }
 
+    private ModelProvider resolveTranscriptionProvider(Long projectId) {
+        List<ModelProvider> providers = modelProviderMapper.selectList(
+                new LambdaQueryWrapper<ModelProvider>()
+                        .eq(ModelProvider::getProjectId, projectId)
+                        .eq(ModelProvider::getEnabled, 1)
+                        .orderByDesc(ModelProvider::getIsDefault)
+                        .orderByDesc(ModelProvider::getId));
+        return providers.stream()
+                .filter(provider -> transcriptionProviderScore(provider) > 0)
+                .max(Comparator.comparingInt(this::transcriptionProviderScore))
+                .orElseThrow(() -> new BusinessException("未找到可用的字幕转写模型，请在模型配置中心为语音提供商补充转写模型（例如 whisper-1 / gpt-4o-mini-transcribe）"));
+    }
+
     private int voiceProviderScore(ModelProvider provider) {
         int score = 0;
-        String type = provider.getType() == null ? "" : provider.getType().trim().toLowerCase();
+        String type = provider.getType() == null ? "" : provider.getType().trim().toLowerCase(Locale.ROOT);
         if ("audio".equals(type)) {
-            score += 100;
-        } else if ("openai".equals(type)) {
-            score += 60;
-        } else if ("custom".equals(type)) {
             score += 40;
+        } else if ("openai".equals(type)) {
+            score += 20;
+        } else if ("custom".equals(type)) {
+            score += 10;
         }
         if (provider.getIsDefault() != null && provider.getIsDefault() == 1) {
             score += 15;
         }
         if (looksLikeSpeechModel(provider.getModelName())) {
-            score += 20;
+            score += 80;
         }
         if (configLooksLikeSpeech(provider.getConfigJson())) {
+            score += 40;
+        }
+        return score;
+    }
+
+    private int transcriptionProviderScore(ModelProvider provider) {
+        int score = 0;
+        String type = provider.getType() == null ? "" : provider.getType().trim().toLowerCase(Locale.ROOT);
+        if ("audio".equals(type)) {
+            score += 40;
+        } else if ("openai".equals(type)) {
+            score += 20;
+        } else if ("custom".equals(type)) {
             score += 10;
+        }
+        if (provider.getIsDefault() != null && provider.getIsDefault() == 1) {
+            score += 15;
+        }
+        String transcriptionModel = extractProviderConfigText(provider, "transcriptionModel");
+        if (looksLikeTranscriptionModel(transcriptionModel)) {
+            score += 80;
+        } else if (looksLikeTranscriptionModel(provider.getModelName())) {
+            score += 60;
         }
         return score;
     }
@@ -236,11 +319,22 @@ public class SubtitleService {
         if (modelName == null || modelName.isBlank()) {
             return false;
         }
-        String value = modelName.trim().toLowerCase();
+        String value = modelName.trim().toLowerCase(Locale.ROOT);
         return value.contains("tts")
                 || value.contains("speech")
                 || value.contains("voice")
                 || value.contains("audio");
+    }
+
+    private boolean looksLikeTranscriptionModel(String modelName) {
+        if (modelName == null || modelName.isBlank()) {
+            return false;
+        }
+        String value = modelName.trim().toLowerCase(Locale.ROOT);
+        return value.contains("transcribe")
+                || value.contains("whisper")
+                || value.contains("stt")
+                || value.contains("speech-to-text");
     }
 
     private boolean configLooksLikeSpeech(String configJson) {
@@ -284,6 +378,34 @@ public class SubtitleService {
         return new OpenAiSpeechClient.SpeechOptions(voice, responseFormat, speed, instructions);
     }
 
+    private String resolveSpeechModel(ModelProvider provider) {
+        String configured = extractProviderConfigText(provider, "ttsModel");
+        if (configured == null) {
+            configured = extractProviderConfigText(provider, "speechModel");
+        }
+        if (configured != null && !configured.isBlank()) {
+            return configured;
+        }
+        String modelName = provider.getModelName();
+        if (modelName != null && !modelName.isBlank() && !looksLikeTranscriptionModel(modelName)) {
+            return modelName.trim();
+        }
+        throw new BusinessException("配音模型未配置，请在语音提供商中填写真实 TTS 模型");
+    }
+
+    private String resolveTranscriptionModel(ModelProvider provider) {
+        String configuredModel = extractProviderConfigText(provider, "transcriptionModel");
+        if (configuredModel != null && !configuredModel.isBlank()) {
+            return configuredModel;
+        }
+        if (provider.getModelName() != null
+                && !provider.getModelName().isBlank()
+                && looksLikeTranscriptionModel(provider.getModelName())) {
+            return provider.getModelName().trim();
+        }
+        throw new BusinessException("转写模型未配置，请在语音提供商中填写字幕转写模型");
+    }
+
     private String textOrNull(JsonNode node, String fieldName) {
         if (node == null || !node.hasNonNull(fieldName)) {
             return null;
@@ -296,11 +418,73 @@ public class SubtitleService {
         if (language == null || language.isBlank()) {
             return "alloy";
         }
-        String normalized = language.trim().toLowerCase();
+        String normalized = language.trim().toLowerCase(Locale.ROOT);
         if (normalized.startsWith("zh")) {
             return "alloy";
         }
         return "alloy";
+    }
+
+    private String extractProviderConfigText(ModelProvider provider, String fieldName) {
+        if (provider.getConfigJson() == null || provider.getConfigJson().isBlank()) {
+            return null;
+        }
+        try {
+            JsonNode node = objectMapper.readTree(provider.getConfigJson());
+            return textOrNull(node, fieldName);
+        } catch (Exception ignored) {
+            return null;
+        }
+    }
+
+    private String resolveFfmpegCommand() {
+        return ffmpegPath == null || ffmpegPath.isBlank() ? "ffmpeg" : ffmpegPath.trim();
+    }
+
+    private String buildSafeBaseName(String fileName) {
+        String original = fileName == null || fileName.isBlank() ? "asset" : fileName;
+        String withoutExt = original.replaceFirst("\\.[^.]+$", "");
+        String sanitized = withoutExt.replaceAll("[^a-zA-Z0-9\\u4e00-\\u9fa5_-]+", "_");
+        return sanitized.isBlank() ? "asset" : sanitized;
+    }
+
+    private String abbreviate(String value) {
+        if (value == null || value.isBlank()) {
+            return "未返回详细日志";
+        }
+        String compact = value.replaceAll("\\s+", " ").trim();
+        if (compact.length() <= 220) {
+            return compact;
+        }
+        return compact.substring(0, 220) + "...";
+    }
+
+    private String readTextFileQuietly(Path path) {
+        if (path == null || !Files.exists(path)) {
+            return "";
+        }
+        try {
+            return Files.readString(path, StandardCharsets.UTF_8);
+        } catch (Exception ignored) {
+            return "";
+        }
+    }
+
+    private void deleteDirectoryQuietly(Path dir) {
+        if (dir == null) {
+            return;
+        }
+        try {
+            Files.walk(dir)
+                    .sorted(Comparator.reverseOrder())
+                    .forEach(path -> {
+                        try {
+                            Files.deleteIfExists(path);
+                        } catch (Exception ignored) {
+                        }
+                    });
+        } catch (Exception ignored) {
+        }
     }
 
     private void deleteVoiceFile(String voiceUrl) {

@@ -304,7 +304,7 @@
                   </n-form-item>
                 </n-col>
               </n-row>
-              <div class="step-tip">默认会对上一步生成的视频创建字幕；开启配音后会继续自动生成一版语音文件。</div>
+              <div class="step-tip">默认会对上一步生成的视频执行真实字幕转写；开启配音后会继续自动生成一版语音文件。</div>
             </template>
           </div>
         </div>
@@ -502,7 +502,7 @@ function formatRunTime(run: WorkflowRunVO) {
 function stepPromptPlaceholder(type: WorkflowStepType) {
   if (type === 'image') return '描述这一张图要生成什么'
   if (type === 'video') return '描述视频镜头、动态或转场'
-  return '留空则默认使用上一步输出的 Prompt'
+  return '可选，补充品牌词、人名或术语，帮助转写更准确'
 }
 
 function defaultStep(type: WorkflowStepType = 'image'): WorkflowStep {
@@ -675,7 +675,7 @@ function applyTemplate(template: 'image-only' | 'image-to-video' | 'full-pipelin
     },
     {
       ...defaultStep('subtitle'),
-      prompt: '为视频生成中文宣传字幕',
+      prompt: '',
       language: 'zh',
       voice: true
     }

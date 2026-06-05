@@ -286,7 +286,7 @@
             <n-space style="margin-top: 8px;">
               <n-button size="small" type="primary" secondary :loading="subGenerating" @click="handleGenerateSubtitle">
                 <template #icon><ClosedCaption /></template>
-                从提示词生成字幕
+                从视频识别字幕
               </n-button>
             </n-space>
           </div>
@@ -669,8 +669,7 @@ async function loadSubtitles() {
 }
 
 async function handleGenerateSubtitle() {
-  if (!selectedAsset.value?.prompt || !selectedAsset.value) {
-    message.warning('当前视频资产缺少提示词，暂无法生成字幕')
+  if (!selectedAsset.value) {
     return
   }
   subGenerating.value = true
@@ -678,13 +677,13 @@ async function handleGenerateSubtitle() {
     await subtitleApi.generate({
       assetId: selectedAsset.value.id,
       projectId: selectedAsset.value.projectId,
-      prompt: selectedAsset.value.prompt,
+      prompt: selectedAsset.value.prompt || undefined,
       language: 'zh'
     })
-    message.success('字幕生成成功')
+    message.success('字幕识别成功')
     await loadSubtitles()
   } catch (err: any) {
-    message.error(err.message || '字幕生成失败')
+    message.error(err.message || '字幕识别失败')
   } finally {
     subGenerating.value = false
   }

@@ -325,16 +325,11 @@ public class WorkflowService {
             throw new BusinessException("字幕步骤缺少目标视频资产");
         }
 
-        String prompt = firstNonBlank(textValue(stepNode, "prompt"), context.lastPrompt);
-        if (prompt == null || prompt.isBlank()) {
-            throw new BusinessException("字幕步骤缺少 prompt");
-        }
-
         SubtitleGenerateDTO dto = new SubtitleGenerateDTO();
         dto.setAssetId(assetId);
         dto.setProjectId(context.projectId);
         dto.setLanguage(firstNonBlank(textValue(stepNode, "language"), "zh"));
-        dto.setPrompt(prompt);
+        dto.setPrompt(firstNonBlank(textValue(stepNode, "prompt"), context.lastPrompt));
 
         SubtitleVO subtitle = subtitleService.generate(dto);
         if (booleanValue(stepNode, "voice")) {
@@ -345,7 +340,7 @@ public class WorkflowService {
         ObjectNode result = objectMapper.createObjectNode();
         result.put("subtitleId", subtitle.getId());
         result.put("assetId", assetId);
-        result.put("message", booleanValue(stepNode, "voice") ? "字幕与配音已生成" : "字幕已生成");
+        result.put("message", booleanValue(stepNode, "voice") ? "字幕转写与配音已完成" : "字幕转写已完成");
         if (subtitle.getVoiceUrl() != null) {
             result.put("voiceUrl", uploadAccessSignatureService.signProjectUrl(subtitle.getVoiceUrl(), subtitle.getProjectId()));
         }

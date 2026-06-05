@@ -16,7 +16,7 @@ export const subtitleApi = {
     return request.get(`/api/video/subtitles/${assetId}`)
   },
 
-  async generate(params: { assetId: number; projectId: number; prompt: string; language?: string }) {
+  async generate(params: { assetId: number; projectId: number; prompt?: string; language?: string }) {
     return request.post('/api/video/subtitles/generate', params)
   },
 
