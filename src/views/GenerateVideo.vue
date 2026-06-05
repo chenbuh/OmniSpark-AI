@@ -664,6 +664,72 @@ const finishGeneratingState = () => {
   stopTaskPolling()
 }
 
+function assertGeneratedVideoAsset(
+  asset: Asset,
+  task: { id: number; projectId: number; prompt?: string; modelName?: string; resultAssetId?: number }
+) {
+  if (asset.projectId !== task.projectId) {
+    throw new Error('视频结果待确认')
+  }
+  if (asset.taskId !== task.id) {
+    throw new Error('视频结果待确认')
+  }
+  if (asset.assetType !== 'video') {
+    throw new Error('视频结果待确认')
+  }
+  if (!asset.fileUrl && !asset.thumbUrl) {
+    throw new Error('视频结果待确认')
+  }
+  if (normalizeTaskField(asset.prompt) !== normalizeTaskField(task.prompt)) {
+    throw new Error('视频结果待确认')
+  }
+  if (normalizeTaskField(asset.modelName) !== normalizeTaskField(task.modelName)) {
+    throw new Error('视频结果待确认')
+  }
+}
+
+function getConfirmedVideoTaskAsset(task: { id: number; projectId: number; prompt?: string; modelName?: string; resultAssetId?: number }) {
+  const exact = task.resultAssetId
+    ? assetStore.assets.find(asset => asset.id === task.resultAssetId)
+    : null
+  if (exact) {
+    assertGeneratedVideoAsset(exact, task)
+    return exact
+  }
+  const fallback = assetStore.assets.find(asset => asset.taskId === task.id) || null
+  if (!fallback) {
+    throw new Error('视频结果待确认')
+  }
+  assertGeneratedVideoAsset(fallback, task)
+  if (task.resultAssetId && fallback.id !== task.resultAssetId) {
+    throw new Error('视频结果待确认')
+  }
+  return fallback
+}
+
+function requireVideoTaskAssetContext(task: { id: number; resultAssetId?: number }) {
+  const candidate = (
+    (activeTaskId.value === task.id ? activeTask.value : null)
+    || taskStore.tasks.find(item => item.id === task.id)
+  ) as {
+    id: number
+    projectId?: number
+    prompt?: string
+    modelName?: string
+    resultAssetId?: number
+  } | null
+  if (!candidate || !Number.isFinite(candidate.projectId)) {
+    throw new Error('视频结果待确认')
+  }
+  return {
+    id: candidate.id,
+    projectId: Number(candidate.projectId),
+    prompt: candidate.prompt,
+    modelName: candidate.modelName,
+    resultAssetId: candidate.resultAssetId
+  }
+}
+
 const upsertAsset = (asset: Asset) => {
   const index = assetStore.assets.findIndex(item => item.id === asset.id)
   if (index === -1) {
@@ -675,15 +741,18 @@ const upsertAsset = (asset: Asset) => {
 
 const findTaskResultAsset = (task: { id: number; resultAssetId?: number }) => {
   if (task.resultAssetId) {
-    const exact = assetStore.assets.find(asset => asset.id === task.resultAssetId)
+    const exact = assetStore.assets.find(asset => asset.id === task.resultAssetId && asset.taskId === task.id)
     if (exact) return exact
   }
   return assetStore.assets.find(asset => asset.taskId === task.id) || null
 }
 
 const ensureTaskResultAssetLoaded = async (task: { id: number; resultAssetId?: number }) => {
-  const existing = findTaskResultAsset(task)
-  if (existing) return existing
+  const taskContext = requireVideoTaskAssetContext(task)
+  const existing = findTaskResultAsset(taskContext)
+  if (existing) {
+    return getConfirmedVideoTaskAsset(taskContext)
+  }
   if (!pendingFetchAsset) {
     pendingFetchAsset = (async () => {
       const res = await assetApi.getAssets({ taskId: task.id, projectId: projectStore.activeProjectId })
@@ -694,7 +763,8 @@ const ensureTaskResultAssetLoaded = async (task: { id: number; resultAssetId?: n
       for (const item of data) {
         upsertAsset(assetStore.normalizeAsset(item))
       }
-      return findTaskResultAsset(task)
+      const confirmedTask = requireVideoTaskAssetContext(task)
+      return getConfirmedVideoTaskAsset(confirmedTask)
     })().finally(() => {
       pendingFetchAsset = null
     })

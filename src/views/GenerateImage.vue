@@ -1627,6 +1627,72 @@ const finishGeneratingState = () => {
   stopElapsedTimer()
 }
 
+function assertGeneratedImageAsset(
+  asset: Asset,
+  task: { id: number; projectId: number; prompt?: string; modelName?: string; resultAssetId?: number }
+) {
+  if (asset.projectId !== task.projectId) {
+    throw new Error('图片结果待确认')
+  }
+  if (asset.taskId !== task.id) {
+    throw new Error('图片结果待确认')
+  }
+  if (asset.assetType !== 'image') {
+    throw new Error('图片结果待确认')
+  }
+  if (!asset.fileUrl && !asset.thumbUrl) {
+    throw new Error('图片结果待确认')
+  }
+  if (normalizeTaskField(asset.prompt) !== normalizeTaskField(task.prompt)) {
+    throw new Error('图片结果待确认')
+  }
+  if (normalizeTaskField(asset.modelName) !== normalizeTaskField(task.modelName)) {
+    throw new Error('图片结果待确认')
+  }
+  if (task.resultAssetId && asset.id === task.resultAssetId && asset.taskId !== task.id) {
+    throw new Error('图片结果待确认')
+  }
+}
+
+function requireImageTaskAssetContext(task: { id: number; resultAssetId?: number }) {
+  const candidate = (
+    (activeTaskId.value === task.id ? activeTask.value : null)
+    || taskStore.tasks.find(item => item.id === task.id)
+  ) as {
+    id: number
+    projectId?: number
+    prompt?: string
+    modelName?: string
+    resultAssetId?: number
+  } | null
+  if (!candidate || !Number.isFinite(candidate.projectId)) {
+    throw new Error('图片结果待确认')
+  }
+  return {
+    id: candidate.id,
+    projectId: Number(candidate.projectId),
+    prompt: candidate.prompt,
+    modelName: candidate.modelName,
+    resultAssetId: candidate.resultAssetId
+  }
+}
+
+function getConfirmedImageTaskAssets(task: { id: number; projectId: number; prompt?: string; modelName?: string; resultAssetId?: number }) {
+  const assets = assetStore.assets.filter(asset => asset.taskId === task.id)
+  assets.forEach(asset => assertGeneratedImageAsset(asset, task))
+  if (task.resultAssetId) {
+    const resultAsset = assetStore.assets.find(asset => asset.id === task.resultAssetId)
+    if (!resultAsset) {
+      throw new Error('图片结果待确认')
+    }
+    assertGeneratedImageAsset(resultAsset, task)
+    if (!assets.some(asset => asset.id === resultAsset.id)) {
+      throw new Error('图片结果待确认')
+    }
+  }
+  return assets
+}
+
 const syncTaskStatus = async (taskId: number) => {
   const detail = await taskApi.getTask(taskId)
   const task = taskStore.upsertTask(detail.data)
@@ -1693,7 +1759,9 @@ const fetchedAsset = ref<any>(null)
 
 // 确保某个任务的结果资产已加载进 store（轮询成功后调用）
 const ensureTaskAssetsLoaded = async (task: { id: number; resultAssetId?: number }) => {
-  if (hasTaskAssetsLoaded(task)) {
+  const taskContext = requireImageTaskAssetContext(task)
+  if (hasTaskAssetsLoaded(taskContext)) {
+    getConfirmedImageTaskAssets(taskContext)
     return
   }
   if (!pendingFetchAsset) {
@@ -1706,7 +1774,9 @@ const ensureTaskAssetsLoaded = async (task: { id: number; resultAssetId?: number
       assets.forEach((item: any) => {
         upsertAsset(assetStore.normalizeAsset(item))
       })
-      if (!hasTaskAssetsLoaded(task)) {
+      const confirmedTask = requireImageTaskAssetContext(task)
+      const confirmedAssets = getConfirmedImageTaskAssets(confirmedTask)
+      if (!confirmedAssets.length || !hasTaskAssetsLoaded(confirmedTask)) {
         throw new Error('图片结果待确认')
       }
       fetchedAsset.value = Date.now()
@@ -1719,7 +1789,7 @@ const ensureTaskAssetsLoaded = async (task: { id: number; resultAssetId?: number
 
 const hasTaskAssetsLoaded = (task: { id: number; resultAssetId?: number }) => {
   if (task.resultAssetId) {
-    return assetStore.assets.some(asset => asset.id === task.resultAssetId)
+    return assetStore.assets.some(asset => asset.id === task.resultAssetId && asset.taskId === task.id)
   }
   return assetStore.assets.some(asset => asset.taskId === task.id)
 }
