@@ -3,7 +3,7 @@ import request from './request'
 export type WorkflowStepType = 'image' | 'video' | 'subtitle'
 
 export interface WorkflowStep {
-  type: WorkflowStepType
+  type: string
   prompt: string
   description?: string
   providerId?: number | null

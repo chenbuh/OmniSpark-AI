@@ -432,7 +432,7 @@ const imageAssetOptions = computed(() => {
     }))
 })
 
-function providerOptions(type: WorkflowStepType) {
+function providerOptions(type: string) {
   const providers = providerStore.getProvidersByProject(projectStore.activeProjectId)
   const allowedTypes = type === 'image'
     ? allowedImageProviderTypes.value
@@ -487,7 +487,7 @@ function formatRunTime(run: WorkflowRunVO) {
   return String(value).replace('T', ' ').substring(0, 19) || '--'
 }
 
-function stepPromptPlaceholder(type: WorkflowStepType) {
+function stepPromptPlaceholder(type: string) {
   if (type === 'image') return '描述这一张图要生成什么'
   if (type === 'video') return '描述视频镜头、动态或转场'
   return '可选，补充品牌词、人名或术语，帮助转写更准确'
@@ -510,7 +510,7 @@ function resolveOptionValue(options: WorkflowMetaOption[], preferredValue: strin
   return options[0]?.value || fallbackValue
 }
 
-function defaultStep(type: WorkflowStepType = 'image'): WorkflowStep {
+function defaultStep(type: WorkflowStepType | string = 'image'): WorkflowStep {
   if (type === 'video') {
     return {
       type,
@@ -528,6 +528,12 @@ function defaultStep(type: WorkflowStepType = 'image'): WorkflowStep {
       prompt: '',
       language: defaultSubtitleLanguage.value || undefined,
       voice: false
+    }
+  }
+  if (type !== 'image') {
+    return {
+      type,
+      prompt: ''
     }
   }
   return {
@@ -556,8 +562,9 @@ function parseStepsJson(stepsJson: string): WorkflowStep[] {
     const parsed = JSON.parse(stepsJson)
     if (!Array.isArray(parsed)) return []
     return parsed.map((item: any) => {
-      const type = (item.type || 'image') as WorkflowStepType
-      return { ...defaultStep(type), ...item, type }
+      const type = typeof item?.type === 'string' ? item.type.trim() : ''
+      const base = defaultStep(type)
+      return { ...base, ...item, type }
     })
   } catch {
     return []
