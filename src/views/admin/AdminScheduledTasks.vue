@@ -280,10 +280,25 @@ function normalizeBinaryStatus(value: unknown): boolean | null {
 async function handleRunNow(id: number) {
   runningId.value = id
   try {
-    await request.post(`/api/admin/scheduled-tasks/${id}/run`)
+    const currentTask = tasks.value?.find(task => task.id === id)
+    const previousLastRunAt = typeof currentTask?.lastRunAt === 'string' ? currentTask.lastRunAt : ''
+    const previousLastStatus = typeof currentTask?.lastStatus === 'string' ? currentTask.lastStatus : ''
+    const res = await request.post(`/api/admin/scheduled-tasks/${id}/run`)
+    const responseTask = (res as any).data
+    if (responseTask != null && (!responseTask || typeof responseTask !== 'object' || Array.isArray(responseTask) || Number((responseTask as any).id) !== id)) {
+      throw new Error('任务触发结果待确认')
+    }
     await load()
     const refreshed = tasks.value?.find(task => task.id === id)
     if (!refreshed) {
+      throw new Error('任务触发结果待确认')
+    }
+    const nextLastRunAt = typeof refreshed.lastRunAt === 'string' ? refreshed.lastRunAt : ''
+    const nextLastStatus = typeof refreshed.lastStatus === 'string' ? refreshed.lastStatus : ''
+    if (!nextLastRunAt && !nextLastStatus) {
+      throw new Error('任务触发结果待确认')
+    }
+    if (previousLastRunAt === nextLastRunAt && previousLastStatus === nextLastStatus) {
       throw new Error('任务触发结果待确认')
     }
     message.success('任务已触发')
