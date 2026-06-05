@@ -219,24 +219,29 @@ const areaPath = computed(() => {
   return `M ${lineX(0)},${lineH - 20} L ${pts} L ${lineX(dailyUsersSeries.value.length - 1)},${lineH - 20} Z`
 })
 
-const handleExportCsv = () => {
+const handleExportCsv = async () => {
   const token = localStorage.getItem('satoken')
-  const a = document.createElement('a')
-  a.href = `${API_BASE_URL}/api/admin/stats/export/csv`
-  a.download = `stats_${new Date().toISOString().slice(0, 10)}.csv`
-  // Use fetch with auth to trigger download
-  fetch(a.href, { headers: { 'satoken': token || '' } })
-    .then(res => res.blob())
-    .then(blob => {
-      const url = URL.createObjectURL(blob)
-      const link = document.createElement('a')
-      link.href = url
-      link.download = a.download
-      link.click()
-      URL.revokeObjectURL(url)
-      message.success('报表已下载')
-    })
-    .catch(() => message.error('导出失败'))
+  const href = `${API_BASE_URL}/api/admin/stats/export/csv`
+  const download = `stats_${new Date().toISOString().slice(0, 10)}.csv`
+  try {
+    const res = await fetch(href, { headers: { satoken: token || '' } })
+    if (!res.ok) {
+      throw new Error(`导出接口返回 ${res.status}`)
+    }
+    const blob = await res.blob()
+    if (blob.size <= 0) {
+      throw new Error('报表导出结果待确认')
+    }
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = download
+    link.click()
+    URL.revokeObjectURL(url)
+    message.success('报表已下载')
+  } catch (err: any) {
+    message.error(err.message || '导出失败')
+  }
 }
 
 const loadDashboard = async () => {

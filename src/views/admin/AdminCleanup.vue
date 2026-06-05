@@ -94,6 +94,31 @@ function normalizeCleanupPayload(payload: unknown, metricKeys: string[], require
   return payload
 }
 
+function cleanupResultKey(metricKey: string) {
+  return `deleted${metricKey.charAt(0).toUpperCase()}${metricKey.slice(1)}`
+}
+
+function snapshotCleanupMetrics(source: any, keys: string[]) {
+  return Object.fromEntries(keys.map((key) => [key, toOptionalNumber(source?.[key]) ?? 0])) as Record<string, number>
+}
+
+function requireCleanupExecutionConfirmed(resultPayload: any, previewSnapshot: Record<string, number> | null) {
+  const deletedMetrics = snapshotCleanupMetrics(resultPayload, cleanupItems.map(item => cleanupResultKey(item.key)))
+  const deletedTotal = Object.values(deletedMetrics).reduce((sum, value) => sum + value, 0)
+  if (previewSnapshot) {
+    const previewTotal = Object.values(previewSnapshot).reduce((sum, value) => sum + value, 0)
+    for (const item of cleanupItems) {
+      const deletedValue = deletedMetrics[cleanupResultKey(item.key)]
+      if (deletedValue > previewSnapshot[item.key]) {
+        throw new Error('清理结果待确认')
+      }
+    }
+    if (previewTotal > 0 && deletedTotal === 0) {
+      throw new Error('清理结果待确认')
+    }
+  }
+}
+
 async function handlePreview() {
   previewing.value = true
   result.value = null
@@ -114,11 +139,16 @@ async function handlePreview() {
 async function handleExecute() {
   cleaning.value = true
   try {
+    const previewSnapshot = preview.value
+      ? snapshotCleanupMetrics(preview.value, cleanupItems.map(item => item.key))
+      : null
     const res = await request.delete('/api/admin/cleanup/execute', { params: { daysOld: daysOld.value } })
-    result.value = normalizeCleanupPayload(
+    const normalizedResult = normalizeCleanupPayload(
       (res as any).data,
-      cleanupItems.map(item => `deleted${item.key.charAt(0).toUpperCase()}${item.key.slice(1)}`)
+      cleanupItems.map(item => cleanupResultKey(item.key))
     )
+    requireCleanupExecutionConfirmed(normalizedResult, previewSnapshot)
+    result.value = normalizedResult
     resultLoadState.value = 'ready'
     preview.value = null
     previewLoadState.value = 'idle'
