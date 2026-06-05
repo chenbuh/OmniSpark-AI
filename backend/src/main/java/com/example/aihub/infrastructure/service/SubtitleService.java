@@ -4,6 +4,7 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.example.aihub.common.exception.BusinessException;
 import com.example.aihub.common.security.UploadAccessSignatureService;
 import com.example.aihub.common.storage.UploadStorageResolver;
+import com.example.aihub.common.util.PagingUtil;
 import com.example.aihub.common.util.VoMapper;
 import com.example.aihub.infrastructure.dto.SubtitleGenerateDTO;
 import com.example.aihub.infrastructure.dto.SubtitleUpdateDTO;
@@ -31,10 +32,13 @@ public class SubtitleService {
     private final UploadAccessSignatureService uploadAccessSignatureService;
     private final UploadStorageResolver uploadStorageResolver;
 
-    public List<SubtitleVO> listByAsset(Long assetId) {
+    public List<SubtitleVO> listByAsset(Long assetId, int limit) {
         requireAccessibleAsset(assetId);
         return subtitleMapper.selectList(
-                new LambdaQueryWrapper<Subtitle>().eq(Subtitle::getAssetId, assetId))
+                new LambdaQueryWrapper<Subtitle>()
+                        .eq(Subtitle::getAssetId, assetId)
+                        .orderByDesc(Subtitle::getId)
+                        .last("LIMIT " + PagingUtil.clampLimit(limit, 100, 100)))
                 .stream().map(this::toVO).toList();
     }
 

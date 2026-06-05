@@ -4,6 +4,7 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import cn.dev33.satoken.annotation.SaCheckLogin;
 import cn.dev33.satoken.annotation.SaCheckRole;
 import com.example.aihub.common.result.ApiResult;
+import com.example.aihub.common.util.PagingUtil;
 import com.example.aihub.infrastructure.entity.SystemConfig;
 import com.example.aihub.infrastructure.mapper.SystemConfigMapper;
 import lombok.RequiredArgsConstructor;
@@ -20,12 +21,14 @@ public class SystemConfigController {
     private final SystemConfigMapper configMapper;
 
     @GetMapping
-    public ApiResult<List<SystemConfig>> list(@RequestParam(required = false) String group) {
+    public ApiResult<List<SystemConfig>> list(@RequestParam(required = false) String group,
+                                              @RequestParam(defaultValue = "100") int limit) {
         LambdaQueryWrapper<SystemConfig> wrapper = new LambdaQueryWrapper<>();
         if (group != null && !group.isBlank()) {
             wrapper.eq(SystemConfig::getConfigGroup, group);
         }
-        wrapper.orderByDesc(SystemConfig::getId);
+        wrapper.orderByDesc(SystemConfig::getId)
+                .last("LIMIT " + PagingUtil.clampLimit(limit, 100, 100));
         return ApiResult.ok(configMapper.selectList(wrapper));
     }
 

@@ -79,10 +79,12 @@ public class CommunityController {
     }
 
     @GetMapping("/posts/{id}/comments")
-    public ApiResult<List<PublicCommentVO>> listComments(@PathVariable Long id) {
+    public ApiResult<List<PublicCommentVO>> listComments(@PathVariable Long id,
+                                                         @RequestParam(defaultValue = "200") int limit) {
         return ApiResult.ok(interactionService.listComments(
                 PublicContentInteractionService.RESOURCE_COMMUNITY_POST,
-                id
+                id,
+                PagingUtil.clampLimit(limit, 200, 200)
         ));
     }
 

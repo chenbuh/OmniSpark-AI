@@ -2,6 +2,7 @@ package com.example.aihub.module.team;
 
 import cn.dev33.satoken.annotation.SaCheckLogin;
 import com.example.aihub.common.result.ApiResult;
+import com.example.aihub.common.util.PagingUtil;
 import com.example.aihub.infrastructure.dto.TeamMemberInviteDTO;
 import com.example.aihub.infrastructure.dto.TeamSaveDTO;
 import com.example.aihub.infrastructure.service.TeamService;
@@ -21,8 +22,8 @@ public class TeamController {
     private final TeamService teamService;
 
     @GetMapping
-    public ApiResult<List<TeamVO>> list() {
-        return ApiResult.ok(teamService.listMyTeams());
+    public ApiResult<List<TeamVO>> list(@RequestParam(defaultValue = "100") int limit) {
+        return ApiResult.ok(teamService.listMyTeams(PagingUtil.clampLimit(limit, 100, 100)));
     }
 
     @GetMapping("/{id}")
@@ -49,8 +50,9 @@ public class TeamController {
     // ===== 成员管理 =====
 
     @GetMapping("/{id}/members")
-    public ApiResult<List<TeamMemberVO>> listMembers(@PathVariable Long id) {
-        return ApiResult.ok(teamService.listMembers(id));
+    public ApiResult<List<TeamMemberVO>> listMembers(@PathVariable Long id,
+                                                     @RequestParam(defaultValue = "100") int limit) {
+        return ApiResult.ok(teamService.listMembers(id, PagingUtil.clampLimit(limit, 100, 100)));
     }
 
     @PostMapping("/members/invite")

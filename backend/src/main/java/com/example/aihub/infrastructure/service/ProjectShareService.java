@@ -2,6 +2,7 @@ package com.example.aihub.infrastructure.service;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.example.aihub.common.exception.BusinessException;
+import com.example.aihub.common.util.PagingUtil;
 import com.example.aihub.common.util.SecurityUtil;
 import com.example.aihub.common.util.VoMapper;
 import com.example.aihub.infrastructure.dto.ShareSaveDTO;
@@ -116,12 +117,15 @@ public class ProjectShareService {
 
     // ===== 共享管理 =====
 
-    public List<ProjectShareVO> listShares(Long projectId) {
+    public List<ProjectShareVO> listShares(Long projectId, int limit) {
         // 校验操作者拥有项目 admin 权限
         requirePermission(projectId, "admin");
 
         List<ProjectShare> shares = shareMapper.selectList(
-                new LambdaQueryWrapper<ProjectShare>().eq(ProjectShare::getProjectId, projectId));
+                new LambdaQueryWrapper<ProjectShare>()
+                        .eq(ProjectShare::getProjectId, projectId)
+                        .orderByDesc(ProjectShare::getId)
+                        .last("LIMIT " + PagingUtil.clampLimit(limit, 100, 100)));
         return shares.stream().map(s -> {
             ProjectShareVO vo = VoMapper.copy(s, ProjectShareVO.class);
             Project project = projectMapper.selectById(s.getProjectId());

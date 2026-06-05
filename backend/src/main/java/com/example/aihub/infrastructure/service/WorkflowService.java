@@ -3,6 +3,7 @@ package com.example.aihub.infrastructure.service;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.example.aihub.common.exception.BusinessException;
 import com.example.aihub.common.security.UploadAccessSignatureService;
+import com.example.aihub.common.util.PagingUtil;
 import com.example.aihub.common.util.VoMapper;
 import com.example.aihub.infrastructure.dto.ImageGenerateDTO;
 import com.example.aihub.infrastructure.dto.SubtitleGenerateDTO;
@@ -43,7 +44,7 @@ public class WorkflowService {
     private final com.example.aihub.common.security.ProjectAccessGuard projectAccessGuard;
     private final UploadAccessSignatureService uploadAccessSignatureService;
 
-    public List<WorkflowVO> list(Long projectId) {
+    public List<WorkflowVO> list(Long projectId, int limit) {
         LambdaQueryWrapper<Workflow> wrapper = new LambdaQueryWrapper<>();
         if (projectId != null) {
             projectAccessGuard.assertAccess(projectId);
@@ -56,6 +57,7 @@ public class WorkflowService {
             wrapper.in(Workflow::getProjectId, accessibleIds);
         }
         wrapper.orderByDesc(Workflow::getId);
+        wrapper.last("LIMIT " + PagingUtil.clampLimit(limit, 100, 100));
         return workflowMapper.selectList(wrapper).stream().map(this::toVO).toList();
     }
 
@@ -108,7 +110,7 @@ public class WorkflowService {
         runMapper.delete(new LambdaQueryWrapper<WorkflowRun>().eq(WorkflowRun::getWorkflowId, id));
     }
 
-    public List<WorkflowRunVO> listRuns(Long workflowId) {
+    public List<WorkflowRunVO> listRuns(Long workflowId, int limit) {
         Workflow workflow = workflowMapper.selectById(workflowId);
         if (workflow == null) {
             throw new BusinessException("工作流不存在");
@@ -116,7 +118,8 @@ public class WorkflowService {
         projectAccessGuard.assertAccess(workflow.getProjectId());
         return runMapper.selectList(new LambdaQueryWrapper<WorkflowRun>()
                         .eq(WorkflowRun::getWorkflowId, workflowId)
-                        .orderByDesc(WorkflowRun::getId))
+                        .orderByDesc(WorkflowRun::getId)
+                        .last("LIMIT " + PagingUtil.clampLimit(limit, 100, 100)))
                 .stream()
                 .map(this::toRunVO)
                 .toList();

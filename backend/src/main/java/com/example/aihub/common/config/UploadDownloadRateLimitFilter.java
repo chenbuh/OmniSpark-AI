@@ -58,6 +58,9 @@ public class UploadDownloadRateLimitFilter implements Filter {
     @Value("${app.security.upload-access.download.max-unique-files-15m-ip-multi-user:30}")
     private int maxUniqueFilesPerFifteenMinutesIpMultiUser;
 
+    @Value("${app.security.upload-access.download.min-unique-projects-15m-ip-multi-user:2}")
+    private int minUniqueProjectsPerFifteenMinutesIpMultiUser;
+
     @Value("${app.security.upload-access.download.max-unique-users-2m-ip-burst:1}")
     private int maxUniqueUsersPerTwoMinutesIpBurst;
 
@@ -75,6 +78,9 @@ public class UploadDownloadRateLimitFilter implements Filter {
 
     @Value("${app.security.upload-access.download.max-unique-files-2m-ip-ua-burst:8}")
     private int maxUniqueFilesPerTwoMinutesIpUaBurst;
+
+    @Value("${app.security.upload-access.download.min-unique-projects-10m-ip-ua-multi-user:2}")
+    private int minUniqueProjectsPerTenMinutesIpUaMultiUser;
 
     @Value("${app.security.upload-access.download.block-minutes:30}")
     private long blockMinutes;
@@ -95,6 +101,13 @@ public class UploadDownloadRateLimitFilter implements Filter {
             if (existingRisk != null && !existingRisk.isBlank() && !isInlineMediaPreview(req)) {
                 req.setAttribute(SecurityRequestAttributes.RISK_REASON, existingRisk);
                 writeTooManyRequests((HttpServletResponse) response, existingRisk);
+                return;
+            }
+
+            String uploadRisk = antiCrawlerRiskService.inspectUploadRequest(req, clientIp);
+            if (uploadRisk != null && !uploadRisk.isBlank() && !isInlineMediaPreview(req)) {
+                req.setAttribute(SecurityRequestAttributes.RISK_REASON, uploadRisk);
+                writeTooManyRequests((HttpServletResponse) response, uploadRisk);
                 return;
             }
 
@@ -157,6 +170,7 @@ public class UploadDownloadRateLimitFilter implements Filter {
             Long signedUserId = asLong(req.getAttribute(SecurityRequestAttributes.UPLOAD_SIGNED_USER_ID));
             if (signedUserId != null && signedUserId > 0 && clientIp != null && !clientIp.isBlank()) {
                 String normalizedPath = stripQuery(path);
+                Long projectId = asLong(req.getAttribute(SecurityRequestAttributes.UPLOAD_PROJECT_ID));
                 String ipUserSpanKey = KEY_PREFIX + "ip-user-span:" + clientIp;
                 redisTemplate.opsForSet().add(ipUserSpanKey, String.valueOf(signedUserId));
                 redisTemplate.expire(ipUserSpanKey, Duration.ofMinutes(15));
@@ -166,6 +180,14 @@ public class UploadDownloadRateLimitFilter implements Filter {
                 redisTemplate.opsForSet().add(ipUniqueKey, normalizedPath);
                 redisTemplate.expire(ipUniqueKey, Duration.ofMinutes(15));
                 Long ipUniqueCount = redisTemplate.opsForSet().size(ipUniqueKey);
+
+                Long ipProjectSpanCount = null;
+                if (projectId != null && projectId > 0) {
+                    String ipProjectSpanKey = KEY_PREFIX + "ip-project-span:" + clientIp;
+                    redisTemplate.opsForSet().add(ipProjectSpanKey, String.valueOf(projectId));
+                    redisTemplate.expire(ipProjectSpanKey, Duration.ofMinutes(15));
+                    ipProjectSpanCount = redisTemplate.opsForSet().size(ipProjectSpanKey);
+                }
 
                 String ipBurstUserSpanKey = KEY_PREFIX + "ip-burst-user-span:" + clientIp;
                 redisTemplate.opsForSet().add(ipBurstUserSpanKey, String.valueOf(signedUserId));
@@ -178,15 +200,18 @@ public class UploadDownloadRateLimitFilter implements Filter {
                 Long ipBurstUniqueCount = redisTemplate.opsForSet().size(ipBurstUniqueKey);
 
                 if (ipUserSpanCount != null && ipUniqueCount != null
+                        && ipProjectSpanCount != null
                         && ipBurstUserSpanCount != null && ipBurstUniqueCount != null
                         && ipUserSpanCount > maxUniqueUsersPerFifteenMinutesIp
                         && ipUniqueCount > maxUniqueFilesPerFifteenMinutesIpMultiUser
+                        && ipProjectSpanCount >= minUniqueProjectsPerFifteenMinutesIpMultiUser
                         && ipBurstUserSpanCount > maxUniqueUsersPerTwoMinutesIpBurst
                         && ipBurstUniqueCount > maxUniqueFilesPerTwoMinutesIpBurst) {
                         block(req, (HttpServletResponse) response, clientIp,
                                 "15 分钟内同一 IP 跨多个账号访问不同资源超过 "
                                         + maxUniqueFilesPerFifteenMinutesIpMultiUser
-                                        + " 个，且近 2 分钟仍在持续突发下载");
+                                        + " 个，且跨项目数达到 " + minUniqueProjectsPerFifteenMinutesIpMultiUser
+                                        + " 个并在近 2 分钟仍在持续突发下载");
                         return;
                 }
 
@@ -201,6 +226,14 @@ public class UploadDownloadRateLimitFilter implements Filter {
                 redisTemplate.expire(ipUaUniqueKey, Duration.ofMinutes(10));
                 Long ipUaUniqueCount = redisTemplate.opsForSet().size(ipUaUniqueKey);
 
+                Long ipUaProjectSpanCount = null;
+                if (projectId != null && projectId > 0) {
+                    String ipUaProjectSpanKey = KEY_PREFIX + "ip-ua-project-span:" + clientIp + ":" + uaBucket;
+                    redisTemplate.opsForSet().add(ipUaProjectSpanKey, String.valueOf(projectId));
+                    redisTemplate.expire(ipUaProjectSpanKey, Duration.ofMinutes(10));
+                    ipUaProjectSpanCount = redisTemplate.opsForSet().size(ipUaProjectSpanKey);
+                }
+
                 String ipUaBurstUserSpanKey = KEY_PREFIX + "ip-ua-burst-user-span:" + clientIp + ":" + uaBucket;
                 redisTemplate.opsForSet().add(ipUaBurstUserSpanKey, String.valueOf(signedUserId));
                 redisTemplate.expire(ipUaBurstUserSpanKey, Duration.ofMinutes(2));
@@ -212,15 +245,18 @@ public class UploadDownloadRateLimitFilter implements Filter {
                 Long ipUaBurstUniqueCount = redisTemplate.opsForSet().size(ipUaBurstUniqueKey);
 
                 if (ipUaUserSpanCount != null && ipUaUniqueCount != null
+                        && ipUaProjectSpanCount != null
                         && ipUaBurstUserSpanCount != null && ipUaBurstUniqueCount != null
                         && ipUaUserSpanCount > maxUniqueUsersPerTenMinutesIpUa
                         && ipUaUniqueCount > maxUniqueFilesPerTenMinutesIpUaMultiUser
+                        && ipUaProjectSpanCount >= minUniqueProjectsPerTenMinutesIpUaMultiUser
                         && ipUaBurstUserSpanCount > maxUniqueUsersPerTwoMinutesIpUaBurst
                         && ipUaBurstUniqueCount > maxUniqueFilesPerTwoMinutesIpUaBurst) {
                         block(req, (HttpServletResponse) response, clientIp,
                                 "10 分钟内同一 IP/UA 跨多个账号访问不同资源超过 "
                                         + maxUniqueFilesPerTenMinutesIpUaMultiUser
-                                        + " 个，且近 2 分钟仍在持续突发下载");
+                                        + " 个，且跨项目数达到 " + minUniqueProjectsPerTenMinutesIpUaMultiUser
+                                        + " 个并在近 2 分钟仍在持续突发下载");
                         return;
                 }
             }

@@ -24,17 +24,25 @@ public class AntiCrawlerRiskInterceptor implements HandlerInterceptor {
         }
         String clientIp = clientIpResolver.resolve(request);
         String reason = antiCrawlerRiskService.currentRiskReason(request, clientIp);
-        if (reason == null || reason.isBlank()) {
-            return true;
+        if (reason != null && !reason.isBlank()) {
+            String ticket = request.getHeader("X-Risk-Captcha-Ticket");
+            if (ticket != null && captchaService.consumeTicket(ticket)) {
+                antiCrawlerRiskService.clearRisk(request, clientIp);
+            } else {
+                request.setAttribute(SecurityRequestAttributes.RISK_REASON, reason);
+                writeRiskResponse(response);
+                return false;
+            }
         }
 
-        String ticket = request.getHeader("X-Risk-Captcha-Ticket");
-        if (ticket != null && captchaService.consumeTicket(ticket)) {
-            antiCrawlerRiskService.clearRisk(request, clientIp);
+        String immediateReason = antiCrawlerRiskService.inspectExportRequest(request, clientIp);
+        if (immediateReason == null || immediateReason.isBlank()) {
+            immediateReason = antiCrawlerRiskService.inspectPublicContentRequest(request, clientIp);
+        }
+        if (immediateReason == null || immediateReason.isBlank()) {
             return true;
         }
-
-        request.setAttribute(SecurityRequestAttributes.RISK_REASON, reason);
+        request.setAttribute(SecurityRequestAttributes.RISK_REASON, immediateReason);
         writeRiskResponse(response);
         return false;
     }

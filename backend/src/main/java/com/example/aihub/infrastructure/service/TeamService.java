@@ -2,6 +2,7 @@ package com.example.aihub.infrastructure.service;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.example.aihub.common.exception.BusinessException;
+import com.example.aihub.common.util.PagingUtil;
 import com.example.aihub.common.util.SecurityUtil;
 import com.example.aihub.common.util.VoMapper;
 import com.example.aihub.infrastructure.dto.TeamMemberInviteDTO;
@@ -31,15 +32,23 @@ public class TeamService {
 
     // ===== 团队 CRUD =====
 
-    public List<TeamVO> listMyTeams() {
+    public List<TeamVO> listMyTeams(int limit) {
         Long userId = SecurityUtil.loginUserId();
         List<TeamMember> members = memberMapper.selectList(
-                new LambdaQueryWrapper<TeamMember>().eq(TeamMember::getUserId, userId).eq(TeamMember::getStatus, 1));
+                new LambdaQueryWrapper<TeamMember>()
+                        .eq(TeamMember::getUserId, userId)
+                        .eq(TeamMember::getStatus, 1)
+                        .orderByDesc(TeamMember::getId)
+                        .last("LIMIT " + PagingUtil.clampLimit(limit, 100, 100)));
         if (members.isEmpty()) {
             return List.of();
         }
         List<Long> teamIds = members.stream().map(TeamMember::getTeamId).toList();
-        return teamMapper.selectList(new LambdaQueryWrapper<Team>().in(Team::getId, teamIds).eq(Team::getStatus, 1))
+        return teamMapper.selectList(new LambdaQueryWrapper<Team>()
+                        .in(Team::getId, teamIds)
+                        .eq(Team::getStatus, 1)
+                        .orderByDesc(Team::getId)
+                        .last("LIMIT " + PagingUtil.clampLimit(limit, 100, 100)))
                 .stream()
                 .map(this::toTeamVO)
                 .toList();
@@ -96,10 +105,14 @@ public class TeamService {
 
     // ===== 成员管理 =====
 
-    public List<TeamMemberVO> listMembers(Long teamId) {
+    public List<TeamMemberVO> listMembers(Long teamId, int limit) {
         requireTeam(teamId);
         List<TeamMember> members = memberMapper.selectList(
-                new LambdaQueryWrapper<TeamMember>().eq(TeamMember::getTeamId, teamId).eq(TeamMember::getStatus, 1));
+                new LambdaQueryWrapper<TeamMember>()
+                        .eq(TeamMember::getTeamId, teamId)
+                        .eq(TeamMember::getStatus, 1)
+                        .orderByDesc(TeamMember::getId)
+                        .last("LIMIT " + PagingUtil.clampLimit(limit, 100, 100)));
         return members.stream().map(m -> {
             TeamMemberVO vo = VoMapper.copy(m, TeamMemberVO.class);
             User user = userMapper.selectById(m.getUserId());

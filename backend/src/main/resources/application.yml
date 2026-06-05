@@ -61,17 +61,25 @@ app:
         max-unique-files-15m-multi-project-user: 35
         max-unique-users-15m-ip: 2
         max-unique-files-15m-ip-multi-user: 30
+        min-unique-projects-15m-ip-multi-user: 2
+        min-unique-projects-10m-ip-ua-multi-user: 2
         risk:
           burst-window-seconds: 3
           burst-min-unique-files-user: 12
           burst-event-window-minutes: 2
           burst-max-events-user: 2
+          staggered-window-seconds: 12
+          staggered-min-unique-files-user: 6
+          staggered-event-window-minutes: 15
+          staggered-max-events-user: 3
           fast-ip-window-seconds: 10
           fast-ip-max-users: 2
           fast-ip-max-unique-files: 15
+          fast-ip-min-unique-projects: 2
           fast-ip-ua-window-seconds: 10
           fast-ip-ua-max-users: 1
           fast-ip-ua-max-unique-files: 12
+          fast-ip-ua-min-unique-projects: 2
           steady-window-minutes: 2
           steady-interval-min-millis: 900
           steady-interval-max-millis: 5000
@@ -84,7 +92,37 @@ app:
           slow-interval-jitter-millis: 1200
           slow-streak-user: 8
           slow-min-unique-files-user: 10
+          distributed-window-minutes: 60
+          distributed-time-slice-minutes: 5
+          distributed-min-active-slices-user: 4
+          distributed-min-unique-projects-user: 3
+          distributed-min-unique-files-user: 24
+          distributed-multi-user-window-minutes: 60
+          distributed-multi-user-time-slice-minutes: 5
+          distributed-multi-user-min-active-slices-ip-ua: 4
+          distributed-multi-user-min-unique-users-ip-ua: 2
+          distributed-multi-user-min-unique-projects-ip-ua: 3
+          distributed-multi-user-min-unique-files-ip-ua: 24
+          ua-distributed-window-minutes: 60
+          ua-distributed-time-slice-minutes: 5
+          ua-distributed-min-active-slices-ua: 4
+          ua-distributed-min-unique-ips-ua: 3
+          ua-distributed-min-unique-users-ua: 2
+          ua-distributed-min-unique-projects-ua: 3
+          ua-distributed-min-unique-files-ua: 24
         block-minutes: 30
+    public-content-risk:
+      window-minutes: 15
+      max-page-scans: 18
+      max-detail-hits: 45
+      max-comment-hits: 20
+      max-unique-targets: 30
+      min-combined-unique-targets: 12
+      distributed-window-minutes: 60
+      distributed-time-slice-minutes: 5
+      distributed-min-active-slices: 4
+      distributed-min-page-scans: 8
+      distributed-min-unique-targets: 24
 
 server:
   port: 8080

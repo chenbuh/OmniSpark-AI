@@ -77,10 +77,12 @@ public class PromptTemplateController {
     }
 
     @GetMapping("/{id}/comments")
-    public ApiResult<List<PublicCommentVO>> listComments(@PathVariable Long id) {
+    public ApiResult<List<PublicCommentVO>> listComments(@PathVariable Long id,
+                                                         @RequestParam(defaultValue = "200") int limit) {
         return ApiResult.ok(interactionService.listComments(
                 PublicContentInteractionService.RESOURCE_PROMPT_TEMPLATE,
-                id
+                id,
+                PagingUtil.clampLimit(limit, 200, 200)
         ));
     }
 

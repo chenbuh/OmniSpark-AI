@@ -6,4 +6,5 @@ import lombok.Data;
 public class TaskQueryDTO {
     private Long projectId;
     private String status;
+    private Integer limit;
 }

@@ -3,6 +3,7 @@ package com.example.aihub.infrastructure.service;
 import com.example.aihub.infrastructure.entity.ScheduledTask;
 import com.example.aihub.infrastructure.mapper.ScheduledTaskMapper;
 import com.example.aihub.module.system.AdminCleanupController;
+import com.example.aihub.common.util.PagingUtil;
 import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -30,8 +31,10 @@ public class DynamicSchedulerService {
         log.info("Dynamic scheduler initialized");
     }
 
-    public List<ScheduledTask> list() {
-        return taskMapper.selectList(null);
+    public List<ScheduledTask> list(int limit) {
+        return taskMapper.selectList(new com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper<ScheduledTask>()
+                .orderByDesc(ScheduledTask::getId)
+                .last("LIMIT " + PagingUtil.clampLimit(limit, 100, 100)));
     }
 
     @Transactional(rollbackFor = Exception.class)

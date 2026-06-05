@@ -1,9 +1,10 @@
 <template>
-  <div class="generate-container">
+  <div ref="pageRoot" class="generate-container">
     <n-row :gutter="24" style="height: 100%;">
       <!-- 左侧参数设置区 -->
       <n-col :span="9" style="height: 100%;">
         <n-card class="glass-card control-card" content-style="display: flex; flex-direction: column; height: 100%;">
+          <div class="card-orb card-orb-left"></div>
           <n-tabs v-model:value="generateMode" type="line" justify-content="space-evenly" class="mode-tabs" @update:value="handleModeChange">
             <n-tab-pane name="txt2img" tab="文生图" />
             <n-tab-pane name="img2img" tab="图生图" />
@@ -217,6 +218,7 @@
       <!-- 右侧工作预览区 -->
       <n-col :span="15" style="height: 100%;">
         <n-card class="glass-card preview-card">
+          <div class="card-orb card-orb-right"></div>
           <!-- 1. 生成中状态 (真实进度) -->
           <div v-if="!taskCompleted && (generating || (activeTask && (activeTask.status === 'pending' || activeTask.status === 'running')))" class="loading-state">
             <div class="pulsing-glow"></div>
@@ -435,9 +437,10 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, computed, onMounted, onBeforeUnmount, watch } from 'vue'
+import { ref, reactive, computed, nextTick, onMounted, onBeforeUnmount, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useMessage } from 'naive-ui'
+import { gsap } from 'gsap'
 import { useProjectStore } from '@/store/project'
 import { useModelProviderStore } from '@/store/provider'
 import { useTaskStore } from '@/store/task'
@@ -466,6 +469,7 @@ import {
 const route = useRoute()
 const router = useRouter()
 const message = useMessage()
+const pageRoot = ref<HTMLElement | null>(null)
 
 const projectStore = useProjectStore()
 const providerStore = useModelProviderStore()
@@ -500,6 +504,7 @@ const historyFilter = ref('all')
 let taskPollingTimer: ReturnType<typeof setInterval> | null = null
 let taskSyncing = false
 const resultVersion = ref(0)
+let entranceMatchMedia: gsap.MatchMedia | null = null
 
 const filteredHistory = computed(() => {
   let list = taskHistory.value
@@ -706,6 +711,419 @@ const handleModeChange = () => {
   stopElapsedTimer()
 }
 
+const shouldReduceMotion = () => window.matchMedia('(prefers-reduced-motion: reduce)').matches
+
+const getScopedElements = (selector: string) => {
+  return Array.from(pageRoot.value?.querySelectorAll<HTMLElement>(selector) ?? [])
+}
+
+const getScopedElement = (selector: string) => {
+  return pageRoot.value?.querySelector<HTMLElement>(selector) ?? null
+}
+
+const animateActiveSelection = async (selector: string) => {
+  await nextTick()
+  const element = getScopedElement(selector)
+  if (!element || shouldReduceMotion()) return
+
+  gsap.killTweensOf(element)
+  gsap.fromTo(
+    element,
+    { scale: 0.95, y: 4 },
+    {
+      scale: 1,
+      y: 0,
+      duration: 0.36,
+      ease: 'back.out(1.7)',
+      clearProps: 'transform'
+    }
+  )
+}
+
+const animateModeSurface = async () => {
+  await nextTick()
+  if (shouldReduceMotion()) return
+
+  const modeSections = getScopedElements('.ref-image-section, .upload-drag-area, .inpaint-canvas-wrapper, .custom-config-inputs')
+  if (modeSections.length > 0) {
+    gsap.killTweensOf(modeSections)
+    gsap.fromTo(
+      modeSections,
+      { autoAlpha: 0, y: 14 },
+      {
+        autoAlpha: 1,
+        y: 0,
+        duration: 0.42,
+        stagger: 0.06,
+        ease: 'power2.out',
+        clearProps: 'transform,opacity,visibility'
+      }
+    )
+  }
+
+  const button = getScopedElement('.generate-btn')
+  if (button) {
+    gsap.killTweensOf(button)
+    gsap.fromTo(
+      button,
+      { scale: 0.985 },
+      {
+        scale: 1,
+        duration: 0.3,
+        ease: 'power2.out',
+        clearProps: 'transform'
+      }
+    )
+  }
+}
+
+const animateHistoryRail = async (fromStart = true) => {
+  await nextTick()
+  const historySection = getScopedElement('.history-section')
+  if (!historySection) return
+  if (shouldReduceMotion()) {
+    gsap.set(historySection, { clearProps: 'transform,opacity,visibility' })
+    return
+  }
+
+  const thumbs = getScopedElements('.history-thumb-box')
+  gsap.killTweensOf([historySection, ...thumbs])
+
+  const tl = gsap.timeline({ defaults: { ease: 'power2.out' } })
+  tl.fromTo(
+    historySection,
+    { autoAlpha: 0, y: 18 },
+    {
+      autoAlpha: 1,
+      y: 0,
+      duration: 0.42,
+      clearProps: 'transform,opacity,visibility'
+    }
+  )
+
+  if (thumbs.length > 0) {
+    tl.fromTo(
+      thumbs,
+      { autoAlpha: 0, y: 12, scale: 0.96 },
+      {
+        autoAlpha: 1,
+        y: 0,
+        scale: 1,
+        duration: 0.32,
+        stagger: { each: 0.035, from: fromStart ? 'start' : 'end' },
+        clearProps: 'transform,opacity,visibility'
+      },
+      0.08
+    )
+  }
+}
+
+const animateResultImageSwap = async () => {
+  await nextTick()
+  if (shouldReduceMotion() || !currentAsset.value) return
+
+  const image = getScopedElement('.result-img')
+  const badge = getScopedElement('.batch-indicator')
+  if (image) {
+    gsap.killTweensOf(image)
+    gsap.fromTo(
+      image,
+      { autoAlpha: 0.35, scale: 0.985 },
+      {
+        autoAlpha: 1,
+        scale: 1,
+        duration: 0.34,
+        ease: 'power2.out',
+        clearProps: 'transform,opacity,visibility'
+      }
+    )
+  }
+
+  if (badge) {
+    gsap.killTweensOf(badge)
+    gsap.fromTo(
+      badge,
+      { y: -8, autoAlpha: 0.7 },
+      {
+        y: 0,
+        autoAlpha: 1,
+        duration: 0.28,
+        ease: 'power2.out',
+        clearProps: 'transform,opacity,visibility'
+      }
+    )
+  }
+}
+
+const animatePreviewState = async () => {
+  await nextTick()
+  const previewState = getScopedElement('.loading-state, .result-state, .empty-state')
+  if (!previewState) return
+  if (shouldReduceMotion()) {
+    gsap.set(previewState, { clearProps: 'transform,opacity,visibility' })
+    return
+  }
+
+  gsap.killTweensOf(previewState)
+  const tl = gsap.timeline({ defaults: { ease: 'power3.out' } })
+  tl.fromTo(
+    previewState,
+    { autoAlpha: 0, y: 22 },
+    {
+      autoAlpha: 1,
+      y: 0,
+      duration: 0.5,
+      clearProps: 'transform,opacity,visibility'
+    }
+  )
+
+  if (previewState.classList.contains('loading-state')) {
+    const progressRing = previewState.querySelector('.n-progress') as HTMLElement | null
+    const loadingInfo = previewState.querySelector('.loading-info') as HTMLElement | null
+    if (progressRing) {
+      tl.fromTo(
+        progressRing,
+        { scale: 0.9, autoAlpha: 0.2 },
+        {
+          scale: 1,
+          autoAlpha: 1,
+          duration: 0.55,
+          ease: 'power4.out',
+          clearProps: 'transform,opacity,visibility'
+        },
+        0.04
+      )
+    }
+    if (loadingInfo) {
+      tl.fromTo(
+        loadingInfo,
+        { y: 16, autoAlpha: 0 },
+        {
+          y: 0,
+          autoAlpha: 1,
+          duration: 0.36,
+          clearProps: 'transform,opacity,visibility'
+        },
+        0.12
+      )
+    }
+    return
+  }
+
+  if (previewState.classList.contains('result-state')) {
+    const resultImage = previewState.querySelector('.result-img') as HTMLElement | null
+    const actionBar = previewState.querySelector('.action-float-bar') as HTMLElement | null
+    const paramsCard = previewState.querySelector('.params-details-card') as HTMLElement | null
+    const thumbs = Array.from(previewState.querySelectorAll<HTMLElement>('.batch-thumb-item'))
+
+    if (resultImage) {
+      tl.fromTo(
+        resultImage,
+        { scale: 0.94, autoAlpha: 0, filter: 'blur(10px)' },
+        {
+          scale: 1,
+          autoAlpha: 1,
+          filter: 'blur(0px)',
+          duration: 0.72,
+          ease: 'power4.out',
+          clearProps: 'transform,opacity,visibility,filter'
+        },
+        0.02
+      )
+    }
+
+    if (actionBar) {
+      tl.fromTo(
+        actionBar,
+        { y: 18, autoAlpha: 0 },
+        {
+          y: 0,
+          autoAlpha: 1,
+          duration: 0.38,
+          clearProps: 'transform,opacity,visibility'
+        },
+        0.18
+      )
+    }
+
+    if (thumbs.length > 0) {
+      tl.fromTo(
+        thumbs,
+        { y: 10, autoAlpha: 0 },
+        {
+          y: 0,
+          autoAlpha: 1,
+          duration: 0.26,
+          stagger: 0.04,
+          clearProps: 'transform,opacity,visibility'
+        },
+        0.22
+      )
+    }
+
+    if (paramsCard) {
+      tl.fromTo(
+        paramsCard,
+        { y: 20, autoAlpha: 0 },
+        {
+          y: 0,
+          autoAlpha: 1,
+          duration: 0.4,
+          clearProps: 'transform,opacity,visibility'
+        },
+        0.24
+      )
+    }
+    return
+  }
+
+  const emptyIcon = previewState.querySelector('.empty-icon') as HTMLElement | null
+  const emptyTitle = previewState.querySelector('h3') as HTMLElement | null
+  const emptyText = previewState.querySelector('p') as HTMLElement | null
+
+  if (emptyIcon) {
+    tl.fromTo(
+      emptyIcon,
+      { y: 18, autoAlpha: 0, scale: 0.92 },
+      {
+        y: 0,
+        autoAlpha: 1,
+        scale: 1,
+        duration: 0.56,
+        ease: 'back.out(1.5)',
+        clearProps: 'transform,opacity,visibility'
+      },
+      0.04
+    )
+  }
+  if (emptyTitle) {
+    tl.fromTo(
+      emptyTitle,
+      { y: 14, autoAlpha: 0 },
+      {
+        y: 0,
+        autoAlpha: 1,
+        duration: 0.32,
+        clearProps: 'transform,opacity,visibility'
+      },
+      0.14
+    )
+  }
+  if (emptyText) {
+    tl.fromTo(
+      emptyText,
+      { y: 10, autoAlpha: 0 },
+      {
+        y: 0,
+        autoAlpha: 1,
+        duration: 0.28,
+        clearProps: 'transform,opacity,visibility'
+      },
+      0.2
+    )
+  }
+}
+
+const setupEntranceAnimations = async () => {
+  await nextTick()
+  if (!pageRoot.value) return
+
+  entranceMatchMedia?.revert()
+  entranceMatchMedia = gsap.matchMedia()
+  entranceMatchMedia.add(
+    {
+      isReduced: '(prefers-reduced-motion: reduce)',
+      isMobile: '(max-width: 768px)'
+    },
+    (context) => {
+      const { isReduced, isMobile } = context.conditions as { isReduced: boolean; isMobile: boolean }
+      const panels = getScopedElements('.control-card, .preview-card')
+      const focusBlocks = getScopedElements('.mode-tabs, .prompt-input-box, .generate-btn')
+      const ratioCards = getScopedElements('.ratio-card')
+      const orbs = getScopedElements('.card-orb')
+
+      if (isReduced) {
+        gsap.set([...panels, ...focusBlocks, ...ratioCards, ...orbs], { clearProps: 'transform,opacity,visibility' })
+        return
+      }
+
+      const tl = gsap.timeline({ defaults: { ease: 'power3.out' } })
+      tl.from(
+        panels,
+        {
+          x: (index) => (index === 0 ? -28 : 28),
+          y: isMobile ? 18 : 0,
+          autoAlpha: 0,
+          duration: 0.72,
+          stagger: 0.08,
+          clearProps: 'transform,opacity,visibility'
+        }
+      )
+        .from(
+          focusBlocks,
+          {
+            y: 18,
+            autoAlpha: 0,
+            duration: 0.52,
+            stagger: 0.08,
+            clearProps: 'transform,opacity,visibility'
+          },
+          0.16
+        )
+        .from(
+          ratioCards,
+          {
+            y: 14,
+            autoAlpha: 0,
+            duration: 0.34,
+            stagger: { each: 0.025, from: 'start' },
+            clearProps: 'transform,opacity,visibility'
+          },
+          0.28
+        )
+
+      const loopTweens: gsap.core.Tween[] = []
+      const leftOrb = getScopedElement('.card-orb-left')
+      const rightOrb = getScopedElement('.card-orb-right')
+      if (leftOrb) {
+        loopTweens.push(
+          gsap.to(leftOrb, {
+            x: 18,
+            y: -12,
+            duration: 6,
+            repeat: -1,
+            yoyo: true,
+            ease: 'sine.inOut'
+          })
+        )
+      }
+      if (rightOrb) {
+        loopTweens.push(
+          gsap.to(rightOrb, {
+            x: -20,
+            y: 14,
+            duration: 7,
+            repeat: -1,
+            yoyo: true,
+            ease: 'sine.inOut'
+          })
+        )
+      }
+
+      return () => {
+        loopTweens.forEach((tween) => tween.kill())
+      }
+    },
+    pageRoot.value
+  )
+}
+
+const initPageMotion = async () => {
+  await setupEntranceAnimations()
+  await animatePreviewState()
+  await animateHistoryRail(false)
+}
+
 // ---- 局部重绘 Canvas 绘制 ----
 const initInpaintCanvas = () => {
   const canvas = inpaintCanvas.value
@@ -873,6 +1291,7 @@ onMounted(() => {
 
   // 刷新后恢复未完成任务的轮询
   restoreActiveTaskPolling()
+  void initPageMotion()
 })
 
 // 监听项目空间变化
@@ -1050,6 +1469,41 @@ const currentAssets = computed(() => {
 
 // 批量张数（用于 UI 显示）
 const batchTotal = computed(() => currentAssets.value.length)
+const taskHistorySignature = computed(() => taskHistory.value.map(t => `${t.id}-${t.status}`).join('|'))
+const previewVisualState = computed(() => {
+  const status = activeTask.value?.status ?? 'idle'
+  if (!taskCompleted.value && (generating.value || status === 'pending' || status === 'running')) {
+    return `loading:${submitting.value ? 'submitting' : status}`
+  }
+  if (currentAsset.value) {
+    return `result:${activeTask.value?.id ?? currentAsset.value.id}`
+  }
+  return 'empty'
+})
+
+watch(generateMode, () => {
+  void animateModeSurface()
+})
+
+watch(() => form.aspectRatio, () => {
+  void animateActiveSelection('.ratio-card.active')
+})
+
+watch(previewVisualState, () => {
+  void animatePreviewState()
+})
+
+watch(() => selectedBatchIndex.value, (current, previous) => {
+  if (current !== previous) {
+    void animateResultImageSwap()
+  }
+})
+
+watch(taskHistorySignature, (current, previous) => {
+  if (current !== previous) {
+    void animateHistoryRail(previous.length === 0)
+  }
+})
 
 // 获取缩略图
 const getAssetThumbUrl = (assetId?: number) => {
@@ -1348,23 +1802,92 @@ const handleToVideo = () => {
 }
 
 onBeforeUnmount(() => {
+  entranceMatchMedia?.revert()
   finishGeneratingState()
 })
 </script>
 
 <style scoped>
 .generate-container {
+  position: relative;
   height: calc(100vh - 120px);
   padding-bottom: 20px;
   color: var(--text-primary);
+  overflow: hidden;
+  isolation: isolate;
+}
+
+.generate-container::before,
+.generate-container::after {
+  content: '';
+  position: absolute;
+  border-radius: 999px;
+  pointer-events: none;
+  filter: blur(28px);
+  z-index: 0;
+}
+
+.generate-container::before {
+  width: 320px;
+  height: 320px;
+  top: -90px;
+  left: -80px;
+  background: radial-gradient(circle, rgba(16, 185, 129, 0.18) 0%, rgba(16, 185, 129, 0.04) 48%, transparent 72%);
+}
+
+.generate-container::after {
+  width: 380px;
+  height: 380px;
+  right: -120px;
+  bottom: -140px;
+  background: radial-gradient(circle, rgba(59, 130, 246, 0.16) 0%, rgba(59, 130, 246, 0.04) 50%, transparent 76%);
+}
+
+.generate-container > * {
+  position: relative;
+  z-index: 1;
 }
 
 .glass-card {
-  background: rgba(15, 23, 42, 0.4) !important;
+  position: relative;
+  overflow: hidden;
+  isolation: isolate;
+  background:
+    linear-gradient(180deg, rgba(15, 23, 42, 0.86) 0%, rgba(7, 10, 18, 0.78) 100%),
+    rgba(15, 23, 42, 0.4) !important;
   backdrop-filter: blur(16px);
   border: 1px solid var(--border-color) !important;
   border-radius: 16px !important;
-  box-shadow: 0 4px 30px rgba(0, 0, 0, 0.2);
+  box-shadow: 0 20px 48px rgba(0, 0, 0, 0.22);
+}
+
+.control-card :deep(.n-card__content),
+.preview-card :deep(.n-card__content) {
+  position: relative;
+  z-index: 1;
+}
+
+.card-orb {
+  position: absolute;
+  width: 220px;
+  height: 220px;
+  border-radius: 999px;
+  pointer-events: none;
+  opacity: 0.7;
+  filter: blur(24px);
+  z-index: 0;
+}
+
+.card-orb-left {
+  top: -110px;
+  right: -80px;
+  background: radial-gradient(circle, rgba(16, 185, 129, 0.34) 0%, rgba(59, 130, 246, 0.12) 42%, transparent 72%);
+}
+
+.card-orb-right {
+  top: -100px;
+  left: -70px;
+  background: radial-gradient(circle, rgba(59, 130, 246, 0.3) 0%, rgba(16, 185, 129, 0.12) 44%, transparent 72%);
 }
 
 .control-card {
@@ -1758,7 +2281,7 @@ onBeforeUnmount(() => {
   max-width: 100%;
   flex-wrap: wrap;
   justify-content: center;
-  background: rgba(15, 23, 42, 0.6);
+  background: linear-gradient(135deg, rgba(15, 23, 42, 0.78), rgba(30, 41, 59, 0.6));
   backdrop-filter: blur(12px);
   border: 1px solid rgba(255, 255, 255, 0.1);
   border-radius: 30px;
@@ -1789,9 +2312,10 @@ onBeforeUnmount(() => {
   width: 100%;
   margin-top: 16px;
   padding: 16px;
-  background: rgba(255, 255, 255, 0.02);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.04), rgba(255, 255, 255, 0.02));
   border: 1px solid rgba(255, 255, 255, 0.05);
   border-radius: 12px;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
 }
 
 .params-head {
@@ -1825,7 +2349,7 @@ onBeforeUnmount(() => {
   width: 100%;
   padding: 16px;
   border-top: 1px solid rgba(255, 255, 255, 0.06);
-  background: rgba(15, 23, 42, 0.6);
+  background: linear-gradient(180deg, rgba(15, 23, 42, 0.56), rgba(15, 23, 42, 0.72));
   backdrop-filter: blur(10px);
   z-index: 10;
 }
@@ -2195,5 +2719,13 @@ onBeforeUnmount(() => {
   font-size: 10px;
   color: #ef4444;
   font-weight: 600;
+}
+
+@media (max-width: 768px) {
+  .card-orb {
+    width: 160px;
+    height: 160px;
+    opacity: 0.55;
+  }
 }
 </style>

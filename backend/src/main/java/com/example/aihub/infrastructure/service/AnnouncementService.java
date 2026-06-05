@@ -2,6 +2,7 @@ package com.example.aihub.infrastructure.service;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.example.aihub.common.exception.BusinessException;
+import com.example.aihub.common.util.PagingUtil;
 import com.example.aihub.infrastructure.entity.Announcement;
 import com.example.aihub.infrastructure.mapper.AnnouncementMapper;
 import lombok.RequiredArgsConstructor;
@@ -15,12 +16,14 @@ import java.util.List;
 public class AnnouncementService {
     private final AnnouncementMapper announcementMapper;
 
-    public List<Announcement> list(Boolean activeOnly) {
+    public List<Announcement> list(Boolean activeOnly, int limit) {
         LambdaQueryWrapper<Announcement> wrapper = new LambdaQueryWrapper<>();
         if (Boolean.TRUE.equals(activeOnly)) {
             wrapper.eq(Announcement::getStatus, 1);
         }
-        wrapper.orderByDesc(Announcement::getPriority).orderByDesc(Announcement::getId);
+        wrapper.orderByDesc(Announcement::getPriority)
+                .orderByDesc(Announcement::getId)
+                .last("LIMIT " + PagingUtil.clampLimit(limit, 100, 100));
         return announcementMapper.selectList(wrapper);
     }
 

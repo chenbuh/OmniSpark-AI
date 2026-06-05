@@ -3,6 +3,7 @@ package com.example.aihub.module.apikey;
 import cn.dev33.satoken.annotation.SaCheckLogin;
 import cn.dev33.satoken.stp.StpUtil;
 import com.example.aihub.common.result.ApiResult;
+import com.example.aihub.common.util.PagingUtil;
 import com.example.aihub.infrastructure.entity.ApiKey;
 import com.example.aihub.infrastructure.service.ApiKeyService;
 import lombok.RequiredArgsConstructor;
@@ -22,8 +23,8 @@ public class ApiKeyController {
     private final ApiKeyService apiKeyService;
 
     @GetMapping
-    public ApiResult<List<ApiKey>> list() {
-        return ApiResult.ok(apiKeyService.listByUser(StpUtil.getLoginIdAsLong()));
+    public ApiResult<List<ApiKey>> list(@RequestParam(defaultValue = "100") int limit) {
+        return ApiResult.ok(apiKeyService.listByUser(StpUtil.getLoginIdAsLong(), PagingUtil.clampLimit(limit, 100, 100)));
     }
 
     @PostMapping

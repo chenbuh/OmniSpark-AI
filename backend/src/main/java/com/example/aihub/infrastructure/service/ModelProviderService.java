@@ -2,6 +2,7 @@ package com.example.aihub.infrastructure.service;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.example.aihub.common.exception.BusinessException;
+import com.example.aihub.common.util.PagingUtil;
 import com.example.aihub.common.util.VoMapper;
 import com.example.aihub.infrastructure.dto.ModelProviderSaveDTO;
 import com.example.aihub.infrastructure.dto.ModelProviderUpdateDTO;
@@ -32,7 +33,7 @@ public class ModelProviderService {
             .connectTimeout(Duration.ofSeconds(20))
             .build();
 
-    public List<ModelProviderVO> list(Long projectId) {
+    public List<ModelProviderVO> list(Long projectId, int limit) {
         LambdaQueryWrapper<ModelProvider> wrapper = new LambdaQueryWrapper<>();
         if (projectId != null) {
             projectAccessGuard.assertAccess(projectId);
@@ -46,6 +47,7 @@ public class ModelProviderService {
             wrapper.in(ModelProvider::getProjectId, accessibleIds);
         }
         wrapper.orderByDesc(ModelProvider::getId);
+        wrapper.last("LIMIT " + PagingUtil.clampLimit(limit, 100, 100));
         return providerMapper.selectList(wrapper)
                 .stream()
                 .map(this::toMaskedVO)

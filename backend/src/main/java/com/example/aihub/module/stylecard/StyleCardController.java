@@ -74,10 +74,12 @@ public class StyleCardController {
     }
 
     @GetMapping("/{id}/comments")
-    public ApiResult<List<PublicCommentVO>> listComments(@PathVariable Long id) {
+    public ApiResult<List<PublicCommentVO>> listComments(@PathVariable Long id,
+                                                         @RequestParam(defaultValue = "200") int limit) {
         return ApiResult.ok(interactionService.listComments(
                 PublicContentInteractionService.RESOURCE_STYLE_CARD,
-                id
+                id,
+                PagingUtil.clampLimit(limit, 200, 200)
         ));
     }
 

@@ -3,6 +3,7 @@ package com.example.aihub.module.apikey;
 import cn.dev33.satoken.annotation.SaCheckLogin;
 import cn.dev33.satoken.annotation.SaCheckRole;
 import com.example.aihub.common.result.ApiResult;
+import com.example.aihub.common.util.PagingUtil;
 import com.example.aihub.infrastructure.entity.ApiKey;
 import com.example.aihub.infrastructure.entity.User;
 import com.example.aihub.infrastructure.mapper.UserMapper;
@@ -29,8 +30,8 @@ public class AdminApiKeyController {
     private final UserMapper userMapper;
 
     @GetMapping
-    public ApiResult<List<AdminApiKeyVO>> list() {
-        List<ApiKey> keys = apiKeyService.listAll();
+    public ApiResult<List<AdminApiKeyVO>> list(@RequestParam(defaultValue = "100") int limit) {
+        List<ApiKey> keys = apiKeyService.listAll(PagingUtil.clampLimit(limit, 100, 100));
         if (keys.isEmpty()) return ApiResult.ok(List.of());
 
         // 收集所有 user_id 一次查完

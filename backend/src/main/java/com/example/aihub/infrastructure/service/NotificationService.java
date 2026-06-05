@@ -44,12 +44,14 @@ public class NotificationService {
         return vo;
     }
 
-    public List<NotificationVO> listUnread(Long userId) {
+    public List<NotificationVO> listUnread(Long userId, int limit) {
+        int safeLimit = PagingUtil.clampLimit(limit, 50, 100);
         return notificationMapper.selectList(
                 new LambdaQueryWrapper<Notification>()
                         .eq(Notification::getUserId, userId)
                         .eq(Notification::getIsRead, 0)
-                        .orderByDesc(Notification::getId))
+                        .orderByDesc(Notification::getId)
+                        .last("LIMIT " + safeLimit))
                 .stream().map(this::toVO).toList();
     }
 

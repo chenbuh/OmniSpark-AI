@@ -3,6 +3,7 @@ package com.example.aihub.module.dict;
 import cn.dev33.satoken.annotation.SaCheckLogin;
 import cn.dev33.satoken.annotation.SaCheckRole;
 import com.example.aihub.common.result.ApiResult;
+import com.example.aihub.common.util.PagingUtil;
 import com.example.aihub.infrastructure.entity.DataDict;
 import com.example.aihub.infrastructure.entity.DataDictItem;
 import com.example.aihub.infrastructure.service.DataDictService;
@@ -20,8 +21,8 @@ public class DataDictController {
     private final DataDictService dataDictService;
 
     @GetMapping
-    public ApiResult<List<DataDict>> listDicts() {
-        return ApiResult.ok(dataDictService.listDicts());
+    public ApiResult<List<DataDict>> listDicts(@RequestParam(defaultValue = "100") int limit) {
+        return ApiResult.ok(dataDictService.listDicts(PagingUtil.clampLimit(limit, 100, 100)));
     }
 
     @PostMapping
@@ -45,8 +46,9 @@ public class DataDictController {
     // ===== 条目管理 =====
 
     @GetMapping("/{dictId}/items")
-    public ApiResult<List<DataDictItem>> listItems(@PathVariable Long dictId) {
-        return ApiResult.ok(dataDictService.listItems(dictId));
+    public ApiResult<List<DataDictItem>> listItems(@PathVariable Long dictId,
+                                                   @RequestParam(defaultValue = "100") int limit) {
+        return ApiResult.ok(dataDictService.listItems(dictId, PagingUtil.clampLimit(limit, 100, 100)));
     }
 
     @PostMapping("/{dictId}/items")

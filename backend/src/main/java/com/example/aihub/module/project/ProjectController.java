@@ -3,6 +3,7 @@ package com.example.aihub.module.project;
 import cn.dev33.satoken.annotation.SaCheckLogin;
 import com.example.aihub.common.annotation.RequireProjectPermission;
 import com.example.aihub.common.result.ApiResult;
+import com.example.aihub.common.util.PagingUtil;
 import com.example.aihub.infrastructure.dto.ProjectSaveDTO;
 import com.example.aihub.infrastructure.service.ProjectService;
 import com.example.aihub.infrastructure.vo.ProjectVO;
@@ -27,8 +28,8 @@ public class ProjectController {
     private final ProjectService projectService;
 
     @GetMapping
-    public ApiResult<List<ProjectVO>> list() {
-        return ApiResult.ok(projectService.listMine());
+    public ApiResult<List<ProjectVO>> list(@org.springframework.web.bind.annotation.RequestParam(defaultValue = "100") int limit) {
+        return ApiResult.ok(projectService.listMine(PagingUtil.clampLimit(limit, 100, 100)));
     }
 
     @PostMapping

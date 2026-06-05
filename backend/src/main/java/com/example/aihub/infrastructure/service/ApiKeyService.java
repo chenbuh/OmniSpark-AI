@@ -2,6 +2,7 @@ package com.example.aihub.infrastructure.service;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.example.aihub.common.exception.BusinessException;
+import com.example.aihub.common.util.PagingUtil;
 import com.example.aihub.infrastructure.entity.ApiKey;
 import com.example.aihub.infrastructure.mapper.ApiKeyMapper;
 import lombok.RequiredArgsConstructor;
@@ -89,13 +90,17 @@ public class ApiKeyService {
         return new GeneratedKey(key, fullKey);
     }
 
-    public List<ApiKey> listByUser(Long userId) {
+    public List<ApiKey> listByUser(Long userId, int limit) {
         return apiKeyMapper.selectList(new LambdaQueryWrapper<ApiKey>()
-                .eq(ApiKey::getUserId, userId).orderByDesc(ApiKey::getId));
+                .eq(ApiKey::getUserId, userId)
+                .orderByDesc(ApiKey::getId)
+                .last("LIMIT " + PagingUtil.clampLimit(limit, 100, 100)));
     }
 
-    public List<ApiKey> listAll() {
-        return apiKeyMapper.selectList(new LambdaQueryWrapper<ApiKey>().orderByDesc(ApiKey::getId));
+    public List<ApiKey> listAll(int limit) {
+        return apiKeyMapper.selectList(new LambdaQueryWrapper<ApiKey>()
+                .orderByDesc(ApiKey::getId)
+                .last("LIMIT " + PagingUtil.clampLimit(limit, 100, 100)));
     }
 
     @Transactional(rollbackFor = Exception.class)

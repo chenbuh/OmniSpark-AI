@@ -2,6 +2,7 @@ package com.example.aihub.infrastructure.service;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.example.aihub.common.exception.BusinessException;
+import com.example.aihub.common.util.PagingUtil;
 import com.example.aihub.infrastructure.entity.Webhook;
 import com.example.aihub.infrastructure.mapper.WebhookMapper;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -27,8 +28,10 @@ public class WebhookService {
             .connectTimeout(Duration.ofSeconds(10))
             .build();
 
-    public List<Webhook> list() {
-        return webhookMapper.selectList(new LambdaQueryWrapper<Webhook>().orderByDesc(Webhook::getId));
+    public List<Webhook> list(int limit) {
+        return webhookMapper.selectList(new LambdaQueryWrapper<Webhook>()
+                .orderByDesc(Webhook::getId)
+                .last("LIMIT " + PagingUtil.clampLimit(limit, 100, 100)));
     }
 
     public Webhook get(Long id) {

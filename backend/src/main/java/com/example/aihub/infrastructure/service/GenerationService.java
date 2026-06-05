@@ -4,6 +4,7 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.example.aihub.common.exception.BusinessException;
 import com.example.aihub.common.security.UploadAccessSignatureService;
 import com.example.aihub.common.storage.UploadStorageResolver;
+import com.example.aihub.common.util.PagingUtil;
 import com.example.aihub.common.util.SecurityUtil;
 import com.example.aihub.common.util.VoMapper;
 import com.example.aihub.infrastructure.dto.ImageGenerateDTO;
@@ -96,6 +97,7 @@ public class GenerationService {
             wrapper.eq(GenerationTask::getStatus, query.getStatus());
         }
         wrapper.orderByDesc(GenerationTask::getId);
+        wrapper.last("LIMIT " + PagingUtil.clampLimit(query.getLimit() == null ? 0 : query.getLimit(), 100, 100));
         return taskMapper.selectList(wrapper).stream().map(this::toTaskVO).toList();
     }
 

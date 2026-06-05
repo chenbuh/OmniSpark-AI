@@ -2,6 +2,7 @@ package com.example.aihub.infrastructure.service;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.example.aihub.common.exception.BusinessException;
+import com.example.aihub.common.util.PagingUtil;
 import com.example.aihub.common.util.VoMapper;
 import com.example.aihub.infrastructure.dto.PublicCommentSaveDTO;
 import com.example.aihub.infrastructure.entity.CommunityPost;
@@ -22,6 +23,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -90,14 +92,20 @@ public class PublicContentInteractionService {
         return 1;
     }
 
-    public List<PublicCommentVO> listComments(String resourceType, Long resourceId) {
+    public List<PublicCommentVO> listComments(String resourceType, Long resourceId, int limit) {
         ensureResourceExists(resourceType, resourceId);
+        int safeLimit = PagingUtil.clampLimit(limit, 200, 200);
         List<PublicContentComment> comments = commentMapper.selectList(new LambdaQueryWrapper<PublicContentComment>()
                 .eq(PublicContentComment::getResourceType, resourceType)
                 .eq(PublicContentComment::getResourceId, resourceId)
                 .eq(PublicContentComment::getStatus, 1)
-                .orderByAsc(PublicContentComment::getCreatedAt)
-                .orderByAsc(PublicContentComment::getId));
+                .orderByDesc(PublicContentComment::getId)
+                .last("LIMIT " + safeLimit));
+        comments = comments.stream()
+                .sorted(Comparator
+                        .comparing(PublicContentComment::getCreatedAt, Comparator.nullsLast(Comparator.naturalOrder()))
+                        .thenComparing(PublicContentComment::getId, Comparator.nullsLast(Comparator.naturalOrder())))
+                .toList();
         Map<Long, PublicCommentVO> byId = new LinkedHashMap<>();
         List<PublicCommentVO> roots = new ArrayList<>();
         for (PublicContentComment comment : comments) {

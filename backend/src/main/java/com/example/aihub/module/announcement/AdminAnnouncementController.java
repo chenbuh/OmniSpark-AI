@@ -4,6 +4,7 @@ import cn.dev33.satoken.annotation.SaCheckLogin;
 import cn.dev33.satoken.annotation.SaCheckRole;
 import cn.dev33.satoken.stp.StpUtil;
 import com.example.aihub.common.result.ApiResult;
+import com.example.aihub.common.util.PagingUtil;
 import com.example.aihub.infrastructure.entity.Announcement;
 import com.example.aihub.infrastructure.service.AnnouncementService;
 import lombok.RequiredArgsConstructor;
@@ -20,8 +21,8 @@ public class AdminAnnouncementController {
     private final AnnouncementService announcementService;
 
     @GetMapping
-    public ApiResult<List<Announcement>> list() {
-        return ApiResult.ok(announcementService.list(false));
+    public ApiResult<List<Announcement>> list(@RequestParam(defaultValue = "100") int limit) {
+        return ApiResult.ok(announcementService.list(false, PagingUtil.clampLimit(limit, 100, 100)));
     }
 
     @PostMapping

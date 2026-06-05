@@ -2,6 +2,7 @@ package com.example.aihub.infrastructure.service;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.example.aihub.common.util.SecurityUtil;
+import com.example.aihub.common.util.PagingUtil;
 import com.example.aihub.infrastructure.entity.QuotaRecord;
 import com.example.aihub.infrastructure.mapper.QuotaRecordMapper;
 import com.example.aihub.infrastructure.vo.QuotaRecordVO;
@@ -9,7 +10,6 @@ import com.example.aihub.infrastructure.vo.QuotaSummaryVO;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
-import java.util.Comparator;
 import java.util.List;
 
 @Service
@@ -30,14 +30,15 @@ public class QuotaService {
         return vo;
     }
 
-    public List<QuotaRecordVO> records(Long projectId) {
+    public List<QuotaRecordVO> records(Long projectId, int limit) {
         LambdaQueryWrapper<QuotaRecord> wrapper = new LambdaQueryWrapper<QuotaRecord>()
                 .eq(QuotaRecord::getUserId, SecurityUtil.loginUserId());
         if (projectId != null) {
             wrapper.eq(QuotaRecord::getProjectId, projectId);
         }
+        wrapper.orderByDesc(QuotaRecord::getId)
+                .last("LIMIT " + PagingUtil.clampLimit(limit, 100, 100));
         return quotaRecordMapper.selectList(wrapper).stream()
-                .sorted(Comparator.comparing(QuotaRecord::getId).reversed())
                 .map(item -> {
                     QuotaRecordVO vo = new QuotaRecordVO();
                     vo.setId(item.getId());

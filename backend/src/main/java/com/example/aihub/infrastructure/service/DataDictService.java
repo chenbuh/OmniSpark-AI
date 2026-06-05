@@ -2,6 +2,7 @@ package com.example.aihub.infrastructure.service;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.example.aihub.common.exception.BusinessException;
+import com.example.aihub.common.util.PagingUtil;
 import com.example.aihub.infrastructure.entity.DataDict;
 import com.example.aihub.infrastructure.entity.DataDictItem;
 import com.example.aihub.infrastructure.mapper.DataDictItemMapper;
@@ -20,8 +21,10 @@ public class DataDictService {
 
     // ===== 字典 CRUD =====
 
-    public List<DataDict> listDicts() {
-        return dictMapper.selectList(new LambdaQueryWrapper<DataDict>().orderByDesc(DataDict::getId));
+    public List<DataDict> listDicts(int limit) {
+        return dictMapper.selectList(new LambdaQueryWrapper<DataDict>()
+                .orderByDesc(DataDict::getId)
+                .last("LIMIT " + PagingUtil.clampLimit(limit, 100, 100)));
     }
 
     public DataDict getDict(Long id) {
@@ -61,17 +64,18 @@ public class DataDictService {
 
     // ===== 字典条目 CRUD =====
 
-    public List<DataDictItem> listItems(Long dictId) {
+    public List<DataDictItem> listItems(Long dictId, int limit) {
         return itemMapper.selectList(new LambdaQueryWrapper<DataDictItem>()
                 .eq(DataDictItem::getDictId, dictId)
                 .orderByAsc(DataDictItem::getSortOrder)
-                .orderByAsc(DataDictItem::getId));
+                .orderByAsc(DataDictItem::getId)
+                .last("LIMIT " + PagingUtil.clampLimit(limit, 100, 100)));
     }
 
-    public List<DataDictItem> getItemsByCode(String dictCode) {
+    public List<DataDictItem> getItemsByCode(String dictCode, int limit) {
         DataDict dict = dictMapper.selectOne(new LambdaQueryWrapper<DataDict>().eq(DataDict::getDictCode, dictCode));
         if (dict == null) return List.of();
-        return listItems(dict.getId());
+        return listItems(dict.getId(), limit);
     }
 
     @Transactional(rollbackFor = Exception.class)

@@ -3,6 +3,7 @@ package com.example.aihub.module.webhook;
 import cn.dev33.satoken.annotation.SaCheckLogin;
 import cn.dev33.satoken.annotation.SaCheckRole;
 import com.example.aihub.common.result.ApiResult;
+import com.example.aihub.common.util.PagingUtil;
 import com.example.aihub.infrastructure.entity.Webhook;
 import com.example.aihub.infrastructure.service.WebhookService;
 import lombok.RequiredArgsConstructor;
@@ -19,8 +20,8 @@ public class WebhookController {
     private final WebhookService webhookService;
 
     @GetMapping
-    public ApiResult<List<Webhook>> list() {
-        return ApiResult.ok(webhookService.list());
+    public ApiResult<List<Webhook>> list(@RequestParam(defaultValue = "100") int limit) {
+        return ApiResult.ok(webhookService.list(PagingUtil.clampLimit(limit, 100, 100)));
     }
 
     @GetMapping("/{id}")

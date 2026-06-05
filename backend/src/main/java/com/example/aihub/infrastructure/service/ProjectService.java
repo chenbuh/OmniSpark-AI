@@ -2,6 +2,7 @@ package com.example.aihub.infrastructure.service;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.example.aihub.common.exception.BusinessException;
+import com.example.aihub.common.util.PagingUtil;
 import com.example.aihub.common.util.SecurityUtil;
 import com.example.aihub.common.util.VoMapper;
 import com.example.aihub.infrastructure.dto.ProjectSaveDTO;
@@ -40,27 +41,37 @@ public class ProjectService {
 
     // ===== 原有 listMine / create / update / delete 保持不变 =====
 
-    public List<ProjectVO> listMine() {
+    public List<ProjectVO> listMine(int limit) {
         // ... (existing code)
         Long userId = SecurityUtil.loginUserId();
+        int safeLimit = PagingUtil.clampLimit(limit, 100, 100);
         List<Project> myProjects = projectMapper.selectList(new LambdaQueryWrapper<Project>()
                 .eq(Project::getUserId, userId)
-                .orderByDesc(Project::getId));
+                .orderByDesc(Project::getId)
+                .last("LIMIT " + safeLimit));
         List<TeamMember> memberships = teamMemberMapper.selectList(
                 new LambdaQueryWrapper<TeamMember>()
                         .eq(TeamMember::getUserId, userId)
-                        .eq(TeamMember::getStatus, 1));
+                        .eq(TeamMember::getStatus, 1)
+                        .orderByDesc(TeamMember::getId)
+                        .last("LIMIT " + safeLimit));
         if (!memberships.isEmpty()) {
             Set<Long> teamIds = memberships.stream().map(TeamMember::getTeamId).collect(Collectors.toSet());
             List<ProjectShare> shares = shareMapper.selectList(
-                    new LambdaQueryWrapper<ProjectShare>().in(ProjectShare::getTeamId, teamIds));
+                    new LambdaQueryWrapper<ProjectShare>()
+                            .in(ProjectShare::getTeamId, teamIds)
+                            .orderByDesc(ProjectShare::getId)
+                            .last("LIMIT " + safeLimit));
             if (!shares.isEmpty()) {
                 Set<Long> sharedProjectIds = shares.stream().map(ProjectShare::getProjectId).collect(Collectors.toSet());
                 Set<Long> myProjectIds = myProjects.stream().map(Project::getId).collect(Collectors.toSet());
                 sharedProjectIds.removeAll(myProjectIds);
                 if (!sharedProjectIds.isEmpty()) {
                     List<Project> sharedProjects = projectMapper.selectList(
-                            new LambdaQueryWrapper<Project>().in(Project::getId, sharedProjectIds));
+                            new LambdaQueryWrapper<Project>()
+                                    .in(Project::getId, sharedProjectIds)
+                                    .orderByDesc(Project::getId)
+                                    .last("LIMIT " + safeLimit));
                     myProjects.addAll(sharedProjects);
                 }
             }

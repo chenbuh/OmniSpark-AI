@@ -2,6 +2,7 @@ package com.example.aihub.module.announcement;
 
 import cn.dev33.satoken.annotation.SaCheckLogin;
 import com.example.aihub.common.result.ApiResult;
+import com.example.aihub.common.util.PagingUtil;
 import com.example.aihub.infrastructure.entity.Announcement;
 import com.example.aihub.infrastructure.service.AnnouncementService;
 import lombok.RequiredArgsConstructor;
@@ -19,7 +20,7 @@ public class AnnouncementController {
     private final AnnouncementService announcementService;
 
     @GetMapping("/active")
-    public ApiResult<List<Announcement>> active() {
-        return ApiResult.ok(announcementService.list(true));
+    public ApiResult<List<Announcement>> active(@org.springframework.web.bind.annotation.RequestParam(defaultValue = "100") int limit) {
+        return ApiResult.ok(announcementService.list(true, PagingUtil.clampLimit(limit, 100, 100)));
     }
 }
