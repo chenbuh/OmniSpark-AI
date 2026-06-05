@@ -601,9 +601,14 @@ onMounted(async () => {
       console.error(tplResult.reason)
     }
     if (annResult.status === 'fulfilled') {
-      const anns = (annResult.value as any).data || []
-      announcement.value = anns.length > 0 ? anns[0] : null
-      announcementLoadFailed.value = false
+      const anns = (annResult.value as any).data
+      if (Array.isArray(anns)) {
+        announcement.value = anns.length > 0 ? anns[0] : null
+        announcementLoadFailed.value = false
+      } else {
+        announcement.value = null
+        announcementLoadFailed.value = true
+      }
     } else {
       announcement.value = null
       announcementLoadFailed.value = true

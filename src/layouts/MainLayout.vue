@@ -602,10 +602,16 @@ const loadNotifications = async () => {
       fetch(`${base}/api/notifications/unread`, { headers: { 'satoken': token } }),
       fetch(`${base}/api/notifications?limit=20`, { headers: { 'satoken': token } })
     ])
+    if (!unreadRes.ok || !allRes.ok) {
+      throw new Error('通知接口返回异常状态')
+    }
     const unreadJson = await unreadRes.json()
     const allJson = await allRes.json()
-    unreadCount.value = Array.isArray(unreadJson.data) ? unreadJson.data.length : null
-    notifications.value = Array.isArray(allJson.data) ? allJson.data : []
+    if (!Array.isArray(unreadJson.data) || !Array.isArray(allJson.data)) {
+      throw new Error('通知数据待确认')
+    }
+    unreadCount.value = unreadJson.data.length
+    notifications.value = allJson.data
   } catch {
     unreadCount.value = null
     notifications.value = null

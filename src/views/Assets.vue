@@ -575,7 +575,10 @@ async function loadVersionHistory() {
   }
   try {
     const res = await assetApi.getVersions(selectedAsset.value.id, 12)
-    versionHistory.value = (res.data || []).map(item => assetStore.normalizeAsset(item))
+    if (!Array.isArray(res.data)) {
+      throw new Error('版本历史待确认')
+    }
+    versionHistory.value = res.data.map(item => assetStore.normalizeAsset(item))
   } catch {
     versionHistory.value = null
   }
@@ -726,7 +729,10 @@ async function loadSubtitles() {
   }
   try {
     const res = await subtitleApi.list(selectedAsset.value.id)
-    subtitles.value = (res.data || []) as SubtitleVO[]
+    if (!Array.isArray(res.data)) {
+      throw new Error('字幕数据待确认')
+    }
+    subtitles.value = res.data as SubtitleVO[]
   } catch {
     subtitles.value = null
   }

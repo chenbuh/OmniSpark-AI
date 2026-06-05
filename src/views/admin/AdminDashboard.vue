@@ -252,17 +252,35 @@ const loadDashboard = async () => {
     let failedCount = 0
 
     if (overviewRes.status === 'fulfilled') {
-      stats.value = (overviewRes.value as any).data || {}
+      const overviewData = (overviewRes.value as any).data
+      if (overviewData && typeof overviewData === 'object' && !Array.isArray(overviewData)) {
+        stats.value = overviewData
+      } else {
+        stats.value = {}
+        failedCount += 1
+      }
     } else {
       stats.value = {}
       failedCount += 1
     }
 
     if (trendsRes.status === 'fulfilled') {
-      const trends = (trendsRes.value as any).data || {}
-      dailyTasks.value = Array.isArray(trends.dailyTasks) ? trends.dailyTasks : []
-      dailyUsers.value = Array.isArray(trends.dailyUsers) ? trends.dailyUsers : []
-      trendStatus.value = 'ready'
+      const trends = (trendsRes.value as any).data
+      const hasValidTrendPayload = !!trends
+        && typeof trends === 'object'
+        && !Array.isArray(trends)
+        && Array.isArray((trends as any).dailyTasks)
+        && Array.isArray((trends as any).dailyUsers)
+      if (hasValidTrendPayload) {
+        dailyTasks.value = (trends as any).dailyTasks
+        dailyUsers.value = (trends as any).dailyUsers
+        trendStatus.value = 'ready'
+      } else {
+        dailyTasks.value = null
+        dailyUsers.value = null
+        trendStatus.value = 'error'
+        failedCount += 1
+      }
     } else {
       dailyTasks.value = null
       dailyUsers.value = null
@@ -272,8 +290,14 @@ const loadDashboard = async () => {
 
     if (usersRes.status === 'fulfilled') {
       const records = (usersRes.value as any).data?.records
-      recentUsers.value = Array.isArray(records) ? records : []
-      recentUsersStatus.value = 'ready'
+      if (Array.isArray(records)) {
+        recentUsers.value = records
+        recentUsersStatus.value = 'ready'
+      } else {
+        recentUsers.value = null
+        recentUsersStatus.value = 'error'
+        failedCount += 1
+      }
     } else {
       recentUsers.value = null
       recentUsersStatus.value = 'error'
