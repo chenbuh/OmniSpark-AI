@@ -160,6 +160,44 @@ function requireScheduledTaskResult(value: unknown, action: 'create' | 'update' 
   }
 }
 
+function normalizeOptionalText(value: unknown): string {
+  return typeof value === 'string' ? value.trim() : ''
+}
+
+function normalizeCleanupDaysFromConfig(configJson: unknown): number | null {
+  if (typeof configJson !== 'string' || !configJson.trim()) {
+    return null
+  }
+  try {
+    const parsed = JSON.parse(configJson)
+    const value = Number(parsed?.daysOld)
+    return Number.isFinite(value) ? value : null
+  } catch {
+    return null
+  }
+}
+
+function assertScheduledTaskMatches(task: any, expected: {
+  name: string
+  description: string
+  taskType: string
+  cron: string
+  cleanupDays: number | null
+}, action: 'create' | 'update') {
+  if (
+    !task
+    || normalizeOptionalText(task.name) !== expected.name
+    || normalizeOptionalText(task.description) !== expected.description
+    || normalizeOptionalText(task.taskType) !== expected.taskType
+    || normalizeOptionalText(task.cron) !== expected.cron
+  ) {
+    throw new Error(action === 'create' ? '任务创建结果待确认' : '任务更新结果待确认')
+  }
+  if (expected.taskType === 'cleanup' && normalizeCleanupDaysFromConfig(task.configJson) !== expected.cleanupDays) {
+    throw new Error(action === 'create' ? '任务创建结果待确认' : '任务更新结果待确认')
+  }
+}
+
 onMounted(load)
 
 async function load() {
@@ -214,6 +252,13 @@ async function handleSave() {
   if (form.taskType === 'cleanup') {
     payload.configJson = JSON.stringify({ daysOld: cleanupDays.value })
   }
+  const expected = {
+    name: normalizeOptionalText(form.name),
+    description: normalizeOptionalText(form.description),
+    taskType: normalizeOptionalText(form.taskType),
+    cron: normalizeOptionalText(form.cron),
+    cleanupDays: form.taskType === 'cleanup' ? cleanupDays.value : null
+  }
   try {
     if (editingId.value) {
       const currentEditingId = editingId.value
@@ -221,18 +266,14 @@ async function handleSave() {
       requireScheduledTaskResult((res as any).data, 'update')
       await load()
       const refreshed = tasks.value?.find(task => task.id === currentEditingId)
-      if (!refreshed || refreshed.name !== form.name || refreshed.cron !== form.cron) {
-        throw new Error('任务更新结果待确认')
-      }
+      assertScheduledTaskMatches(refreshed, expected, 'update')
       message.success('任务已更新')
     } else {
       const res = await request.post('/api/admin/scheduled-tasks', payload)
       const created = requireScheduledTaskResult((res as any).data, 'create')
       await load()
       const refreshed = tasks.value?.find(task => task.id === created.id)
-      if (!refreshed || refreshed.name !== form.name || refreshed.cron !== form.cron) {
-        throw new Error('任务创建结果待确认')
-      }
+      assertScheduledTaskMatches(refreshed, expected, 'create')
       message.success('任务已创建')
     }
     showEditor.value = false
