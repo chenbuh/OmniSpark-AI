@@ -15,7 +15,8 @@
             <svg viewBox="0 0 120 120" class="gauge">
               <circle cx="60" cy="60" r="50" fill="none" stroke="rgba(255,255,255,0.04)" stroke-width="10" />
               <circle cx="60" cy="60" r="50" fill="none" stroke="#3b82f6" stroke-width="10"
-                :stroke-dasharray="circum" :stroke-dashoffset="gaugeOffset(data.processCpuUsage ?? 0)"
+                :stroke-dasharray="circum" :stroke-dashoffset="gaugeDashOffset(data.processCpuUsage)"
+                :stroke-opacity="hasGaugeValue(data.processCpuUsage) ? 1 : 0"
                 transform="rotate(-90 60 60)" stroke-linecap="round" />
               <text x="60" y="56" text-anchor="middle" fill="#f3f4f6" font-size="22" font-weight="700">{{ formatPercent(data.processCpuUsage) }}</text>
               <text x="60" y="72" text-anchor="middle" fill="#6b7280" font-size="10">CPU</text>
@@ -37,7 +38,8 @@
             <svg viewBox="0 0 120 120" class="gauge">
               <circle cx="60" cy="60" r="50" fill="none" stroke="rgba(255,255,255,0.04)" stroke-width="10" />
               <circle cx="60" cy="60" r="50" fill="none" stroke="#10b981" stroke-width="10"
-                :stroke-dasharray="circum" :stroke-dashoffset="gaugeOffset(data.memory?.heapUsagePercent ?? 0)"
+                :stroke-dasharray="circum" :stroke-dashoffset="gaugeDashOffset(data.memory?.heapUsagePercent)"
+                :stroke-opacity="hasGaugeValue(data.memory?.heapUsagePercent) ? 1 : 0"
                 transform="rotate(-90 60 60)" stroke-linecap="round" />
               <text x="60" y="56" text-anchor="middle" fill="#f3f4f6" font-size="22" font-weight="700">{{ formatPercent(data.memory?.heapUsagePercent) }}</text>
               <text x="60" y="72" text-anchor="middle" fill="#6b7280" font-size="10">堆内存</text>
@@ -140,6 +142,11 @@ async function loadData() {
 }
 
 const gaugeOffset = (pct: number) => circum - (circum * Math.min(pct, 100) / 100)
+const gaugeDashOffset = (value: unknown) => {
+  const normalized = toOptionalNumber(value)
+  return normalized == null ? circum : gaugeOffset(normalized)
+}
+const hasGaugeValue = (value: unknown) => toOptionalNumber(value) != null
 const formatPercent = (v: any) => (v != null ? Math.round(v * 10) / 10 + '%' : '-')
 const formatBytes = (v: any) => {
   if (!v) return '-'
@@ -148,6 +155,14 @@ const formatBytes = (v: any) => {
   if (b < 1024 * 1024) return (b / 1024).toFixed(1) + ' KB'
   if (b < 1024 * 1024 * 1024) return (b / (1024 * 1024)).toFixed(1) + ' MB'
   return (b / (1024 * 1024 * 1024)).toFixed(2) + ' GB'
+}
+
+function toOptionalNumber(value: unknown): number | null {
+  if (value == null || value === '') {
+    return null
+  }
+  const normalized = Number(value)
+  return Number.isNaN(normalized) ? null : normalized
 }
 </script>
 

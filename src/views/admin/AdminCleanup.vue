@@ -23,7 +23,7 @@
           <n-card class="stats-card" :bordered="false">
             <div class="stats-inner">
               <span class="stats-label">{{ item.label }}</span>
-              <span class="stats-value" :style="{ color: item.color }">{{ preview[item.key] ?? 0 }}</span>
+              <span class="stats-value" :style="{ color: item.color }">{{ displayCleanupMetric(preview, item.key) }}</span>
               <span class="stats-unit">条记录</span>
             </div>
           </n-card>
@@ -42,7 +42,7 @@
       <template #header><span style="font-weight:600;color:#10b981;">清理完成</span></template>
       <n-descriptions :column="2">
         <n-descriptions-item v-for="item in cleanupItems" :key="item.key" :label="item.label">
-          <span style="color:#10b981;font-weight:600;">已删除 {{ (result as any)['deleted' + item.key.charAt(0).toUpperCase() + item.key.slice(1)] ?? 0 }} 条</span>
+          <span style="color:#10b981;font-weight:600;">已删除 {{ displayCleanupMetric(result, 'deleted' + item.key.charAt(0).toUpperCase() + item.key.slice(1)) }} 条</span>
         </n-descriptions-item>
       </n-descriptions>
     </n-card>
@@ -70,7 +70,7 @@ const cleanupItems = [
 
 const totalDeletable = computed(() => {
   if (!preview.value) return 0
-  return cleanupItems.reduce((sum, item) => sum + (preview.value[item.key] || 0), 0)
+  return cleanupItems.reduce((sum, item) => sum + (toOptionalNumber(preview.value[item.key]) ?? 0), 0)
 })
 
 async function handlePreview() {
@@ -92,6 +92,19 @@ async function handleExecute() {
     message.success('清理完成！')
   } catch { message.error('清理失败') }
   finally { cleaning.value = false }
+}
+
+function displayCleanupMetric(source: any, key: string) {
+  const normalized = toOptionalNumber(source?.[key])
+  return normalized == null ? '-' : normalized
+}
+
+function toOptionalNumber(value: unknown): number | null {
+  if (value == null || value === '') {
+    return null
+  }
+  const normalized = Number(value)
+  return Number.isNaN(normalized) ? null : normalized
 }
 </script>
 

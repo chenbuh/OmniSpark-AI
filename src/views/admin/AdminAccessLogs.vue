@@ -107,6 +107,7 @@ import request from '@/api/request'
 
 const message = useMessage()
 const loading = ref(false)
+const summaryLoading = ref(false)
 const logs = ref<any[]>([])
 const summary = ref<Record<string, any>>({})
 const total = ref(0)
@@ -121,15 +122,20 @@ const filters = reactive({
 })
 
 const summaryCards = computed(() => [
-  { label: '窗口', value: `${summary.value.windowMinutes || 60} 分钟` },
-  { label: '总请求', value: summary.value.total || 0 },
-  { label: '限流命中', value: summary.value.rateLimited || 0 },
-  { label: '风险命中', value: summary.value.riskHits || 0 }
+  { label: '窗口', value: formatSummaryWindow(summary.value.windowMinutes) },
+  { label: '总请求', value: formatSummaryMetric(summary.value.total) },
+  { label: '限流命中', value: formatSummaryMetric(summary.value.rateLimited) },
+  { label: '风险命中', value: formatSummaryMetric(summary.value.riskHits) }
 ])
 
 async function loadSummary() {
-  const res = await request.get('/api/admin/access-logs/summary', { params: { minutes: 60 } })
-  summary.value = (res as any).data || {}
+  summaryLoading.value = true
+  try {
+    const res = await request.get('/api/admin/access-logs/summary', { params: { minutes: 60 } })
+    summary.value = (res as any).data || {}
+  } finally {
+    summaryLoading.value = false
+  }
 }
 
 async function loadLogs() {
@@ -175,6 +181,30 @@ function statusType(status?: number) {
 
 function formatTime(value?: string) {
   return value?.substring(0, 19)?.replace('T', ' ') || '-'
+}
+
+function formatSummaryWindow(value: unknown) {
+  const normalized = toOptionalNumber(value)
+  if (normalized == null) {
+    return summaryLoading.value ? '加载中' : '-'
+  }
+  return `${normalized} 分钟`
+}
+
+function formatSummaryMetric(value: unknown) {
+  const normalized = toOptionalNumber(value)
+  if (normalized == null) {
+    return summaryLoading.value ? '加载中' : '-'
+  }
+  return normalized
+}
+
+function toOptionalNumber(value: unknown): number | null {
+  if (value == null || value === '') {
+    return null
+  }
+  const normalized = Number(value)
+  return Number.isNaN(normalized) ? null : normalized
 }
 
 onMounted(reload)

@@ -64,14 +64,14 @@
                 transform="rotate(-90 100 100)"
                 stroke-linecap="round"
               />
-              <text x="100" y="95" text-anchor="middle" fill="#f3f4f6" font-size="24" font-weight="700">{{ taskTotal }}</text>
+              <text x="100" y="95" text-anchor="middle" fill="#f3f4f6" font-size="24" font-weight="700">{{ taskTotalLabel }}</text>
               <text x="100" y="115" text-anchor="middle" fill="#6b7280" font-size="10">总任务</text>
               </svg>
               <div class="donut-legend">
-                <div class="legend-item"><span class="dot" style="background:#6366f1"></span>排队中 {{ stats.pendingTasks ?? 0 }}</div>
-                <div class="legend-item"><span class="dot" style="background:#f59e0b"></span>运行中 {{ stats.runningTasks ?? 0 }}</div>
-                <div class="legend-item"><span class="dot" style="background:#10b981"></span>成功 {{ stats.successTasks ?? 0 }}</div>
-                <div class="legend-item"><span class="dot" style="background:#ef4444"></span>失败 {{ stats.failedTasks ?? 0 }}</div>
+                <div class="legend-item"><span class="dot" style="background:#6366f1"></span>排队中 {{ displayStatsMetric('pendingTasks') }}</div>
+                <div class="legend-item"><span class="dot" style="background:#f59e0b"></span>运行中 {{ displayStatsMetric('runningTasks') }}</div>
+                <div class="legend-item"><span class="dot" style="background:#10b981"></span>成功 {{ displayStatsMetric('successTasks') }}</div>
+                <div class="legend-item"><span class="dot" style="background:#ef4444"></span>失败 {{ displayStatsMetric('failedTasks') }}</div>
               </div>
             </div>
           </div>
@@ -132,6 +132,7 @@ import { Download } from 'lucide-vue-next'
 import request, { API_BASE_URL } from '@/api/request'
 
 const message = useMessage()
+const loading = ref(true)
 const stats = ref<Record<string, number>>({})
 const recentUsers = ref<any[]>([])
 const dailyTasks = ref<{date:string;count:number}[]>([])
@@ -157,19 +158,26 @@ const barY = (c: number) => barChartH - 30 - (c / maxCount.value) * (barChartH -
 const barH = (c: number) => (c / maxCount.value) * (barChartH - 50)
 
 // 环形图
-const taskTotal = computed(() => (stats.value.pendingTasks || 0) + (stats.value.runningTasks || 0) + (stats.value.successTasks || 0) + (stats.value.failedTasks || 0))
+const taskTotal = computed(() => {
+  const values = ['pendingTasks', 'runningTasks', 'successTasks', 'failedTasks']
+    .map(key => toOptionalNumber(stats.value[key]))
+    .filter((value): value is number => value != null)
+  if (values.length === 0) return null
+  return values.reduce((sum, value) => sum + value, 0)
+})
+const taskTotalLabel = computed(() => taskTotal.value == null ? (loading.value ? '加载中' : '-') : String(taskTotal.value))
 const circum = 2 * Math.PI * 70 // 439.8
 const donutSegments = computed(() => {
   const segments = [
-    { key: 'pending', color: '#6366f1', value: stats.value.pendingTasks || 0 },
-    { key: 'running', color: '#f59e0b', value: stats.value.runningTasks || 0 },
-    { key: 'success', color: '#10b981', value: stats.value.successTasks || 0 },
-    { key: 'failed', color: '#ef4444', value: stats.value.failedTasks || 0 }
+    { key: 'pending', color: '#6366f1', value: toOptionalNumber(stats.value.pendingTasks) ?? 0 },
+    { key: 'running', color: '#f59e0b', value: toOptionalNumber(stats.value.runningTasks) ?? 0 },
+    { key: 'success', color: '#10b981', value: toOptionalNumber(stats.value.successTasks) ?? 0 },
+    { key: 'failed', color: '#ef4444', value: toOptionalNumber(stats.value.failedTasks) ?? 0 }
   ]
 
   let offset = 0
   return segments.flatMap((segment) => {
-    const length = taskTotal.value > 0 ? (segment.value / taskTotal.value) * circum : 0
+    const length = (taskTotal.value ?? 0) > 0 ? (segment.value / (taskTotal.value ?? 0)) * circum : 0
     if (length <= 0) return []
 
     const current = {
@@ -217,6 +225,7 @@ const handleExportCsv = () => {
 
 onMounted(async () => {
   try {
+    loading.value = true
     const [overviewRes, trendsRes, usersRes] = await Promise.all([
       request.get('/api/admin/stats/overview'),
       request.get('/api/admin/stats/trends'),
@@ -229,6 +238,8 @@ onMounted(async () => {
     recentUsers.value = (usersRes as any).data?.records || []
   } catch (err: any) {
     message.error(err.message || '加载仪表盘数据失败')
+  } finally {
+    loading.value = false
   }
 })
 
@@ -248,6 +259,22 @@ function userStatusLabel(value: unknown) {
   const normalized = normalizeUserStatus(value)
   if (normalized === null) return '状态待确认'
   return normalized === 1 ? '正常' : '禁用'
+}
+
+function displayStatsMetric(key: string) {
+  const normalized = toOptionalNumber(stats.value[key])
+  if (normalized == null) {
+    return loading.value ? '加载中' : '-'
+  }
+  return normalized
+}
+
+function toOptionalNumber(value: unknown): number | null {
+  if (value == null || value === '') {
+    return null
+  }
+  const normalized = Number(value)
+  return Number.isNaN(normalized) ? null : normalized
 }
 </script>
 
