@@ -117,7 +117,7 @@
             <td>{{ u.username }}</td>
             <td>{{ u.nickname || '-' }}</td>
             <td><n-tag size="small" :type="u.role === 'admin' ? 'warning' : 'info'">{{ u.role }}</n-tag></td>
-            <td><n-tag size="small" :type="u.status === 1 ? 'success' : 'error'">{{ u.status === 1 ? '正常' : '禁用' }}</n-tag></td>
+            <td><n-tag size="small" :type="userStatusTagType(u.status)">{{ userStatusLabel(u.status) }}</n-tag></td>
           </tr>
         </tbody>
       </n-table>
@@ -231,6 +231,24 @@ onMounted(async () => {
     message.error(err.message || '加载仪表盘数据失败')
   }
 })
+
+function normalizeUserStatus(value: unknown): number | null {
+  if (value === 1 || value === '1' || value === true || value === 'true') return 1
+  if (value === 0 || value === '0' || value === false || value === 'false') return 0
+  return null
+}
+
+function userStatusTagType(value: unknown) {
+  const normalized = normalizeUserStatus(value)
+  if (normalized === null) return 'warning'
+  return normalized === 1 ? 'success' : 'error'
+}
+
+function userStatusLabel(value: unknown) {
+  const normalized = normalizeUserStatus(value)
+  if (normalized === null) return '状态待确认'
+  return normalized === 1 ? '正常' : '禁用'
+}
 </script>
 
 <style scoped>

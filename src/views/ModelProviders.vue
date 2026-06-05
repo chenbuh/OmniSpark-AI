@@ -51,22 +51,26 @@
 
             <!-- 启用 -->
             <td>
+              <template v-if="provider.enabled === null">
+                <n-tag size="small" type="warning">状态待确认</n-tag>
+              </template>
               <n-switch
-                v-model:value="provider.enabled"
-                @update:value="handleToggleEnable(provider)"
+                v-else
+                :value="provider.enabled"
+                @update:value="(value: boolean) => handleToggleEnable(provider, value)"
               />
             </td>
 
             <!-- 默认 -->
             <td>
               <n-tag
-                :type="provider.isDefault ? 'success' : 'default'"
-                :bordered="provider.isDefault"
+                :type="providerDefaultTagType(provider)"
+                :bordered="provider.isDefault === true"
                 size="small"
-                style="cursor: pointer;"
-                @click="handleSetDefault(provider)"
+                :style="{ cursor: canSetDefault(provider) ? 'pointer' : 'default' }"
+                @click="canSetDefault(provider) ? handleSetDefault(provider) : undefined"
               >
-                {{ provider.isDefault ? '默认激活' : '设为默认' }}
+                {{ providerDefaultLabel(provider) }}
               </n-tag>
             </td>
 
@@ -184,12 +188,14 @@
         <n-row :gutter="12">
           <n-col :span="12">
             <n-form-item label="是否立即启用">
-              <n-switch v-model:value="form.enabled" />
+              <n-switch :value="form.enabled" @update:value="handleEnabledChange" />
+              <div v-if="preserveUnknownEnabled" class="field-hint inline-hint">当前启用状态未从服务端返回；若不手动切换，保存时会保持原值。</div>
             </n-form-item>
           </n-col>
           <n-col :span="12">
             <n-form-item label="设为当前类型默认">
-              <n-switch v-model:value="form.isDefault" />
+              <n-switch :value="form.isDefault" @update:value="handleDefaultChange" />
+              <div v-if="preserveUnknownDefault" class="field-hint inline-hint">当前默认状态未从服务端返回；若不手动切换，保存时会保持原值。</div>
             </n-form-item>
           </n-col>
         </n-row>
@@ -216,6 +222,10 @@ const isEditMode = ref(false)
 const editingId = ref<number | null>(null)
 const testingId = ref<number | null>(null)
 const providerMeta = ref<ProviderMetaVO>(emptyProviderMeta())
+const preserveUnknownEnabled = ref(false)
+const preserveUnknownDefault = ref(false)
+const enabledTouched = ref(false)
+const defaultTouched = ref(false)
 
 const form = reactive({
   name: '',
@@ -295,14 +305,38 @@ async function loadProviderMeta() {
   }
 }
 
-const handleToggleEnable = async (provider: ModelProvider) => {
-  await providerStore.updateProvider(provider.id, { enabled: provider.enabled })
-  message.info(provider.enabled ? `模型 ${provider.name} 已启用` : `模型 ${provider.name} 已禁用`)
+const handleToggleEnable = async (provider: ModelProvider, enabled: boolean) => {
+  await providerStore.updateProvider(provider.id, { enabled })
+  message.info(enabled ? `模型 ${provider.name} 已启用` : `模型 ${provider.name} 已禁用`)
 }
 
 const handleSetDefault = async (provider: ModelProvider) => {
   await providerStore.setDefaultProvider(provider.id)
   message.success(`已成功将 ${provider.name} 设为当前空间默认 [${getTypeLabel(provider.type)}] 提供商`)
+}
+
+const providerDefaultLabel = (provider: ModelProvider) => {
+  if (provider.isDefault === null) return '默认状态待确认'
+  return provider.isDefault ? '默认激活' : '设为默认'
+}
+
+const providerDefaultTagType = (provider: ModelProvider) => {
+  if (provider.isDefault === null) return 'warning'
+  return provider.isDefault ? 'success' : 'default'
+}
+
+const canSetDefault = (provider: ModelProvider) => provider.isDefault === false
+
+const handleEnabledChange = (value: boolean) => {
+  form.enabled = value
+  enabledTouched.value = true
+  preserveUnknownEnabled.value = false
+}
+
+const handleDefaultChange = (value: boolean) => {
+  form.isDefault = value
+  defaultTouched.value = true
+  preserveUnknownDefault.value = false
 }
 
 const handleTestConnection = async (provider: ModelProvider) => {
@@ -338,6 +372,10 @@ const handleOpenAddModal = () => {
   form.responseFormat = defaultResponseFormat.value
   form.speed = ''
   form.instructions = ''
+  preserveUnknownEnabled.value = false
+  preserveUnknownDefault.value = false
+  enabledTouched.value = false
+  defaultTouched.value = false
   showModal.value = true
 }
 
@@ -350,14 +388,18 @@ const handleOpenEditModal = (provider: ModelProvider) => {
   form.baseUrl = provider.baseUrl
   form.apiKey = provider.apiKey
   form.modelName = provider.modelName
-  form.enabled = provider.enabled
-  form.isDefault = provider.isDefault
+  form.enabled = provider.enabled === true
+  form.isDefault = provider.isDefault === true
   form.configJson = provider.configJson || ''
   form.transcriptionModel = config.transcriptionModel || ''
   form.voice = config.voice || ''
   form.responseFormat = resolveOptionValue(responseFormatOptions.value, config.responseFormat, defaultResponseFormat.value)
   form.speed = config.speed ? String(config.speed) : ''
   form.instructions = config.instructions || ''
+  preserveUnknownEnabled.value = provider.enabled === null
+  preserveUnknownDefault.value = provider.isDefault === null
+  enabledTouched.value = false
+  defaultTouched.value = false
   showModal.value = true
 }
 
@@ -374,16 +416,21 @@ const handleSave = async () => {
   const configJson = buildConfigJson()
 
   if (isEditMode.value && editingId.value !== null) {
-    await providerStore.updateProvider(editingId.value, {
+    const payload: Partial<ModelProvider> = {
       name: form.name,
       type: form.type,
       baseUrl: form.baseUrl,
       apiKey: form.apiKey,
       modelName: form.modelName,
-      enabled: form.enabled,
-      isDefault: form.isDefault,
       configJson
-    })
+    }
+    if (!preserveUnknownEnabled.value || enabledTouched.value) {
+      payload.enabled = form.enabled
+    }
+    if (!preserveUnknownDefault.value || defaultTouched.value) {
+      payload.isDefault = form.isDefault
+    }
+    await providerStore.updateProvider(editingId.value, payload)
     message.success('模型提供商配置更新成功')
   } else {
     await providerStore.addProvider({

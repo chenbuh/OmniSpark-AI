@@ -7,11 +7,11 @@
 
     <n-card class="glass-card" :bordered="false">
       <div class="status-bar">
-        <n-tag :type="status.enabled ? 'error' : 'success'" size="large" round>
-          {{ status.enabled ? '🛠 维护中' : '✅ 正常运行' }}
+        <n-tag :type="statusTagType" size="large" round>
+          {{ statusTagLabel }}
         </n-tag>
-        <n-button :type="status.enabled ? 'success' : 'error'" @click="handleToggle">
-          {{ status.enabled ? '关闭维护模式' : '开启维护模式' }}
+        <n-button :type="status.enabled === true ? 'success' : 'error'" :disabled="loading" @click="handleToggle">
+          {{ status.enabled === true ? '关闭维护模式' : '开启维护模式' }}
         </n-button>
       </div>
 
@@ -27,7 +27,7 @@
     </n-card>
 
     <!-- 维护期间预览 -->
-    <n-card v-if="status.enabled" class="glass-card" :bordered="false" style="margin-top:16px;">
+    <n-card v-if="status.enabled === true" class="glass-card" :bordered="false" style="margin-top:16px;">
       <template #header><span style="font-weight:600;color:#f59e0b;">用户端预览</span></template>
       <n-alert type="warning">
         <template #header>系统维护中</template>
@@ -38,24 +38,45 @@
 </template>
 
 <script setup lang="ts">
-import { reactive, onMounted } from 'vue'
+import { computed, reactive, onMounted, ref } from 'vue'
 import { useMessage } from 'naive-ui'
 import request from '@/api/request'
 
 const message = useMessage()
-const status = reactive({ enabled: false, message: '系统维护中，请稍后再试' })
+const loading = ref(true)
+const status = reactive<{ enabled: boolean | null; message: string }>({ enabled: null, message: '' })
+
+const statusTagType = computed(() => {
+  if (loading.value || status.enabled === null) return 'warning'
+  return status.enabled ? 'error' : 'success'
+})
+
+const statusTagLabel = computed(() => {
+  if (loading.value || status.enabled === null) return '状态加载中'
+  return status.enabled ? '🛠 维护中' : '✅ 正常运行'
+})
 
 onMounted(load)
 
 async function load() {
   try {
+    loading.value = true
     const res = await request.get('/api/admin/maintenance')
     const data = (res as any).data
-    if (data) { status.enabled = data.enabled; status.message = data.message || status.message }
-  } catch {}
+    if (data) {
+      status.enabled = typeof data.enabled === 'boolean' ? data.enabled : null
+      status.message = typeof data.message === 'string' ? data.message : ''
+    }
+  } catch {} finally {
+    loading.value = false
+  }
 }
 
 async function handleToggle() {
+  if (status.enabled === null) {
+    message.error('维护模式状态尚未加载完成，请稍后重试')
+    return
+  }
   try {
     await request.post(`/api/admin/maintenance?enabled=${!status.enabled}&message=${encodeURIComponent(status.message)}`)
     status.enabled = !status.enabled
@@ -64,6 +85,10 @@ async function handleToggle() {
 }
 
 async function handleSaveMessage() {
+  if (status.enabled === null) {
+    message.error('维护模式状态尚未加载完成，请稍后重试')
+    return
+  }
   try {
     await request.post(`/api/admin/maintenance?enabled=${status.enabled}&message=${encodeURIComponent(status.message)}`)
     message.success('消息已保存')

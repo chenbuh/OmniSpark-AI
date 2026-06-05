@@ -9,8 +9,8 @@ export interface ModelProvider {
   baseUrl: string
   apiKey: string
   modelName: string
-  enabled: boolean
-  isDefault: boolean
+  enabled: boolean | null
+  isDefault: boolean | null
   configJson?: string
 }
 
@@ -28,8 +28,8 @@ export const useModelProviderStore = defineStore('modelProvider', {
         baseUrl: provider.baseUrl || '',
         apiKey: provider.apiKey || '',
         modelName: provider.modelName || '',
-        enabled: Number(provider.enabled ?? 1) !== 0,
-        isDefault: Number(provider.isDefault ?? 0) !== 0,
+        enabled: parseOptionalBoolean(provider.enabled),
+        isDefault: parseOptionalBoolean(provider.isDefault),
         configJson: provider.configJson || ''
       }
     },
@@ -74,3 +74,26 @@ export const useModelProviderStore = defineStore('modelProvider', {
     }
   }
 })
+
+function parseOptionalBoolean(value: unknown): boolean | null {
+  if (value == null || value === '') {
+    return null
+  }
+  if (typeof value === 'boolean') {
+    return value
+  }
+  if (typeof value === 'number') {
+    return value !== 0
+  }
+  const normalized = String(value).trim().toLowerCase()
+  if (!normalized) {
+    return null
+  }
+  if (normalized === '0' || normalized === 'false') {
+    return false
+  }
+  if (normalized === '1' || normalized === 'true') {
+    return true
+  }
+  return null
+}

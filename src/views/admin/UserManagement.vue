@@ -91,8 +91,12 @@
                 />
               </td>
               <td>
+                <template v-if="normalizeUserStatus(u.status) === null">
+                  <n-tag size="small" type="warning">状态待确认</n-tag>
+                </template>
                 <n-switch
-                  :value="u.status !== 0"
+                  v-else
+                  :value="normalizeUserStatus(u.status) === 1"
                   :disabled-update-value="true"
                   @update:value="(val: boolean) => handleToggleStatus(u, val)"
                 />
@@ -300,6 +304,12 @@ async function handleToggleStatus(u: any, enabled: boolean) {
     u.status = enabled ? 1 : 0
     message.success(enabled ? '已启用' : '已禁用')
   } catch { message.error('操作失败') }
+}
+
+function normalizeUserStatus(value: unknown): number | null {
+  if (value === 1 || value === '1' || value === true || value === 'true') return 1
+  if (value === 0 || value === '0' || value === false || value === 'false') return 0
+  return null
 }
 
 // --- 内联编辑昵称 ---
