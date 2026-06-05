@@ -240,7 +240,12 @@ async function loadUsers() {
     if (search.value) params.search = search.value
     const res = await request.get('/api/admin/users', { params })
     const data = (res as any).data || {}
-    users.value = data.records || []
+    if (!Array.isArray(data.records)) {
+      users.value = null
+      total.value = null
+      return
+    }
+    users.value = data.records
     total.value = typeof data.total === 'number' ? data.total : 0
   } catch (err: any) {
     users.value = null

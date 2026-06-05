@@ -355,7 +355,12 @@ async function loadPosts() {
     if (searchQuery.value) params.search = searchQuery.value
     const res = await request.get('/api/community/posts', { params })
     const data = (res as any).data || {}
-    posts.value = (data.records || []).map((post: any) => ({
+    if (!Array.isArray(data.records)) {
+      posts.value = null
+      total.value = null
+      return
+    }
+    posts.value = data.records.map((post: any) => ({
       ...post,
       imageUrl: resolveAssetUrl(post.imageUrl)
     }))

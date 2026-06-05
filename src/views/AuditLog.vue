@@ -127,7 +127,12 @@ async function loadLogs() {
     if (actionFilter.value) params.action = actionFilter.value
     const res = await request.get('/api/audit-logs/my', { params })
     const data = (res as any).data || {}
-    logs.value = data.records || []
+    if (!Array.isArray(data.records)) {
+      logs.value = null
+      total.value = null
+      return
+    }
+    logs.value = data.records
     total.value = typeof data.total === 'number' ? data.total : 0
   } catch (err: any) {
     logs.value = null

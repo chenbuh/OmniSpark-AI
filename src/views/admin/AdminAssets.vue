@@ -139,7 +139,12 @@ async function loadAssets() {
     if (searchText.value) params.search = searchText.value
     const res = await request.get('/api/admin/assets', { params })
     const data = (res as any).data || {}
-    assets.value = data.records || []
+    if (!Array.isArray(data.records)) {
+      assets.value = null
+      total.value = null
+      return
+    }
+    assets.value = data.records
     total.value = typeof data.total === 'number' ? data.total : 0
   } catch (err: any) {
     assets.value = null

@@ -160,9 +160,14 @@ async function loadTasks() {
     if (searchText.value) params.search = searchText.value
     const res = await request.get('/api/admin/tasks', { params })
     const data = (res as any).data || {}
-    tasks.value = data.records || []
+    if (!Array.isArray(data.records)) {
+      tasks.value = null
+      total.value = null
+      return
+    }
+    tasks.value = data.records
     total.value = typeof data.total === 'number' ? data.total : 0
-    mergeTaskMetaFromRecords(tasks.value || [])
+    mergeTaskMetaFromRecords(data.records)
   } catch (err: any) {
     tasks.value = null
     total.value = null

@@ -643,7 +643,11 @@ async function loadWorkflowMeta() {
 async function loadWorkflows() {
   try {
     const res = await workflowApi.list(projectStore.activeProjectId)
-    const records = ((res as any).data || []).map((item: WorkflowVO) => normalizeWorkflow(item))
+    const data = (res as any).data
+    if (!Array.isArray(data)) {
+      throw new Error('工作流数据待确认')
+    }
+    const records = data.map((item: WorkflowVO) => normalizeWorkflow(item))
     workflows.value = records
     if (selectedWorkflow.value) {
       const next = records.find((item: WorkflowRecord) => item.id === selectedWorkflow.value?.id) || null
@@ -670,7 +674,8 @@ async function loadRuns(workflowId: number) {
   runs.value = null
   try {
     const res = await workflowApi.listRuns(workflowId)
-    runs.value = (res as any).data || []
+    const data = (res as any).data
+    runs.value = Array.isArray(data) ? data : null
   } catch {
     runs.value = null
   } finally {
