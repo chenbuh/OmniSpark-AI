@@ -58,6 +58,10 @@ public class DataDictService {
 
     @Transactional(rollbackFor = Exception.class)
     public void deleteDict(Long id) {
+        DataDict dict = dictMapper.selectById(id);
+        if (dict == null) {
+            throw new BusinessException("字典不存在");
+        }
         dictMapper.deleteById(id);
         itemMapper.delete(new LambdaQueryWrapper<DataDictItem>().eq(DataDictItem::getDictId, id));
     }
@@ -120,6 +124,10 @@ public class DataDictService {
 
     @Transactional(rollbackFor = Exception.class)
     public void deleteItem(Long id) {
+        DataDictItem item = itemMapper.selectById(id);
+        if (item == null) {
+            throw new BusinessException("条目不存在");
+        }
         itemMapper.deleteById(id);
     }
 }

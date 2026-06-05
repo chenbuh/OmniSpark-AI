@@ -38,7 +38,8 @@ public class NotificationController {
 
     @PostMapping("/{id}/read")
     public ApiResult<Void> markRead(@PathVariable Long id) {
-        notificationService.markRead(id);
+        Long userId = StpUtil.getLoginIdAsLong();
+        notificationService.markRead(userId, id);
         return ApiResult.ok();
     }
 

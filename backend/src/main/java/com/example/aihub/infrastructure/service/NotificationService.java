@@ -2,6 +2,7 @@ package com.example.aihub.infrastructure.service;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
+import com.example.aihub.common.exception.BusinessException;
 import com.example.aihub.common.util.PagingUtil;
 import com.example.aihub.common.util.VoMapper;
 import com.example.aihub.infrastructure.entity.Notification;
@@ -66,12 +67,16 @@ public class NotificationService {
     }
 
     @Transactional(rollbackFor = Exception.class)
-    public void markRead(Long id) {
+    public void markRead(Long userId, Long id) {
         Notification notif = notificationMapper.selectById(id);
-        if (notif != null) {
-            notif.setIsRead(1);
-            notificationMapper.updateById(notif);
+        if (notif == null) {
+            throw new BusinessException("通知不存在");
         }
+        if (!notif.getUserId().equals(userId)) {
+            throw new BusinessException("无权操作该通知");
+        }
+        notif.setIsRead(1);
+        notificationMapper.updateById(notif);
     }
 
     @Transactional(rollbackFor = Exception.class)
