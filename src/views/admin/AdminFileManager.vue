@@ -7,9 +7,10 @@
 
     <!-- 统计栏 -->
     <n-card class="glass-card stats-bar" :bordered="false">
+      <div v-if="statsLoadState === 'error'" class="status-note">文件统计待确认，请稍后重试。</div>
       <n-space>
-        <span class="stat-item">📁 文件总数: <strong>{{ stats.fileCount ?? '-' }}</strong></span>
-        <span class="stat-item">💾 总大小: <strong>{{ stats.totalSizeReadable ?? '-' }}</strong></span>
+        <span class="stat-item">📁 文件总数: <strong>{{ fileCountDisplay }}</strong></span>
+        <span class="stat-item">💾 总大小: <strong>{{ totalSizeDisplay }}</strong></span>
         <span class="stat-item">📂 当前目录: <code>{{ currentPath || '/' }}</code></span>
       </n-space>
     </n-card>
@@ -117,11 +118,24 @@ const loadingItems = ref(true)
 const items = ref<any[] | null>(null)
 const currentPath = ref('')
 const stats = ref<any>({})
+const statsLoadState = ref<'loading' | 'ready' | 'error'>('loading')
 const viewMode = ref('list')
 const showPreview = ref(false)
 const previewUrl = ref('')
 
 const pathSegments = computed(() => currentPath.value ? currentPath.value.split('/') : [])
+const fileCountDisplay = computed(() => {
+  if (statsLoadState.value === 'error') {
+    return '待确认'
+  }
+  return stats.value.fileCount ?? '-'
+})
+const totalSizeDisplay = computed(() => {
+  if (statsLoadState.value === 'error') {
+    return '待确认'
+  }
+  return stats.value.totalSizeReadable ?? '-'
+})
 
 onMounted(() => { loadStats(); loadFiles() })
 
@@ -140,7 +154,19 @@ async function loadFiles(path?: string) {
 }
 
 async function loadStats() {
-  try { const res = await request.get('/api/admin/files/stats'); stats.value = (res as any).data || {} } catch {}
+  statsLoadState.value = 'loading'
+  try {
+    const res = await request.get('/api/admin/files/stats')
+    const data = (res as any).data
+    if (!data || typeof data !== 'object' || Array.isArray(data)) {
+      throw new Error('文件统计待确认')
+    }
+    stats.value = data
+    statsLoadState.value = 'ready'
+  } catch {
+    stats.value = {}
+    statsLoadState.value = 'error'
+  }
 }
 
 function goToParent() {
@@ -202,6 +228,7 @@ function formatSize(bytes: number) {
 .page-header h2 { font-size: 24px; font-weight: 700; margin: 0 0 6px 0; color: #fff; }
 .subtitle { font-size: 13px; color: #9ca3af; margin: 0; }
 .glass-card { background: rgba(15,23,42,0.4) !important; backdrop-filter: blur(16px); border: 1px solid rgba(255,255,255,0.08) !important; border-radius: 16px !important; }
+.status-note { margin-bottom: 10px; font-size: 12px; color: #fca5a5; }
 .stats-bar .stat-item { font-size: 13px; color: #d1d5db; }
 .stats-bar .stat-item strong { color: #10b981; }
 .toolbar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }

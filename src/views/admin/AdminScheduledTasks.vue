@@ -12,6 +12,7 @@
           <template #icon><Plus /></template>新建任务
         </n-button>
       </div>
+      <div v-if="tasksLoadState === 'error'" class="status-note">定时任务数据待确认，请稍后重试。</div>
 
       <div v-if="loadingTasks && tasks === null" class="loading-box">
         <n-spin size="small" />
@@ -122,6 +123,7 @@ const tasks = ref<any[] | null>(null)
 const runningId = ref<number | null>(null)
 const showEditor = ref(false)
 const editingId = ref<number | null>(null)
+const tasksLoadState = ref<'loading' | 'ready' | 'error'>('loading')
 
 const form = reactive({
   name: '', description: '', taskType: 'cleanup', cron: '0 0 3 * * ?'
@@ -138,11 +140,19 @@ onMounted(load)
 async function load() {
   clearCache('scheduled-tasks')
   loadingTasks.value = true
+  tasksLoadState.value = 'loading'
   try {
     const res = await request.get('/api/admin/scheduled-tasks', { headers: { 'x-no-cache': '1' } })
-    tasks.value = (res as any).data || []
-  } catch {
+    const data = (res as any).data
+    if (!Array.isArray(data)) {
+      throw new Error('定时任务数据待确认')
+    }
+    tasks.value = data
+    tasksLoadState.value = 'ready'
+  } catch (err: any) {
     tasks.value = null
+    tasksLoadState.value = 'error'
+    message.error(err.message || '加载定时任务失败')
   } finally {
     loadingTasks.value = false
   }
@@ -235,6 +245,7 @@ async function handleRunNow(id: number) {
 .toolbar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
 .loading-box { display: flex; justify-content: center; padding: 24px 0; }
 .count { font-size: 12px; color: var(--text-muted); }
+.status-note { margin-bottom: 12px; font-size: 12px; color: #fca5a5; }
 .cron-hint { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; font-size: 12px; color: var(--text-muted); margin-bottom: 10px; }
 .empty-cell { text-align: center; padding: 24px !important; color: var(--text-muted); }
 </style>

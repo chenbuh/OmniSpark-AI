@@ -6,6 +6,7 @@
     </div>
 
     <n-card class="glass-card" :bordered="false">
+      <div v-if="configsLoadState === 'error'" class="status-note">系统配置待确认，请稍后重试。</div>
       <div v-if="loadingConfigs && configs === null" class="loading-box">
         <n-spin size="small" />
       </div>
@@ -46,7 +47,11 @@
     <!-- 系统状态 -->
     <n-card class="glass-card" :bordered="false" style="margin-top:20px;">
       <template #header><span style="font-weight:600;color:#e5e7eb;">系统状态</span></template>
-      <n-descriptions v-if="health" :column="2" bordered>
+      <div v-if="healthLoadState === 'error'" class="status-note">系统健康状态待确认，请稍后重试。</div>
+      <div v-else-if="healthLoadState === 'loading'" class="loading-box">
+        <n-spin size="small" />
+      </div>
+      <n-descriptions v-else-if="health" :column="2" bordered>
         <n-descriptions-item label="状态">
           <n-tag :type="health.status === 'UP' ? 'success' : 'error'">{{ health.status }}</n-tag>
         </n-descriptions-item>
@@ -56,6 +61,7 @@
         <n-descriptions-item label="运行时长">{{ health.uptimeReadable || '-' }}</n-descriptions-item>
         <n-descriptions-item label="启动时间">{{ health.startedAt || '-' }}</n-descriptions-item>
       </n-descriptions>
+      <n-empty v-else description="系统健康状态待确认，请稍后重试。" style="padding:16px 0;" />
     </n-card>
   </div>
 </template>
@@ -71,24 +77,44 @@ const configs = ref<any[] | null>(null)
 const health = ref<any>(null)
 const editingId = ref<number | null>(null)
 const editValue = ref('')
+const configsLoadState = ref<'loading' | 'ready' | 'error'>('loading')
+const healthLoadState = ref<'loading' | 'ready' | 'error'>('loading')
 
 async function loadConfigs() {
   loadingConfigs.value = true
+  configsLoadState.value = 'loading'
   try {
     const res = await request.get('/api/admin/config')
-    configs.value = (res as any).data || []
-  } catch {
+    const data = (res as any).data
+    if (!Array.isArray(data)) {
+      throw new Error('系统配置待确认')
+    }
+    configs.value = data
+    configsLoadState.value = 'ready'
+  } catch (err: any) {
     configs.value = null
+    configsLoadState.value = 'error'
+    message.error(err.message || '加载系统配置失败')
   } finally {
     loadingConfigs.value = false
   }
 }
 
 async function loadHealth() {
+  healthLoadState.value = 'loading'
   try {
     const res = await request.get('/api/admin/health')
-    health.value = (res as any).data
-  } catch { health.value = null }
+    const data = (res as any).data
+    if (!data || typeof data !== 'object' || Array.isArray(data)) {
+      throw new Error('系统健康状态待确认')
+    }
+    health.value = data
+    healthLoadState.value = 'ready'
+  } catch (err: any) {
+    health.value = null
+    healthLoadState.value = 'error'
+    message.error(err.message || '加载系统健康状态失败')
+  }
 }
 
 onMounted(() => { loadConfigs(); loadHealth() })
@@ -115,6 +141,7 @@ async function handleSave(id: number) {
 .subtitle { font-size: 13px; color: #9ca3af; margin: 0; }
 .glass-card { background: rgba(15,23,42,0.4) !important; backdrop-filter: blur(16px); border: 1px solid rgba(255,255,255,0.08) !important; border-radius: 16px !important; }
 .loading-box { display: flex; justify-content: center; padding: 24px 0; }
+.status-note { margin-bottom: 12px; font-size: 12px; color: #fca5a5; }
 .config-table { background: transparent !important; }
 .config-table th { background: rgba(255,255,255,0.02) !important; color: #9ca3af !important; border-bottom: 1px solid rgba(255,255,255,0.06) !important; font-size: 12px; }
 .config-table td { border-bottom: 1px solid rgba(255,255,255,0.04) !important; color: #e5e7eb; padding: 10px 8px; font-size: 13px; }

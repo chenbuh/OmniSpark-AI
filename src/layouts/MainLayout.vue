@@ -160,6 +160,8 @@
           <span>当前项目:</span>
           <n-tag type="info" size="small">{{ currentProjectName }}</n-tag>
         </div>
+        <div v-if="sharesLoadState === 'error'" class="share-status-note">共享列表待确认，请稍后重试。</div>
+        <div v-if="teamsLoadState === 'error'" class="share-status-note">团队选项待确认，请稍后重试。</div>
 
         <!-- 已有共享列表 -->
         <div class="share-list" v-if="shares && shares.length > 0">
@@ -186,7 +188,8 @@
           <n-select
             v-model:value="newShareTeamId"
             :options="teamOptions"
-            placeholder="选择要共享的团队"
+            :placeholder="shareTeamPlaceholder"
+            :disabled="teamsLoadState === 'error' || teamOptions.length === 0"
             style="flex: 1;"
           />
           <n-select
@@ -254,6 +257,8 @@ const showShareModal = ref(false)
 const shares = ref<any[] | null>(null)
 const newShareTeamId = ref<number | null>(null)
 const newSharePermission = ref('view')
+const sharesLoadState = ref<'loading' | 'ready' | 'error'>('ready')
+const teamsLoadState = ref<'loading' | 'ready' | 'error'>('ready')
 const permissionOptions = [
   { label: '查看', value: 'view' },
   { label: '编辑', value: 'edit' },
@@ -267,6 +272,18 @@ const currentProjectName = computed(() => {
 
 const teamOptions = computed(() => {
   return teamStore.teams.map(t => ({ label: t.name, value: t.id }))
+})
+const shareTeamPlaceholder = computed(() => {
+  if (teamsLoadState.value === 'error') {
+    return '团队选项待确认'
+  }
+  if (teamsLoadState.value === 'loading') {
+    return '团队选项加载中'
+  }
+  if (teamOptions.value.length === 0) {
+    return '暂无可共享团队'
+  }
+  return '选择要共享的团队'
 })
 
 // 当前激活的菜单项
@@ -387,22 +404,55 @@ const handleAddProject = async () => {
 // 打开共享弹窗时加载数据
 watch(showShareModal, async (val: boolean) => {
   if (val) {
-    await teamStore.refresh()
-    await loadShares()
+    await loadShareModalData()
   }
 })
 
+const loadShareModalData = async () => {
+  await Promise.allSettled([
+    loadTeamOptions(),
+    loadShares()
+  ])
+}
+
+const loadTeamOptions = async () => {
+  teamsLoadState.value = 'loading'
+  try {
+    const teams = await teamStore.refresh()
+    if (!Array.isArray(teams)) {
+      throw new Error('团队选项待确认')
+    }
+    teamsLoadState.value = 'ready'
+    if (newShareTeamId.value && !teamStore.teams.some(team => team.id === newShareTeamId.value)) {
+      newShareTeamId.value = null
+    }
+  } catch {
+    teamsLoadState.value = 'error'
+    newShareTeamId.value = null
+  }
+}
+
 const loadShares = async () => {
   if (!projectStore.activeProjectId) return
+  sharesLoadState.value = 'loading'
   try {
     const res = await projectShareApi.getShares(projectStore.activeProjectId)
-    shares.value = res.data || []
+    if (!Array.isArray(res.data)) {
+      throw new Error('共享列表待确认')
+    }
+    shares.value = res.data
+    sharesLoadState.value = 'ready'
   } catch {
     shares.value = null
+    sharesLoadState.value = 'error'
   }
 }
 
 const handleAddShare = async () => {
+  if (teamsLoadState.value === 'error') {
+    message.error('团队选项待确认，请稍后重试')
+    return
+  }
   if (!newShareTeamId.value || !projectStore.activeProjectId) return
   try {
     await projectShareApi.createShare({
@@ -848,6 +898,12 @@ const handleUserDropdownSelect = async (key: string) => {
   margin-bottom: 16px;
   font-size: 13px;
   color: #9ca3af;
+}
+
+.share-status-note {
+  margin-bottom: 12px;
+  font-size: 12px;
+  color: #fca5a5;
 }
 
 .share-list {

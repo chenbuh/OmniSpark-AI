@@ -13,6 +13,7 @@
           <template #icon><Plus /></template>新建公告
         </n-button>
       </div>
+      <div v-if="listLoadState === 'error'" class="status-note">公告数据待确认，请稍后重试。</div>
 
       <div v-if="loadingList && list === null" class="loading-box">
         <n-spin size="small" />
@@ -79,17 +80,26 @@ const list = ref<any[] | null>(null)
 const showEditor = ref(false)
 const editingId = ref<number | null>(null)
 const form = reactive({ title: '', content: '', priority: 'normal' })
+const listLoadState = ref<'loading' | 'ready' | 'error'>('loading')
 const listCountDisplay = computed(() => list.value === null ? '-' : list.value.length)
 
 onMounted(load)
 
 async function load() {
   loadingList.value = true
+  listLoadState.value = 'loading'
   try {
     const res = await request.get('/api/admin/announcements')
-    list.value = (res as any).data || []
-  } catch {
+    const data = (res as any).data
+    if (!Array.isArray(data)) {
+      throw new Error('公告数据待确认')
+    }
+    list.value = data
+    listLoadState.value = 'ready'
+  } catch (err: any) {
     list.value = null
+    listLoadState.value = 'error'
+    message.error(err.message || '加载公告失败')
   } finally {
     loadingList.value = false
   }
@@ -138,6 +148,7 @@ function normalizeBinaryStatus(value: unknown): boolean | null {
 .toolbar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
 .loading-box { display: flex; justify-content: center; padding: 24px 0; }
 .count { font-size: 12px; color: #9ca3af; }
+.status-note { margin-bottom: 12px; font-size: 12px; color: #fca5a5; }
 .admin-table { background: transparent !important; }
 .admin-table th { background: rgba(255,255,255,0.02) !important; color: #9ca3af !important; border-bottom: 1px solid rgba(255,255,255,0.06) !important; font-size: 12px; }
 .admin-table td { border-bottom: 1px solid rgba(255,255,255,0.04) !important; color: #e5e7eb; padding: 8px; font-size: 13px; }

@@ -12,7 +12,8 @@
           <n-select
             v-model:value="actionFilter"
             :options="actionOptions"
-            placeholder="操作类型"
+            :placeholder="actionFilterPlaceholder"
+            :disabled="actionOptionsLoadState === 'error' || actionOptionsLoadState === 'loading'"
             style="width: 160px;"
             clearable
             @update:value="onFilter"
@@ -30,6 +31,7 @@
         </n-space>
         <span class="count-lbl">共 {{ totalDisplay }} 条记录</span>
       </div>
+      <div v-if="actionOptionsLoadState === 'error'" class="status-note">审计操作类型待确认，请稍后重试。</div>
     </n-card>
 
     <!-- 日志表格 -->
@@ -97,6 +99,7 @@ const total = ref<number | null>(null)
 const cleanupDays = ref(30)
 const cleaning = ref(false)
 const actions = ref<string[]>([])
+const actionOptionsLoadState = ref<'loading' | 'ready' | 'error'>('loading')
 const actionOptions = computed(() => [
   { label: '全部', value: '' },
   ...actions.value.map(action => ({
@@ -105,6 +108,15 @@ const actionOptions = computed(() => [
   }))
 ])
 const totalDisplay = computed(() => total.value == null ? '-' : total.value)
+const actionFilterPlaceholder = computed(() => {
+  if (actionOptionsLoadState.value === 'error') {
+    return '操作类型待确认'
+  }
+  if (actionOptionsLoadState.value === 'loading') {
+    return '操作类型加载中'
+  }
+  return '操作类型'
+})
 
 const actionColor = (action: string) => {
   if (!action) return 'default'
@@ -142,14 +154,20 @@ async function loadLogs() {
 }
 
 async function loadActions() {
+  actionOptionsLoadState.value = 'loading'
   try {
     const res = await request.get('/api/audit-logs/actions')
-    actions.value = Array.isArray((res as any).data) ? (res as any).data : []
+    if (!Array.isArray((res as any).data)) {
+      throw new Error('审计操作类型待确认')
+    }
+    actions.value = (res as any).data
+    actionOptionsLoadState.value = 'ready'
     if (actionFilter.value && !actions.value.includes(actionFilter.value)) {
       actionFilter.value = null
     }
   } catch {
     actions.value = []
+    actionOptionsLoadState.value = 'error'
   }
 }
 
@@ -209,6 +227,7 @@ onMounted(async () => {
 .filter-row { display: flex; justify-content: space-between; align-items: center; }
 .count-lbl { font-size: 12px; color: #9ca3af; }
 .cleanup-lbl { font-size: 12px; color: #9ca3af; }
+.status-note { margin-top: 12px; font-size: 12px; color: #fca5a5; }
 
 .audit-table { background-color: transparent !important; }
 .audit-table th {

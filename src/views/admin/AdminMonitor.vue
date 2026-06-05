@@ -6,6 +6,12 @@
       <n-button size="small" secondary @click="loadData" :loading="loading">刷新数据</n-button>
     </div>
 
+    <div v-if="monitorLoadState === 'error'" class="status-note">监控数据待确认，请稍后重试。</div>
+    <div v-else-if="loading && monitorLoadState === 'loading'" class="loading-box">
+      <n-spin size="small" />
+    </div>
+
+    <template v-if="monitorLoadState === 'ready'">
     <n-row :gutter="16">
       <!-- CPU -->
       <n-col :span="8">
@@ -91,6 +97,7 @@
         总计: {{ formatBytes(data.diskTotal) }} · 已用: {{ formatBytes(data.diskUsed) }} ({{ formatPercent(data.diskUsagePercent) }}) · 可用: {{ formatBytes(data.diskFree) }}
       </div>
     </n-card>
+    </template>
   </div>
 </template>
 
@@ -103,6 +110,7 @@ const message = useMessage()
 
 const loading = ref(false)
 const data = ref<any>({})
+const monitorLoadState = ref<'loading' | 'ready' | 'error'>('loading')
 const circum = 2 * Math.PI * 50 // 314.16
 
 let autoTimer: any = null
@@ -125,11 +133,20 @@ async function loadData() {
   if (inFlight) return
   inFlight = true
   loading.value = true
+  if (monitorLoadState.value !== 'ready') {
+    monitorLoadState.value = 'loading'
+  }
   try {
     const res = await request.get('/api/admin/monitor')
-    data.value = (res as any).data || {}
+    const nextData = (res as any).data
+    if (!nextData || typeof nextData !== 'object' || Array.isArray(nextData)) {
+      throw new Error('监控数据待确认')
+    }
+    data.value = nextData
+    monitorLoadState.value = 'ready'
     errorNotified = false
   } catch (err: any) {
+    monitorLoadState.value = 'error'
     // 5 秒轮询,仅首次失败提示,避免重复弹窗刷屏
     if (!errorNotified) {
       message.error(err.message || '加载监控数据失败')
@@ -171,6 +188,8 @@ function toOptionalNumber(value: unknown): number | null {
 .page-header { margin-bottom: 24px; display: flex; justify-content: space-between; align-items: flex-end; }
 .page-header h2 { font-size: 24px; font-weight: 700; margin: 0 0 6px 0; color: var(--text-primary); }
 .subtitle { font-size: 13px; color: #9ca3af; margin: 0; }
+.loading-box { display: flex; justify-content: center; padding: 32px 0; }
+.status-note { margin-bottom: 16px; font-size: 12px; color: #fca5a5; }
 .glass-card { background: rgba(15,23,42,0.4) !important; backdrop-filter: blur(16px); border: 1px solid rgba(255,255,255,0.08) !important; border-radius: 16px !important; }
 .card-title { font-size: 14px; font-weight: 600; color: var(--text-primary); }
 .monitor-card { min-height: 280px; }
