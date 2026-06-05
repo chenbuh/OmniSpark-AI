@@ -354,7 +354,12 @@ function requireCommunityPostResult(value: unknown, action: 'create' | 'update')
   return {
     id,
     title,
-    prompt
+    prompt,
+    negativePrompt: typeof (value as any).negativePrompt === 'string' ? (value as any).negativePrompt : '',
+    modelName: typeof (value as any).modelName === 'string' ? (value as any).modelName : '',
+    imageUrl: typeof (value as any).imageUrl === 'string' ? (value as any).imageUrl : '',
+    category: typeof (value as any).category === 'string' ? (value as any).category : '',
+    tags: typeof (value as any).tags === 'string' ? (value as any).tags : ''
   }
 }
 
@@ -490,6 +495,15 @@ function clearUploadedImage() {
   }
 }
 
+async function loadPostDetail(id: number) {
+  const res = await request.get(`/api/community/posts/${id}`)
+  return requireCommunityPostResult((res as any).data, 'update')
+}
+
+function normalizeOptionalText(value: unknown) {
+  return typeof value === 'string' ? value.trim() : ''
+}
+
 async function handleImageUpload(event: Event) {
   const target = event.target as HTMLInputElement
   const file = target.files?.[0]
@@ -506,15 +520,13 @@ async function handleImageUpload(event: Event) {
     formData.append('projectId', String(projectStore.activeProjectId))
     formData.append('file', file)
     const res = await assetApi.uploadAsset(formData)
-    const uploadedUrl = typeof res.data?.fileUrl === 'string' && res.data.fileUrl
-      ? res.data.fileUrl
-      : typeof res.data?.thumbUrl === 'string' && res.data.thumbUrl
-        ? res.data.thumbUrl
-        : ''
-    if (!uploadedUrl) {
+    const uploaded = assetStore.normalizeAsset((res as any).data)
+    await assetStore.refresh({ projectId: projectStore.activeProjectId, limit: 100 })
+    const confirmedAsset = assetStore.assets.find(asset => asset.id === uploaded.id)
+    if (!confirmedAsset || !(confirmedAsset.fileUrl || confirmedAsset.thumbUrl)) {
       throw new Error('效果图地址待确认')
     }
-    form.imageUrl = toRelativeUrl(uploadedUrl)
+    form.imageUrl = toRelativeUrl(confirmedAsset.fileUrl || confirmedAsset.thumbUrl)
     message.success('效果图上传成功')
   } catch (err: any) {
     message.error(err.message || '图片上传失败')
@@ -532,13 +544,28 @@ async function handlePublish() {
       ...form,
       category: form.category?.trim() || undefined
     }
+    const expectedTitle = form.title.trim()
+    const expectedPrompt = form.prompt.trim()
+    const expectedNegativePrompt = normalizeOptionalText(form.negativePrompt)
+    const expectedModelName = normalizeOptionalText(form.modelName)
+    const expectedImageUrl = toRelativeUrl(form.imageUrl)
+    const expectedCategory = normalizeOptionalText(payload.category)
+    const expectedTags = normalizeOptionalText(form.tags)
     if (editingPostId.value) {
       const editingId = editingPostId.value
       const res = await request.put(`/api/community/posts/${editingId}`, payload)
-      requireCommunityPostResult((res as any).data, 'update')
+      const updated = requireCommunityPostResult((res as any).data, 'update')
       await Promise.all([loadCategories(), loadPosts()])
-      const refreshed = posts.value?.find((post: any) => post.id === editingId)
-      if (!refreshed || refreshed.title !== form.title || refreshed.prompt !== form.prompt) {
+      const refreshed = await loadPostDetail(updated.id)
+      if (
+        refreshed.title !== expectedTitle
+        || refreshed.prompt !== expectedPrompt
+        || normalizeOptionalText(refreshed.negativePrompt) !== expectedNegativePrompt
+        || normalizeOptionalText(refreshed.modelName) !== expectedModelName
+        || toRelativeUrl(refreshed.imageUrl) !== expectedImageUrl
+        || normalizeOptionalText(refreshed.category) !== expectedCategory
+        || normalizeOptionalText(refreshed.tags) !== expectedTags
+      ) {
         throw new Error('更新结果待确认')
       }
       message.success('已更新！')
@@ -546,8 +573,16 @@ async function handlePublish() {
       const res = await request.post('/api/community/posts', payload)
       const created = requireCommunityPostResult((res as any).data, 'create')
       await Promise.all([loadCategories(), loadPosts()])
-      const refreshed = posts.value?.find((post: any) => post.id === created.id)
-      if (!refreshed || refreshed.title !== form.title || refreshed.prompt !== form.prompt) {
+      const refreshed = await loadPostDetail(created.id)
+      if (
+        refreshed.title !== expectedTitle
+        || refreshed.prompt !== expectedPrompt
+        || normalizeOptionalText(refreshed.negativePrompt) !== expectedNegativePrompt
+        || normalizeOptionalText(refreshed.modelName) !== expectedModelName
+        || toRelativeUrl(refreshed.imageUrl) !== expectedImageUrl
+        || normalizeOptionalText(refreshed.category) !== expectedCategory
+        || normalizeOptionalText(refreshed.tags) !== expectedTags
+      ) {
         throw new Error('发布结果待确认')
       }
       message.success('发布成功！')
