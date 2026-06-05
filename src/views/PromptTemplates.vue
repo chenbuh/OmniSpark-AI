@@ -251,6 +251,7 @@ function requireTemplateDetail(value: unknown, action: 'create' | 'update') {
   const record = value as Record<string, unknown>
   return {
     ...base,
+    projectId: normalizeTemplateProjectId(record.projectId, action),
     tag: normalizeOptionalText(record.tag),
     negativePrompt: normalizeOptionalText(record.negativePrompt),
     modelName: normalizeOptionalText(record.modelName),
@@ -307,6 +308,14 @@ function normalizeOptionalText(value: unknown) {
   return typeof value === 'string' ? value.trim() : ''
 }
 
+function normalizeTemplateProjectId(value: unknown, action: 'create' | 'update') {
+  const parsed = Number(value)
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    throw new Error(action === 'create' ? '模板创建结果待确认' : '模板更新结果待确认')
+  }
+  return parsed
+}
+
 function normalizeInteractionCount(value: unknown, action: 'create' | 'update') {
   const parsed = Number(value)
   if (!Number.isFinite(parsed) || parsed < 0) {
@@ -323,6 +332,41 @@ function normalizeLikedState(value: unknown, action: 'create' | 'update') {
     return 0
   }
   throw new Error(action === 'create' ? '模板创建结果待确认' : '模板更新结果待确认')
+}
+
+function buildTemplateExpectation(payload: {
+  projectId: number
+  name: string
+  tag?: string
+  content: string
+  negativePrompt?: string
+  modelName?: string
+}) {
+  return {
+    projectId: payload.projectId,
+    name: payload.name.trim(),
+    tag: normalizeOptionalText(payload.tag),
+    content: payload.content.trim(),
+    negativePrompt: normalizeOptionalText(payload.negativePrompt),
+    modelName: normalizeOptionalText(payload.modelName)
+  }
+}
+
+function assertTemplateMatches(
+  template: ReturnType<typeof requireTemplateDetail>,
+  expected: ReturnType<typeof buildTemplateExpectation>,
+  action: 'create' | 'update'
+) {
+  if (
+    template.projectId !== expected.projectId
+    || template.name !== expected.name
+    || template.tag !== expected.tag
+    || template.content !== expected.content
+    || template.negativePrompt !== expected.negativePrompt
+    || template.modelName !== expected.modelName
+  ) {
+    throw new Error(action === 'create' ? '模板创建结果待确认' : '模板更新结果待确认')
+  }
 }
 
 async function loadTemplates() {
@@ -529,50 +573,51 @@ const handleSave = async () => {
   }
   saving.value = true
   try {
+    const payload = {
+      projectId: projectStore.activeProjectId,
+      name: form.name,
+      tag: form.tag.trim() || undefined,
+      content: form.content,
+      negativePrompt: form.negativePrompt || undefined,
+      modelName: form.modelName || undefined
+    }
+    const expected = buildTemplateExpectation(payload)
     if (editingId.value) {
       const currentEditingId = editingId.value
-      const res = await templateApi.update(currentEditingId, {
-        projectId: projectStore.activeProjectId,
-        name: form.name,
-        tag: form.tag.trim() || undefined,
-        content: form.content,
-        negativePrompt: form.negativePrompt || undefined,
-        modelName: form.modelName || undefined
-      })
+      const res = await templateApi.update(currentEditingId, payload)
       const updated = requireTemplateResult((res as any).data, 'update')
       await Promise.all([loadTemplateTags(), loadTemplates()])
-      const refreshed = templates.value?.find(item => Number(item.id) === currentEditingId)
+      const refreshed = requireTemplateDetail((await templateApi.get(updated.id) as any).data, 'update')
+      assertTemplateMatches(refreshed, expected, 'update')
+      const loaded = findLoadedTemplate(currentEditingId)
       if (
-        !refreshed
-        || Number(refreshed.id) !== updated.id
-        || refreshed.name !== form.name
-        || refreshed.content !== form.content
-        || String(refreshed.tag || '') !== form.tag.trim()
-        || String(refreshed.negativePrompt || '') !== (form.negativePrompt || '')
-        || String(refreshed.modelName || '') !== (form.modelName || '')
+        !loaded
+        || Number(loaded.id) !== updated.id
+        || Number(loaded.projectId) !== refreshed.projectId
+        || loaded.name !== refreshed.name
+        || loaded.content !== refreshed.content
+        || normalizeOptionalText(loaded.tag) !== refreshed.tag
+        || normalizeOptionalText(loaded.negativePrompt) !== refreshed.negativePrompt
+        || normalizeOptionalText(loaded.modelName) !== refreshed.modelName
       ) {
         throw new Error('模板更新结果待确认')
       }
       message.success('模板已更新！')
     } else {
-      const res = await templateApi.createTemplate({
-        projectId: projectStore.activeProjectId,
-        name: form.name,
-        tag: form.tag.trim() || undefined,
-        content: form.content,
-        negativePrompt: form.negativePrompt || undefined,
-        modelName: form.modelName || undefined
-      })
+      const res = await templateApi.createTemplate(payload)
       const created = requireTemplateResult((res as any).data, 'create')
       await Promise.all([loadTemplateTags(), loadTemplates()])
-      const refreshed = templates.value?.find(item => Number(item.id) === created.id)
+      const refreshed = requireTemplateDetail((await templateApi.get(created.id) as any).data, 'create')
+      assertTemplateMatches(refreshed, expected, 'create')
+      const loaded = findLoadedTemplate(created.id)
       if (
-        !refreshed
-        || refreshed.name !== form.name
-        || refreshed.content !== form.content
-        || String(refreshed.tag || '') !== form.tag.trim()
-        || String(refreshed.negativePrompt || '') !== (form.negativePrompt || '')
-        || String(refreshed.modelName || '') !== (form.modelName || '')
+        !loaded
+        || Number(loaded.projectId) !== refreshed.projectId
+        || loaded.name !== refreshed.name
+        || loaded.content !== refreshed.content
+        || normalizeOptionalText(loaded.tag) !== refreshed.tag
+        || normalizeOptionalText(loaded.negativePrompt) !== refreshed.negativePrompt
+        || normalizeOptionalText(loaded.modelName) !== refreshed.modelName
       ) {
         throw new Error('模板创建结果待确认')
       }
