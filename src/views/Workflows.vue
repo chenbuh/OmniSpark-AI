@@ -198,6 +198,17 @@
           直接按步骤填写即可，不需要编写任何配置代码。先写清楚每一步“要生成什么”，再补充模型和素材来源。
         </div>
 
+        <div v-if="editorStatusMessages.length > 0" class="editor-status-list">
+          <div
+            v-for="status in editorStatusMessages"
+            :key="status.key"
+            class="editor-status"
+            :class="`editor-status--${status.tone}`"
+          >
+            {{ status.text }}
+          </div>
+        </div>
+
         <div class="editor-steps">
           <div v-for="(step, idx) in stepDrafts" :key="idx" class="editor-step-card">
             <div class="editor-step-head">
@@ -221,7 +232,13 @@
             <n-row :gutter="12">
               <n-col :span="8">
                 <n-form-item label="步骤类型">
-                  <n-select v-model:value="step.type" :options="stepTypeOptions" @update:value="() => normalizeStep(step)" />
+                  <n-select
+                    v-model:value="step.type"
+                    :options="stepTypeOptions"
+                    :disabled="stepTypeSelectDisabled"
+                    :placeholder="stepTypeSelectPlaceholder"
+                    @update:value="() => normalizeStep(step)"
+                  />
                 </n-form-item>
               </n-col>
               <n-col :span="16">
@@ -235,7 +252,12 @@
               <n-row :gutter="12">
                 <n-col :span="8">
                   <n-form-item label="模型提供商">
-                    <n-select v-model:value="step.providerId" :options="providerOptions(step.type)" placeholder="选择 Provider" />
+                    <n-select
+                      v-model:value="step.providerId"
+                      :options="providerOptions(step.type)"
+                      :disabled="providerSelectDisabled(step.type)"
+                      :placeholder="providerSelectPlaceholder(step.type)"
+                    />
                   </n-form-item>
                 </n-col>
                 <n-col :span="8">
@@ -245,12 +267,22 @@
                 </n-col>
                 <n-col :span="8" v-if="step.type === 'image'">
                   <n-form-item label="输出尺寸">
-                    <n-select v-model:value="step.size" :options="imageSizeOptions" />
+                    <n-select
+                      v-model:value="step.size"
+                      :options="imageSizeOptions"
+                      :disabled="imageSizeSelectDisabled"
+                      :placeholder="imageSizeSelectPlaceholder"
+                    />
                   </n-form-item>
                 </n-col>
                 <n-col :span="8" v-else>
                   <n-form-item label="视频时长">
-                    <n-select v-model:value="step.duration" :options="videoDurationOptions" />
+                    <n-select
+                      v-model:value="step.duration"
+                      :options="videoDurationOptions"
+                      :disabled="videoDurationSelectDisabled"
+                      :placeholder="videoDurationSelectPlaceholder"
+                    />
                   </n-form-item>
                 </n-col>
               </n-row>
@@ -282,7 +314,8 @@
                       v-model:value="step.sourceAssetId"
                       clearable
                       :options="imageAssetOptions"
-                      placeholder="留空则默认使用上一步图片资产"
+                      :disabled="assetSelectDisabled"
+                      :placeholder="assetSelectDisabled ? '参考素材待确认' : '留空则默认使用上一步图片资产'"
                     />
                   </n-form-item>
                 </n-col>
@@ -292,7 +325,8 @@
                       v-model:value="step.endAssetId"
                       clearable
                       :options="imageAssetOptions"
-                      placeholder="可选，指定尾帧资产"
+                      :disabled="assetSelectDisabled"
+                      :placeholder="assetSelectDisabled ? '参考素材待确认' : '可选，指定尾帧资产'"
                     />
                   </n-form-item>
                 </n-col>
@@ -303,7 +337,12 @@
               <n-row :gutter="12">
                 <n-col :span="12">
                   <n-form-item label="字幕语言">
-                    <n-select v-model:value="step.language" :options="subtitleLanguageOptions" />
+                    <n-select
+                      v-model:value="step.language"
+                      :options="subtitleLanguageOptions"
+                      :disabled="subtitleLanguageSelectDisabled"
+                      :placeholder="subtitleLanguageSelectPlaceholder"
+                    />
                   </n-form-item>
                 </n-col>
                 <n-col :span="12">
@@ -323,6 +362,7 @@
             :key="option.value"
             dashed
             class="add-step-btn"
+            :disabled="stepTypeSelectDisabled"
             @click="addStep(option.value as WorkflowStepType)"
           >
             <template #icon><Plus /></template>
@@ -374,6 +414,8 @@ interface WorkflowRecord extends WorkflowVO {
 }
 
 type RunResult = Record<string, any>
+type LoadState = 'loading' | 'ready' | 'error'
+type EditorStatusTone = 'error' | 'info'
 
 const message = useMessage()
 const projectStore = useProjectStore()
@@ -390,6 +432,10 @@ const editorMode = ref<'create' | 'edit'>('create')
 const workflows = ref<WorkflowRecord[] | null>(null)
 const selectedWorkflow = ref<WorkflowRecord | null>(null)
 const runs = ref<WorkflowRunVO[] | null>(null)
+const workflowMetaLoadState = ref<LoadState>('loading')
+const generationMetaLoadState = ref<LoadState>('loading')
+const providerLoadState = ref<LoadState>('loading')
+const assetLibraryLoadState = ref<LoadState>('loading')
 
 const editForm = reactive({
   id: null as number | null,
@@ -406,9 +452,90 @@ const videoDurationOptions = computed(() => workflowMeta.value.videoDurations ||
 const subtitleLanguageOptions = computed(() => workflowMeta.value.subtitleLanguages || [])
 const allowedImageProviderTypes = computed(() => generationMeta.value.image?.allowedProviderTypes || [])
 const allowedVideoProviderTypes = computed(() => generationMeta.value.video?.allowedProviderTypes || [])
+const imageProviderOptionItems = computed(() => getProviderOptions('image'))
+const videoProviderOptionItems = computed(() => getProviderOptions('video'))
 const defaultImageSize = computed(() => workflowMeta.value.defaults?.imageSize || imageSizeOptions.value[0]?.value || '')
 const defaultVideoDuration = computed(() => workflowMeta.value.defaults?.videoDuration || videoDurationOptions.value[0]?.value || '')
 const defaultSubtitleLanguage = computed(() => workflowMeta.value.defaults?.subtitleLanguage || subtitleLanguageOptions.value[0]?.value || '')
+const stepTypeSelectDisabled = computed(() => {
+  return workflowMetaLoadState.value === 'error' || (workflowMetaLoadState.value === 'ready' && stepTypeOptions.value.length === 0)
+})
+const stepTypeSelectPlaceholder = computed(() => {
+  if (workflowMetaLoadState.value === 'error') {
+    return '步骤模板待确认'
+  }
+  if (stepTypeOptions.value.length === 0) {
+    return '暂无步骤模板'
+  }
+  return '选择步骤类型'
+})
+const imageSizeSelectDisabled = computed(() => {
+  return workflowMetaLoadState.value === 'error' || imageSizeOptions.value.length === 0
+})
+const imageSizeSelectPlaceholder = computed(() => {
+  if (workflowMetaLoadState.value === 'error') {
+    return '尺寸配置待确认'
+  }
+  if (imageSizeOptions.value.length === 0) {
+    return '暂无尺寸选项'
+  }
+  return '选择输出尺寸'
+})
+const videoDurationSelectDisabled = computed(() => {
+  return workflowMetaLoadState.value === 'error' || videoDurationOptions.value.length === 0
+})
+const videoDurationSelectPlaceholder = computed(() => {
+  if (workflowMetaLoadState.value === 'error') {
+    return '时长配置待确认'
+  }
+  if (videoDurationOptions.value.length === 0) {
+    return '暂无时长选项'
+  }
+  return '选择视频时长'
+})
+const subtitleLanguageSelectDisabled = computed(() => {
+  return workflowMetaLoadState.value === 'error' || subtitleLanguageOptions.value.length === 0
+})
+const subtitleLanguageSelectPlaceholder = computed(() => {
+  if (workflowMetaLoadState.value === 'error') {
+    return '字幕语言待确认'
+  }
+  if (subtitleLanguageOptions.value.length === 0) {
+    return '暂无字幕语言'
+  }
+  return '选择字幕语言'
+})
+const assetSelectDisabled = computed(() => assetLibraryLoadState.value === 'error')
+const editorStatusMessages = computed<Array<{ key: string; text: string; tone: EditorStatusTone }>>(() => {
+  const messages: Array<{ key: string; text: string; tone: EditorStatusTone }> = []
+
+  if (workflowMetaLoadState.value === 'error') {
+    messages.push({ key: 'workflow-meta-error', text: '工作流步骤模板待确认，请稍后重试。', tone: 'error' })
+  } else if (workflowMetaLoadState.value === 'ready' && stepTypeOptions.value.length === 0) {
+    messages.push({ key: 'workflow-meta-empty', text: '当前没有可用的步骤模板，请先检查后台配置。', tone: 'info' })
+  }
+
+  if (generationMetaLoadState.value === 'error') {
+    messages.push({ key: 'generation-meta-error', text: '图像/视频生成参数待确认，请稍后重试。', tone: 'error' })
+  }
+
+  if (providerLoadState.value === 'error') {
+    messages.push({ key: 'provider-error', text: 'Provider 选项待确认，请稍后重试。', tone: 'error' })
+  } else if (providerLoadState.value === 'ready') {
+    if (allowedImageProviderTypes.value.length > 0 && imageProviderOptionItems.value.length === 0) {
+      messages.push({ key: 'image-provider-empty', text: '当前项目暂无可用的生图 Provider。', tone: 'info' })
+    }
+    if (allowedVideoProviderTypes.value.length > 0 && videoProviderOptionItems.value.length === 0) {
+      messages.push({ key: 'video-provider-empty', text: '当前项目暂无可用的生视频 Provider。', tone: 'info' })
+    }
+  }
+
+  if (assetLibraryLoadState.value === 'error') {
+    messages.push({ key: 'asset-library-error', text: '参考素材待确认，请稍后重试。', tone: 'error' })
+  }
+
+  return messages
+})
 
 const filteredWorkflows = computed<WorkflowRecord[] | null>(() => {
   if (workflows.value === null) {
@@ -455,18 +582,44 @@ const imageAssetOptions = computed(() => {
 })
 
 function providerOptions(type: string) {
+  if (type === 'image') {
+    return imageProviderOptionItems.value
+  }
+  if (type === 'video') {
+    return videoProviderOptionItems.value
+  }
+  return []
+}
+
+function getProviderOptions(type: 'image' | 'video') {
   const providers = providerStore.getProvidersByProject(projectStore.activeProjectId)
-  const allowedTypes = type === 'image'
-    ? allowedImageProviderTypes.value
-    : type === 'video'
-      ? allowedVideoProviderTypes.value
-      : []
+  const allowedTypes = type === 'image' ? allowedImageProviderTypes.value : allowedVideoProviderTypes.value
   return providers
     .filter(provider => allowedTypes.includes(provider.type))
     .map(provider => ({
       label: `${provider.name} (#${provider.id})`,
       value: provider.id
     }))
+}
+
+function providerSelectDisabled(type: string) {
+  if (providerLoadState.value === 'error' || generationMetaLoadState.value === 'error') {
+    return true
+  }
+  return providerOptions(type).length === 0
+}
+
+function providerSelectPlaceholder(type: string) {
+  if (providerLoadState.value === 'error') {
+    return 'Provider 选项待确认'
+  }
+  if (generationMetaLoadState.value === 'error') {
+    return '生成参数待确认'
+  }
+  if (providerOptions(type).length === 0) {
+    return `暂无可用${stepTypeLabel(type)} Provider`
+  }
+  return '选择 Provider'
 }
 
 function stepTypeColor(type: string) {
@@ -606,8 +759,8 @@ async function loadPageData() {
     await Promise.allSettled([
       loadWorkflowMeta(),
       loadGenerationMeta(),
-      providerStore.refresh(projectStore.activeProjectId),
-      assetStore.refresh(),
+      loadProviderOptions(),
+      loadAssetLibrary(),
       loadWorkflows()
     ])
   } finally {
@@ -616,15 +769,19 @@ async function loadPageData() {
 }
 
 async function loadGenerationMeta() {
+  generationMetaLoadState.value = 'loading'
   try {
     const res = await generationApi.getMeta()
     generationMeta.value = ((res as any).data || {}) as GenerationMetaVO
+    generationMetaLoadState.value = 'ready'
   } catch {
     generationMeta.value = {}
+    generationMetaLoadState.value = 'error'
   }
 }
 
 async function loadWorkflowMeta() {
+  workflowMetaLoadState.value = 'loading'
   try {
     const res = await workflowApi.meta()
     const data = (res as any).data || {}
@@ -635,8 +792,30 @@ async function loadWorkflowMeta() {
       subtitleLanguages: Array.isArray(data.subtitleLanguages) ? data.subtitleLanguages : [],
       defaults: data.defaults && typeof data.defaults === 'object' ? data.defaults : {}
     }
+    workflowMetaLoadState.value = 'ready'
   } catch {
     workflowMeta.value = emptyWorkflowMeta()
+    workflowMetaLoadState.value = 'error'
+  }
+}
+
+async function loadProviderOptions() {
+  providerLoadState.value = 'loading'
+  try {
+    await providerStore.refresh(projectStore.activeProjectId)
+    providerLoadState.value = 'ready'
+  } catch {
+    providerLoadState.value = 'error'
+  }
+}
+
+async function loadAssetLibrary() {
+  assetLibraryLoadState.value = 'loading'
+  try {
+    await assetStore.refresh()
+    assetLibraryLoadState.value = 'ready'
+  } catch {
+    assetLibraryLoadState.value = 'error'
   }
 }
 
@@ -793,6 +972,16 @@ async function handleSave() {
     message.error('至少需要一个步骤')
     return
   }
+  if (stepDrafts.value.some(step => step.type === 'image' || step.type === 'video')) {
+    if (generationMetaLoadState.value === 'error') {
+      message.error('图像/视频生成参数待确认，请稍后重试')
+      return
+    }
+    if (providerLoadState.value === 'error') {
+      message.error('Provider 选项待确认，请稍后重试')
+      return
+    }
+  }
   for (const [index, step] of stepDrafts.value.entries()) {
     if (!step.prompt.trim() && step.type !== 'subtitle') {
       message.error(`步骤 ${index + 1} 需要填写 Prompt`)
@@ -865,7 +1054,7 @@ async function handleExecute() {
     if (run) {
       message.success('工作流执行完成')
       await loadRuns(selectedWorkflow.value.id)
-      await assetStore.refresh()
+      await loadAssetLibrary()
     }
   } catch (err: any) {
     message.error(err.message || '执行失败')
@@ -1212,6 +1401,33 @@ onMounted(async () => {
   display: flex;
   flex-direction: column;
   gap: 12px;
+}
+
+.editor-status-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
+.editor-status {
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid transparent;
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.editor-status--error {
+  background: rgba(239, 68, 68, 0.08);
+  border-color: rgba(239, 68, 68, 0.18);
+  color: #fca5a5;
+}
+
+.editor-status--info {
+  background: rgba(148, 163, 184, 0.08);
+  border-color: rgba(148, 163, 184, 0.16);
+  color: #cbd5e1;
 }
 
 .editor-step-head {
