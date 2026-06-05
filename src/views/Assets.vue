@@ -516,16 +516,35 @@ function requireSubtitleResult(value: unknown, action: 'generate' | 'update' | '
     if (action === 'update') throw new Error('字幕更新结果待确认')
     throw new Error('配音结果待确认')
   }
+  const assetId = Number((value as any).assetId)
+  const projectId = Number((value as any).projectId)
   const id = Number((value as any).id)
-  if (!Number.isFinite(id) || id <= 0) {
+  const language = typeof (value as any).language === 'string' ? (value as any).language.trim() : ''
+  const status = Number((value as any).status)
+  const createdAt = typeof (value as any).createdAt === 'string' ? (value as any).createdAt : ''
+  const srtContent = typeof (value as any).srtContent === 'string' ? (value as any).srtContent : ''
+  if (
+    !Number.isFinite(id) || id <= 0
+    || !Number.isFinite(assetId) || assetId <= 0
+    || !Number.isFinite(projectId) || projectId <= 0
+    || !language
+    || !Number.isFinite(status)
+    || !createdAt
+  ) {
     if (action === 'generate') throw new Error('字幕识别结果待确认')
     if (action === 'update') throw new Error('字幕更新结果待确认')
     throw new Error('配音结果待确认')
   }
   return {
     id,
-    srtContent: typeof (value as any).srtContent === 'string' ? (value as any).srtContent : '',
+    assetId,
+    projectId,
+    language,
+    srtContent,
+    status,
     voiceUrl: typeof (value as any).voiceUrl === 'string' ? (value as any).voiceUrl.trim() : ''
+    ,
+    createdAt
   }
 }
 
@@ -852,7 +871,7 @@ async function loadSubtitles() {
     if (!Array.isArray(res.data)) {
       throw new Error('字幕数据待确认')
     }
-    subtitles.value = res.data as SubtitleVO[]
+    subtitles.value = res.data.map((item: unknown) => normalizeSubtitleRecord(item))
   } catch {
     subtitles.value = null
   }
@@ -872,7 +891,14 @@ async function handleGenerateSubtitle() {
     })
     const generated = requireSubtitleResult((res as any).data, 'generate')
     await loadSubtitles()
-    if (!subtitles.value?.some(item => Number(item.id) === generated.id)) {
+    const refreshedSubtitle = subtitles.value?.find(item => Number(item.id) === generated.id)
+    if (
+      !refreshedSubtitle
+      || Number(refreshedSubtitle.assetId) !== Number(selectedAsset.value.id)
+      || Number(refreshedSubtitle.projectId) !== Number(selectedAsset.value.projectId)
+      || normalizeOptionalText(refreshedSubtitle.language) !== normalizeOptionalText(generated.language)
+      || normalizeOptionalText(refreshedSubtitle.srtContent) !== normalizeOptionalText(generated.srtContent)
+    ) {
       throw new Error('字幕识别结果待确认')
     }
     message.success('字幕识别成功')
@@ -893,11 +919,17 @@ async function handleSaveSubtitle() {
   if (!editSubtitleId.value) return
   try {
     const subtitleId = editSubtitleId.value
+    const expectedSrtContent = editSubtitleContent.value
     const res = await subtitleApi.update(subtitleId, { srtContent: editSubtitleContent.value })
     const updated = requireSubtitleResult((res as any).data, 'update')
     await loadSubtitles()
     const refreshedSubtitle = subtitles.value?.find(item => Number(item.id) === subtitleId)
-    if (!refreshedSubtitle || refreshedSubtitle.srtContent !== updated.srtContent) {
+    if (
+      !refreshedSubtitle
+      || normalizeOptionalText(refreshedSubtitle.srtContent) !== normalizeOptionalText(expectedSrtContent)
+      || normalizeOptionalText(refreshedSubtitle.srtContent) !== normalizeOptionalText(updated.srtContent)
+      || normalizeOptionalText(refreshedSubtitle.language) !== normalizeOptionalText(updated.language)
+    ) {
       throw new Error('字幕更新结果待确认')
     }
     message.success('字幕已更新')
@@ -910,11 +942,19 @@ async function handleSaveSubtitle() {
 async function handleGenerateVoice(id: number) {
   voiceLoading.value = true
   try {
+    const previousVoiceUrl = normalizeOptionalText(subtitles.value?.find(item => Number(item.id) === id)?.voiceUrl)
     const res = await subtitleApi.generateVoice(id)
-    requireSubtitleResult((res as any).data, 'voice')
+    const voiced = requireSubtitleResult((res as any).data, 'voice')
     await loadSubtitles()
     const refreshedSubtitle = subtitles.value?.find(item => Number(item.id) === id)
-    if (!refreshedSubtitle || !resolveAssetUrl(refreshedSubtitle.voiceUrl)) {
+    const resolvedVoiceUrl = refreshedSubtitle ? resolveAssetUrl(refreshedSubtitle.voiceUrl) : ''
+    if (
+      !refreshedSubtitle
+      || normalizeOptionalText(refreshedSubtitle.srtContent) !== normalizeOptionalText(voiced.srtContent)
+      || !resolvedVoiceUrl
+      || normalizeOptionalText(refreshedSubtitle.voiceUrl) !== normalizeOptionalText(voiced.voiceUrl)
+      || normalizeOptionalText(refreshedSubtitle.voiceUrl) === previousVoiceUrl
+    ) {
       throw new Error('配音结果待确认')
     }
     message.success('配音生成成功')
@@ -965,6 +1005,14 @@ async function handleDeleteAsset() {
   } catch (err: any) {
     message.error(err.message || '删除失败')
   }
+}
+
+function normalizeSubtitleRecord(value: unknown): SubtitleVO {
+  return requireSubtitleResult(value, 'update')
+}
+
+function normalizeOptionalText(value: unknown): string {
+  return typeof value === 'string' ? value.trim() : ''
 }
 
 watch(selectedAsset, () => {
