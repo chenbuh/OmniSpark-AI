@@ -135,6 +135,31 @@ const typeOptions = [
   { label: '数据清理', value: 'cleanup' }
 ]
 
+function requireScheduledTasks(value: unknown) {
+  if (!Array.isArray(value)) {
+    throw new Error('定时任务数据待确认')
+  }
+  return value
+}
+
+function requireScheduledTaskResult(value: unknown, action: 'create' | 'update' | 'toggle') {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    if (action === 'create') throw new Error('任务创建结果待确认')
+    if (action === 'update') throw new Error('任务更新结果待确认')
+    throw new Error('任务状态待确认')
+  }
+  const id = Number((value as any).id)
+  if (!Number.isFinite(id) || id <= 0) {
+    if (action === 'create') throw new Error('任务创建结果待确认')
+    if (action === 'update') throw new Error('任务更新结果待确认')
+    throw new Error('任务状态待确认')
+  }
+  return {
+    id,
+    enabled: normalizeBinaryStatus((value as any).enabled)
+  }
+}
+
 onMounted(load)
 
 async function load() {
@@ -143,10 +168,7 @@ async function load() {
   tasksLoadState.value = 'loading'
   try {
     const res = await request.get('/api/admin/scheduled-tasks', { headers: { 'x-no-cache': '1' } })
-    const data = (res as any).data
-    if (!Array.isArray(data)) {
-      throw new Error('定时任务数据待确认')
-    }
+    const data = requireScheduledTasks((res as any).data)
     tasks.value = data
     tasksLoadState.value = 'ready'
   } catch (err: any) {
@@ -194,19 +216,38 @@ async function handleSave() {
   }
   try {
     if (editingId.value) {
-      await request.put(`/api/admin/scheduled-tasks/${editingId.value}`, payload)
+      const currentEditingId = editingId.value
+      const res = await request.put(`/api/admin/scheduled-tasks/${currentEditingId}`, payload)
+      requireScheduledTaskResult((res as any).data, 'update')
+      await load()
+      const refreshed = tasks.value?.find(task => task.id === currentEditingId)
+      if (!refreshed || refreshed.name !== form.name || refreshed.cron !== form.cron) {
+        throw new Error('任务更新结果待确认')
+      }
       message.success('任务已更新')
     } else {
-      await request.post('/api/admin/scheduled-tasks', payload)
+      const res = await request.post('/api/admin/scheduled-tasks', payload)
+      const created = requireScheduledTaskResult((res as any).data, 'create')
+      await load()
+      const refreshed = tasks.value?.find(task => task.id === created.id)
+      if (!refreshed || refreshed.name !== form.name || refreshed.cron !== form.cron) {
+        throw new Error('任务创建结果待确认')
+      }
       message.success('任务已创建')
     }
     showEditor.value = false
-    await load()
   } catch (err: any) { message.error(err.message || '操作失败') }
 }
 
 async function handleDelete(id: number) {
-  try { await request.delete(`/api/admin/scheduled-tasks/${id}`); tasks.value = tasks.value?.filter(t => t.id !== id) || []; message.success('已删除') }
+  try {
+    await request.delete(`/api/admin/scheduled-tasks/${id}`)
+    await load()
+    if (tasks.value?.some(task => task.id === id)) {
+      throw new Error('删除结果待确认')
+    }
+    message.success('已删除')
+  }
   catch (err: any) { message.error(err.message || '删除失败') }
 }
 
@@ -216,7 +257,18 @@ async function handleToggle(id: number) {
     message.error('定时任务状态尚未明确，暂时无法切换')
     return
   }
-  try { await request.post(`/api/admin/scheduled-tasks/${id}/toggle`); await load() } catch { message.error('操作失败') }
+  const expectedEnabled = !normalizeBinaryStatus(task?.enabled)
+  try {
+    const res = await request.post(`/api/admin/scheduled-tasks/${id}/toggle`)
+    requireScheduledTaskResult((res as any).data, 'toggle')
+    await load()
+    const refreshed = tasks.value?.find(item => item.id === id)
+    if (!refreshed || normalizeBinaryStatus(refreshed.enabled) !== expectedEnabled) {
+      throw new Error('任务状态待确认')
+    }
+  } catch (err: any) {
+    message.error(err.message || '操作失败')
+  }
 }
 
 function normalizeBinaryStatus(value: unknown): boolean | null {
@@ -229,9 +281,13 @@ async function handleRunNow(id: number) {
   runningId.value = id
   try {
     await request.post(`/api/admin/scheduled-tasks/${id}/run`)
-    message.success('任务已触发')
     await load()
-  } catch { message.error('执行失败') }
+    const refreshed = tasks.value?.find(task => task.id === id)
+    if (!refreshed) {
+      throw new Error('任务触发结果待确认')
+    }
+    message.success('任务已触发')
+  } catch (err: any) { message.error(err.message || '执行失败') }
   finally { runningId.value = null }
 }
 </script>

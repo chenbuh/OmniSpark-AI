@@ -326,6 +326,48 @@ function updateKnownCount(count: number | null | undefined, delta: number) {
   return typeof count === 'number' ? Math.max(0, count + delta) : count
 }
 
+function requireCommunityPageData(value: unknown) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new Error('社区内容待确认')
+  }
+  const records = (value as any).records
+  const count = (value as any).total
+  if (!Array.isArray(records) || typeof count !== 'number') {
+    throw new Error('社区内容待确认')
+  }
+  return {
+    records,
+    total: count
+  }
+}
+
+function requireCommunityPostResult(value: unknown, action: 'create' | 'update') {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new Error(action === 'create' ? '发布结果待确认' : '更新结果待确认')
+  }
+  const id = Number((value as any).id)
+  const title = typeof (value as any).title === 'string' ? (value as any).title.trim() : ''
+  const prompt = typeof (value as any).prompt === 'string' ? (value as any).prompt.trim() : ''
+  if (!Number.isFinite(id) || id <= 0 || !title || !prompt) {
+    throw new Error(action === 'create' ? '发布结果待确认' : '更新结果待确认')
+  }
+  return {
+    id,
+    title,
+    prompt
+  }
+}
+
+function requireLikeToggleResult(value: unknown) {
+  if (value === 1 || value === '1' || value === true || value === 'true') {
+    return true
+  }
+  if (value === 0 || value === '0' || value === false || value === 'false') {
+    return false
+  }
+  throw new Error('点赞结果待确认')
+}
+
 let searchTimer: any = null
 function debounceSearch() {
   clearTimeout(searchTimer)
@@ -356,17 +398,12 @@ async function loadPosts() {
     if (activeCategory.value !== 'all') params.category = activeCategory.value
     if (searchQuery.value) params.search = searchQuery.value
     const res = await request.get('/api/community/posts', { params })
-    const data = (res as any).data || {}
-    if (!Array.isArray(data.records)) {
-      posts.value = null
-      total.value = null
-      return
-    }
+    const data = requireCommunityPageData((res as any).data)
     posts.value = data.records.map((post: any) => ({
       ...post,
       imageUrl: resolveAssetUrl(post.imageUrl)
     }))
-    total.value = typeof data.total === 'number' ? data.total : null
+    total.value = data.total
   } catch (err: any) {
     posts.value = null
     total.value = null
@@ -496,15 +533,27 @@ async function handlePublish() {
       category: form.category?.trim() || undefined
     }
     if (editingPostId.value) {
-      await request.put(`/api/community/posts/${editingPostId.value}`, payload)
+      const editingId = editingPostId.value
+      const res = await request.put(`/api/community/posts/${editingId}`, payload)
+      requireCommunityPostResult((res as any).data, 'update')
+      await Promise.all([loadCategories(), loadPosts()])
+      const refreshed = posts.value?.find((post: any) => post.id === editingId)
+      if (!refreshed || refreshed.title !== form.title || refreshed.prompt !== form.prompt) {
+        throw new Error('更新结果待确认')
+      }
       message.success('已更新！')
     } else {
-      await request.post('/api/community/posts', payload)
+      const res = await request.post('/api/community/posts', payload)
+      const created = requireCommunityPostResult((res as any).data, 'create')
+      await Promise.all([loadCategories(), loadPosts()])
+      const refreshed = posts.value?.find((post: any) => post.id === created.id)
+      if (!refreshed || refreshed.title !== form.title || refreshed.prompt !== form.prompt) {
+        throw new Error('发布结果待确认')
+      }
       message.success('发布成功！')
     }
     showUploadModal.value = false
     resetPublishForm()
-    await Promise.all([loadCategories(), loadPosts()])
   } catch (err: any) { message.error(err.message || '发布失败') }
   finally { publishing.value = false }
 }
@@ -524,10 +573,10 @@ function handleEditPost(post: any) {
 async function handleLike(post: any) {
   try {
     const res = await request.post(`/api/community/posts/${post.id}/like`)
-    const liked = (res as any).data
+    const liked = requireLikeToggleResult((res as any).data)
     post.liked = liked
     post.likesCount = updateKnownCount(post.likesCount, liked ? 1 : -1)
-  } catch { message.error('操作失败，请先登录') }
+  } catch (err: any) { message.error(err.message || '操作失败，请先登录') }
 }
 
 async function handleDelete(id: number) {
@@ -535,8 +584,11 @@ async function handleDelete(id: number) {
     await request.delete(`/api/community/posts/${id}`)
     await loadCategories()
     await loadPosts()
+    if (posts.value?.some((post: any) => post.id === id)) {
+      throw new Error('删除结果待确认')
+    }
     message.success('已删除')
-  } catch { message.error('删除失败') }
+  } catch (err: any) { message.error(err.message || '删除失败') }
 }
 
 function handleApply(post: any) {

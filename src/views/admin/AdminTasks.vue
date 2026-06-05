@@ -135,14 +135,41 @@ const formatTaskProgress = (progress: unknown) => {
   return Number.isNaN(normalized) ? '-' : `${Math.max(0, Math.min(100, normalized))}%`
 }
 
+function requireTaskMeta(value: unknown) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new Error('任务元数据待确认')
+  }
+  const statuses = (value as any).statuses
+  const taskTypesValue = (value as any).taskTypes
+  if (!Array.isArray(statuses) || !Array.isArray(taskTypesValue)) {
+    throw new Error('任务元数据待确认')
+  }
+  return {
+    statuses,
+    taskTypes: taskTypesValue
+  }
+}
+
+function requireTaskPage(value: unknown) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new Error('任务数据待确认')
+  }
+  const records = (value as any).records
+  const count = (value as any).total
+  if (!Array.isArray(records) || typeof count !== 'number') {
+    throw new Error('任务数据待确认')
+  }
+  return {
+    records,
+    total: count
+  }
+}
+
 async function loadTaskMeta() {
   taskMetaLoadState.value = 'loading'
   try {
     const res = await request.get('/api/admin/tasks/meta')
-    const data = (res as any).data || {}
-    if (!Array.isArray(data.statuses) || !Array.isArray(data.taskTypes)) {
-      throw new Error('任务元数据待确认')
-    }
+    const data = requireTaskMeta((res as any).data)
     taskStatuses.value = data.statuses
     taskTypes.value = data.taskTypes
     taskMetaLoadState.value = 'ready'
@@ -167,14 +194,9 @@ async function loadTasks() {
     if (typeFilter.value) params.taskType = typeFilter.value
     if (searchText.value) params.search = searchText.value
     const res = await request.get('/api/admin/tasks', { params })
-    const data = (res as any).data || {}
-    if (!Array.isArray(data.records)) {
-      tasks.value = null
-      total.value = null
-      return
-    }
+    const data = requireTaskPage((res as any).data)
     tasks.value = data.records
-    total.value = typeof data.total === 'number' ? data.total : null
+    total.value = data.total
     mergeTaskMetaFromRecords(data.records)
   } catch (err: any) {
     tasks.value = null
@@ -215,10 +237,13 @@ function taskTypeOrder(taskType: string) {
 async function handleDelete(id: number) {
   try {
     await request.delete(`/api/admin/tasks/${id}`)
-    message.success('已删除')
     // 删除当前页最后一条时回退一页,避免停留空页
     if ((tasks.value?.length || 0) === 1 && page.value > 1) page.value--
     await loadTasks()
+    if (tasks.value?.some(task => task.id === id)) {
+      throw new Error('删除结果待确认')
+    }
+    message.success('已删除')
   } catch (err: any) { message.error(err.message || '删除失败') }
 }
 
