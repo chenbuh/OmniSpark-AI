@@ -47,6 +47,7 @@ const message = useMessage()
 const loading = ref(true)
 const status = reactive<{ enabled: boolean | null; message: string }>({ enabled: null, message: '' })
 const statusLoadState = ref<'loading' | 'ready' | 'error'>('loading')
+const NO_CACHE_HEADERS = { 'X-No-Cache': '1' }
 
 const statusTagType = computed(() => {
   if (statusLoadState.value === 'error') return 'warning'
@@ -62,17 +63,82 @@ const statusTagLabel = computed(() => {
 
 onMounted(load)
 
+function normalizeMaintenanceStatus(value: unknown) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new Error('维护模式状态待确认')
+  }
+  const enabled = (value as any).enabled
+  const message = (value as any).message
+  if (typeof enabled !== 'boolean' || typeof message !== 'string') {
+    throw new Error('维护模式状态待确认')
+  }
+  return {
+    enabled,
+    message
+  }
+}
+
+function normalizeConfigItem(value: unknown) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new Error('维护模式配置待确认')
+  }
+  const id = Number((value as any).id)
+  const configKey = typeof (value as any).configKey === 'string' ? (value as any).configKey.trim() : ''
+  const configValue = typeof (value as any).configValue === 'string' ? (value as any).configValue : ''
+  const configGroup = typeof (value as any).configGroup === 'string' ? (value as any).configGroup.trim() : ''
+  if (!Number.isFinite(id) || id <= 0 || !configKey || !configGroup) {
+    throw new Error('维护模式配置待确认')
+  }
+  return {
+    id,
+    configKey,
+    configValue,
+    configGroup
+  }
+}
+
+async function fetchMaintenanceStatus(noCache = false) {
+  const res = await request.get('/api/admin/maintenance', {
+    headers: noCache ? NO_CACHE_HEADERS : undefined
+  })
+  return normalizeMaintenanceStatus((res as any).data)
+}
+
+async function fetchMaintenanceConfigs() {
+  const res = await request.get('/api/admin/config', {
+    params: { group: 'maintenance' },
+    headers: NO_CACHE_HEADERS
+  })
+  const data = (res as any).data
+  if (!Array.isArray(data)) {
+    throw new Error('维护模式配置待确认')
+  }
+  return data.map((item: unknown) => normalizeConfigItem(item))
+}
+
+async function requireMaintenanceConfigConfirmed(expected: { enabled: boolean; message: string }) {
+  const configs = await fetchMaintenanceConfigs()
+  const modeConfig = configs.find(item => item.configKey === 'maintenance_mode')
+  const messageConfig = configs.find(item => item.configKey === 'maintenance_message')
+  if (
+    !modeConfig
+    || !messageConfig
+    || modeConfig.configGroup !== 'maintenance'
+    || messageConfig.configGroup !== 'maintenance'
+    || modeConfig.configValue !== (expected.enabled ? 'true' : 'false')
+    || messageConfig.configValue !== expected.message
+  ) {
+    throw new Error('维护模式更新结果待确认')
+  }
+}
+
 async function load() {
   try {
     loading.value = true
     statusLoadState.value = 'loading'
-    const res = await request.get('/api/admin/maintenance')
-    const data = (res as any).data
-    if (!data || typeof data !== 'object' || Array.isArray(data) || typeof data.enabled !== 'boolean') {
-      throw new Error('维护模式状态待确认')
-    }
+    const data = await fetchMaintenanceStatus(true)
     status.enabled = data.enabled
-    status.message = typeof data.message === 'string' ? data.message : ''
+    status.message = data.message
     statusLoadState.value = 'ready'
   } catch (err: any) {
     status.enabled = null
@@ -94,6 +160,7 @@ async function handleToggle() {
     const nextMessage = status.message
     await request.post(`/api/admin/maintenance?enabled=${nextEnabled}&message=${encodeURIComponent(nextMessage)}`)
     await load()
+    await requireMaintenanceConfigConfirmed({ enabled: nextEnabled, message: nextMessage })
     if (status.enabled !== nextEnabled || status.message !== nextMessage) {
       throw new Error('维护模式更新结果待确认')
     }
@@ -113,6 +180,7 @@ async function handleSaveMessage() {
     const nextMessage = status.message
     await request.post(`/api/admin/maintenance?enabled=${nextEnabled}&message=${encodeURIComponent(nextMessage)}`)
     await load()
+    await requireMaintenanceConfigConfirmed({ enabled: nextEnabled, message: nextMessage })
     if (status.enabled !== nextEnabled || status.message !== nextMessage) {
       throw new Error('维护消息保存结果待确认')
     }

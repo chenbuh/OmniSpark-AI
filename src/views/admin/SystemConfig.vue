@@ -79,6 +79,7 @@ const editingId = ref<number | null>(null)
 const editValue = ref('')
 const configsLoadState = ref<'loading' | 'ready' | 'error'>('loading')
 const healthLoadState = ref<'loading' | 'ready' | 'error'>('loading')
+const NO_CACHE_HEADERS = { 'X-No-Cache': '1' }
 
 function isPlainObject(value: unknown): value is Record<string, any> {
   return !!value && typeof value === 'object' && !Array.isArray(value)
@@ -88,22 +89,43 @@ function normalizeConfigItem(item: unknown) {
   if (!isPlainObject(item)) {
     throw new Error('系统配置待确认')
   }
-  if (typeof item.id !== 'number' || typeof item.configKey !== 'string' || typeof item.configValue !== 'string' || typeof item.configGroup !== 'string') {
+  const id = Number(item.id)
+  const configKey = typeof item.configKey === 'string' ? item.configKey.trim() : ''
+  const configValue = typeof item.configValue === 'string' ? item.configValue : ''
+  const configGroup = typeof item.configGroup === 'string' ? item.configGroup.trim() : ''
+  if (!Number.isFinite(id) || id <= 0 || !configKey || !configGroup) {
     throw new Error('系统配置待确认')
   }
-  return item
+  return {
+    ...item,
+    id,
+    configKey,
+    configValue,
+    configGroup
+  }
+}
+
+function normalizeConfigList(value: unknown) {
+  if (!Array.isArray(value)) {
+    throw new Error('系统配置待确认')
+  }
+  const normalized = value.map((item: unknown) => normalizeConfigItem(item))
+  const ids = new Set<number>()
+  for (const item of normalized) {
+    if (ids.has(item.id)) {
+      throw new Error('系统配置待确认')
+    }
+    ids.add(item.id)
+  }
+  return normalized
 }
 
 async function loadConfigs() {
   loadingConfigs.value = true
   configsLoadState.value = 'loading'
   try {
-    const res = await request.get('/api/admin/config')
-    const data = (res as any).data
-    if (!Array.isArray(data)) {
-      throw new Error('系统配置待确认')
-    }
-    configs.value = data.map((item: unknown) => normalizeConfigItem(item))
+    const res = await request.get('/api/admin/config', { headers: NO_CACHE_HEADERS })
+    configs.value = normalizeConfigList((res as any).data)
     configsLoadState.value = 'ready'
   } catch (err: any) {
     configs.value = null
@@ -150,11 +172,18 @@ function startEdit(cfg: any) {
 
 async function handleSave(id: number) {
   try {
+    const previousCount = configs.value?.length
+    const currentConfig = configs.value?.find(item => item.id === id)
     const nextValue = editValue.value
     await request.put(`/api/admin/config/${id}?value=${encodeURIComponent(editValue.value)}`)
     await loadConfigs()
     const confirmed = configs.value?.find(item => item.id === id)
-    if (!confirmed || confirmed.configValue !== nextValue) {
+    if (
+      !confirmed
+      || confirmed.configValue !== nextValue
+      || (currentConfig && (confirmed.configKey !== currentConfig.configKey || confirmed.configGroup !== currentConfig.configGroup))
+      || (typeof previousCount === 'number' && configs.value?.length !== previousCount)
+    ) {
       throw new Error('配置更新结果待确认')
     }
     editingId.value = null
