@@ -1,5 +1,29 @@
 import request from './request'
 
+export interface GenerationMetaOption {
+  label: string
+  value: string
+}
+
+export interface GenerationMetaVO {
+  image?: {
+    resolutionOptions?: GenerationMetaOption[]
+    qualityOptions?: GenerationMetaOption[]
+    defaults?: {
+      resolution?: string
+      quality?: string
+    }
+  }
+  video?: {
+    durationOptions?: GenerationMetaOption[]
+    cameraMotionOptions?: GenerationMetaOption[]
+    defaults?: {
+      duration?: string
+      cameraMotion?: string
+    }
+  }
+}
+
 export interface ImageGenerateOptions {
   modelName?: string
   aspectRatio?: string
@@ -38,6 +62,10 @@ export interface VideoGenerateDTO {
 }
 
 export const generationApi = {
+  async getMeta() {
+    return request.get('/api/generation/meta')
+  },
+
   // 生图触发
   async generateImage(dto: ImageGenerateDTO) {
     return request.post('/api/generation/image', dto)

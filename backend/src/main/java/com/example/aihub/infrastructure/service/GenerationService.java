@@ -47,6 +47,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.RejectedExecutionException;
@@ -59,6 +60,36 @@ import java.util.concurrent.TimeUnit;
 public class GenerationService {
     private static final Duration MEDIA_GENERATION_TIMEOUT = Duration.ofMinutes(10);
     private static final Duration MEDIA_DOWNLOAD_TIMEOUT = Duration.ofMinutes(5);
+    private static final String DEFAULT_IMAGE_RESOLUTION = "1k";
+    private static final String DEFAULT_IMAGE_QUALITY = "standard";
+    private static final String DEFAULT_VIDEO_DURATION = "5s";
+    private static final String DEFAULT_VIDEO_CAMERA_MOTION = "zoom_in";
+    private static final Set<String> SUPPORTED_IMAGE_RESOLUTIONS = Set.of("custom", "1k", "2k", "4k");
+    private static final Set<String> SUPPORTED_IMAGE_QUALITIES = Set.of("standard", "high", "ultra");
+    private static final Set<String> SUPPORTED_VIDEO_DURATIONS = Set.of("5s", "10s");
+    private static final Set<String> SUPPORTED_VIDEO_CAMERA_MOTIONS = Set.of("zoom_in", "zoom_out", "pan_right", "tilt_down", "rotate_cw");
+    private static final List<Map<String, String>> IMAGE_RESOLUTION_OPTIONS = List.of(
+            option("自定义尺寸", "custom"),
+            option("1K 标清细节", "1k"),
+            option("2K 高清细节", "2k"),
+            option("4K 超清细节", "4k")
+    );
+    private static final List<Map<String, String>> IMAGE_QUALITY_OPTIONS = List.of(
+            option("标准质量 (Standard)", "standard"),
+            option("高质量 (High)", "high"),
+            option("极致质量 (Ultra)", "ultra")
+    );
+    private static final List<Map<String, String>> VIDEO_DURATION_OPTIONS = List.of(
+            option("5秒 (标准版)", "5s"),
+            option("10秒 (高清长片)", "10s")
+    );
+    private static final List<Map<String, String>> VIDEO_CAMERA_MOTION_OPTIONS = List.of(
+            option("镜头向前平推 (Zoom In)", "zoom_in"),
+            option("镜头向后拉远 (Zoom Out)", "zoom_out"),
+            option("从左向右摇移 (Pan Right)", "pan_right"),
+            option("俯仰向下扫描 (Tilt Down)", "tilt_down"),
+            option("顺时针3D环绕 (Rotate CW)", "rotate_cw")
+    );
 
     private final GenerationTaskMapper taskMapper;
     private final AssetMapper assetMapper;
@@ -81,6 +112,27 @@ public class GenerationService {
     private final HttpClient httpClient = HttpClient.newBuilder()
             .connectTimeout(Duration.ofSeconds(60))
             .build();
+
+    public Map<String, Object> meta() {
+        return Map.of(
+                "image", Map.of(
+                        "resolutionOptions", IMAGE_RESOLUTION_OPTIONS,
+                        "qualityOptions", IMAGE_QUALITY_OPTIONS,
+                        "defaults", Map.of(
+                                "resolution", DEFAULT_IMAGE_RESOLUTION,
+                                "quality", DEFAULT_IMAGE_QUALITY
+                        )
+                ),
+                "video", Map.of(
+                        "durationOptions", VIDEO_DURATION_OPTIONS,
+                        "cameraMotionOptions", VIDEO_CAMERA_MOTION_OPTIONS,
+                        "defaults", Map.of(
+                                "duration", DEFAULT_VIDEO_DURATION,
+                                "cameraMotion", DEFAULT_VIDEO_CAMERA_MOTION
+                        )
+                )
+        );
+    }
 
     public List<GenerationTaskVO> list(TaskQueryDTO query) {
         LambdaQueryWrapper<GenerationTask> wrapper = new LambdaQueryWrapper<>();
@@ -120,6 +172,7 @@ public class GenerationService {
             throw new BusinessException("局部重绘需要提供原始参考图");
         }
         projectAccessGuard.assertAccess(dto.getProjectId());
+        dto.setOptions(normalizeImageOptions(dto.getOptions()));
         ModelProvider provider = requireProvider(dto.getProviderId(), dto.getProjectId());
         Long userId = SecurityUtil.loginUserId();
         String modelName = resolveModelName(dto.getModelName(), dto.getOptions(), provider.getModelName());
@@ -131,6 +184,7 @@ public class GenerationService {
 
     public GenerationTaskVO generateImage(ImageGenerateDTO dto) {
         projectAccessGuard.assertAccess(dto.getProjectId());
+        dto.setOptions(normalizeImageOptions(dto.getOptions()));
         ModelProvider provider = requireProvider(dto.getProviderId(), dto.getProjectId());
         Long userId = SecurityUtil.loginUserId();
         String modelName = resolveModelName(dto.getModelName(), dto.getOptions(), provider.getModelName());
@@ -142,6 +196,8 @@ public class GenerationService {
 
     public GenerationTaskVO generateVideo(VideoGenerateDTO dto) {
         projectAccessGuard.assertAccess(dto.getProjectId());
+        dto.setDuration(normalizeVideoDuration(dto.getDuration()));
+        dto.setOptions(normalizeVideoOptions(dto.getOptions()));
         ModelProvider provider = requireProvider(dto.getProviderId(), dto.getProjectId());
         String modelName = resolveModelName(dto.getModelName(), dto.getOptions(), provider.getModelName());
         GenerationTask task = createTask(dto.getProjectId(), provider.getId(), "video", dto.getPrompt(),
@@ -842,6 +898,50 @@ public class GenerationService {
         return size;
     }
 
+    private Map<String, Object> normalizeImageOptions(Map<String, Object> options) {
+        Map<String, Object> normalized = options == null ? new LinkedHashMap<>() : new LinkedHashMap<>(options);
+        String resolution = textValue(normalized.get("resolution"));
+        if (resolution != null && !SUPPORTED_IMAGE_RESOLUTIONS.contains(resolution)) {
+            throw new BusinessException("不支持的输出分辨率档位: " + resolution);
+        }
+        String quality = textValue(normalized.get("quality"));
+        if (quality != null && !SUPPORTED_IMAGE_QUALITIES.contains(quality)) {
+            throw new BusinessException("不支持的生成质量档位: " + quality);
+        }
+        normalized.put("resolution", resolution == null ? DEFAULT_IMAGE_RESOLUTION : resolution);
+        normalized.put("quality", quality == null ? DEFAULT_IMAGE_QUALITY : quality);
+        return normalized;
+    }
+
+    private Map<String, Object> normalizeVideoOptions(Map<String, Object> options) {
+        Map<String, Object> normalized = options == null ? new LinkedHashMap<>() : new LinkedHashMap<>(options);
+        String cameraMotion = textValue(normalized.get("cameraMotion"));
+        if (cameraMotion != null && !SUPPORTED_VIDEO_CAMERA_MOTIONS.contains(cameraMotion)) {
+            throw new BusinessException("不支持的镜头运动方向: " + cameraMotion);
+        }
+        normalized.put("cameraMotion", cameraMotion == null ? DEFAULT_VIDEO_CAMERA_MOTION : cameraMotion);
+        return normalized;
+    }
+
+    private String normalizeVideoDuration(String duration) {
+        String normalized = duration == null ? "" : duration.trim().toLowerCase(Locale.ROOT);
+        if (normalized.isBlank()) {
+            return DEFAULT_VIDEO_DURATION;
+        }
+        if (!SUPPORTED_VIDEO_DURATIONS.contains(normalized)) {
+            throw new BusinessException("不支持的视频时长: " + duration);
+        }
+        return normalized;
+    }
+
+    private String textValue(Object value) {
+        if (value == null) {
+            return null;
+        }
+        String text = value.toString().trim().toLowerCase(Locale.ROOT);
+        return text.isBlank() ? null : text;
+    }
+
     private void updateTaskProgress(Long taskId, int progress, String progressText) {
         GenerationTask task = taskMapper.selectById(taskId);
         if (task == null) {
@@ -897,5 +997,9 @@ public class GenerationService {
     }
 
     private record MediaRecord(String fileName, String fileUrl, String thumbUrl, String mimeType, Long fileSize) {
+    }
+
+    private static Map<String, String> option(String label, String value) {
+        return Map.of("label", label, "value", value);
     }
 }

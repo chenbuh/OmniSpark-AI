@@ -446,7 +446,7 @@ import { useModelProviderStore } from '@/store/provider'
 import { useTaskStore } from '@/store/task'
 import { useAssetStore, type Asset } from '@/store/asset'
 import { assetApi } from '@/api/assets'
-import { generationApi } from '@/api/generation'
+import { generationApi, type GenerationMetaOption, type GenerationMetaVO } from '@/api/generation'
 import { taskApi } from '@/api/tasks'
 import {
   Sparkles,
@@ -501,6 +501,7 @@ const activeTaskId = ref<number | null>(null)
 const selectedBatchIndex = ref(0)
 const showHistoryModal = ref(false)
 const historyFilter = ref('all')
+const generationMeta = ref<GenerationMetaVO>({})
 let taskPollingTimer: ReturnType<typeof setInterval> | null = null
 let taskSyncing = false
 const resultVersion = ref(0)
@@ -525,7 +526,7 @@ const form = reactive({
   resolution: '1k',
   customWidth: 1024,
   customHeight: 1024,
-  quality: 'high',
+  quality: 'standard',
   count: 1,
   cfg: 7.5,
   steps: 25,
@@ -554,18 +555,10 @@ const aspectRatios = [
   { label: '自定义比例', value: 'custom' }
 ]
 
-const resolutionOptions = [
-  { label: '自定义尺寸', value: 'custom' },
-  { label: '1K 标清细节', value: '1k' },
-  { label: '2K 高清细节', value: '2k' },
-  { label: '4K 超清细节', value: '4k' }
-]
-
-const qualityOptions = [
-  { label: '标准质量 (Standard)', value: 'standard' },
-  { label: '高质量 (High)', value: 'high' },
-  { label: '极致质量 (Ultra)', value: 'ultra' }
-]
+const resolutionOptions = computed(() => generationMeta.value.image?.resolutionOptions || [])
+const qualityOptions = computed(() => generationMeta.value.image?.qualityOptions || [])
+const defaultImageResolution = computed(() => generationMeta.value.image?.defaults?.resolution || resolutionOptions.value[0]?.value || '1k')
+const defaultImageQuality = computed(() => generationMeta.value.image?.defaults?.quality || qualityOptions.value[0]?.value || 'standard')
 
 const supportsImageGeneration = (type: string) => {
   return type === 'image' || type === 'openai' || type === 'custom'
@@ -575,6 +568,23 @@ const resolutionBaseMap: Record<'1k' | '2k' | '4k', number> = {
   '1k': 1024,
   '2k': 2048,
   '4k': 4096
+}
+
+function resolveOptionValue(options: GenerationMetaOption[], preferredValue?: string, fallbackValue = '') {
+  if (preferredValue && options.length === 0) return preferredValue
+  if (preferredValue && options.some(option => option.value === preferredValue)) return preferredValue
+  return options[0]?.value || fallbackValue
+}
+
+async function loadGenerationMeta() {
+  try {
+    const res = await generationApi.getMeta()
+    generationMeta.value = ((res as any).data || {}) as GenerationMetaVO
+  } catch {
+    generationMeta.value = {}
+  }
+  form.resolution = resolveOptionValue(resolutionOptions.value, form.resolution, defaultImageResolution.value)
+  form.quality = resolveOptionValue(qualityOptions.value, form.quality, defaultImageQuality.value)
 }
 
 const sanitizeInteger = (
@@ -693,9 +703,9 @@ const clearForm = () => {
   form.count = 1
   form.cfg = 7.5
   form.steps = 25
-  form.quality = 'high'
+  form.quality = defaultImageQuality.value
   form.aspectRatio = '1-1'
-  form.resolution = '1k'
+  form.resolution = defaultImageResolution.value
   selectedRefAssets.value = []
   refImagePreviews.value = []
   taskCompleted.value = true
@@ -1248,7 +1258,8 @@ const uploadInpaintMask = async (): Promise<number | null> => {
   })
 }
 
-onMounted(() => {
+onMounted(async () => {
+  await loadGenerationMeta()
   initDefaults()
 
   if (route.query.sourceAssetId) {

@@ -270,7 +270,7 @@ import { useProjectStore } from '@/store/project'
 import { useModelProviderStore } from '@/store/provider'
 import { useTaskStore } from '@/store/task'
 import { useAssetStore, type Asset } from '@/store/asset'
-import { generationApi } from '@/api/generation'
+import { generationApi, type GenerationMetaOption, type GenerationMetaVO } from '@/api/generation'
 import { taskApi } from '@/api/tasks'
 import {
   Zap,
@@ -293,6 +293,7 @@ const assetStore = useAssetStore()
 const videoMode = ref('txt2vid')
 const generating = ref(false)
 const showAssetSelectModal = ref(false)
+const generationMeta = ref<GenerationMetaVO>({})
 
 const selectedImageAsset = ref<Asset | null>(null)
 const selectedEndAsset = ref<Asset | null>(null)
@@ -313,18 +314,18 @@ const form = reactive({
   runtimeElapsedSeconds: 0
 })
 
-const durations = [
-  { label: '5秒 (标准版)', value: '5s', tag: '流畅生成' },
-  { label: '10秒 (高清长片)', value: '10s', tag: '深度计算' }
-]
+const durations = computed(() => {
+  const options = generationMeta.value.video?.durationOptions || []
+  return options.map(item => ({
+    label: item.label,
+    value: item.value,
+    tag: item.value === '10s' ? '深度计算' : '流畅生成'
+  }))
+})
 
-const cameraMotionOptions = [
-  { label: '镜头向前平推 (Zoom In)', value: 'zoom_in' },
-  { label: '镜头向后拉远 (Zoom Out)', value: 'zoom_out' },
-  { label: '从左向右摇移 (Pan Right)', value: 'pan_right' },
-  { label: '俯仰向下扫描 (Tilt Down)', value: 'tilt_down' },
-  { label: '顺时针3D环绕 (Rotate CW)', value: 'rotate_cw' }
-]
+const cameraMotionOptions = computed(() => generationMeta.value.video?.cameraMotionOptions || [])
+const defaultVideoDuration = computed(() => generationMeta.value.video?.defaults?.duration || durations.value[0]?.value || '5s')
+const defaultCameraMotion = computed(() => generationMeta.value.video?.defaults?.cameraMotion || cameraMotionOptions.value[0]?.value || 'zoom_in')
 
 // 空间下的资产库中的所有图片资产（供参考图挑选）
 const imageAssets = computed(() => {
@@ -335,6 +336,23 @@ const imageAssets = computed(() => {
 
 const supportsVideoGeneration = (type: string) => {
   return type === 'video' || type === 'openai' || type === 'custom'
+}
+
+function resolveOptionValue(options: GenerationMetaOption[], preferredValue?: string, fallbackValue = '') {
+  if (preferredValue && options.length === 0) return preferredValue
+  if (preferredValue && options.some(option => option.value === preferredValue)) return preferredValue
+  return options[0]?.value || fallbackValue
+}
+
+async function loadGenerationMeta() {
+  try {
+    const res = await generationApi.getMeta()
+    generationMeta.value = ((res as any).data || {}) as GenerationMetaVO
+  } catch {
+    generationMeta.value = {}
+  }
+  form.duration = resolveOptionValue(generationMeta.value.video?.durationOptions || [], form.duration, defaultVideoDuration.value)
+  form.cameraMotion = resolveOptionValue(cameraMotionOptions.value, form.cameraMotion, defaultCameraMotion.value)
 }
 
 const providerOptions = computed(() => {
@@ -375,7 +393,8 @@ const handleProviderChange = (val: number) => {
   }
 }
 
-onMounted(() => {
+onMounted(async () => {
+  await loadGenerationMeta()
   initDefaults()
   
   // 处理从生图页“一键转视频”带入的参数
@@ -513,8 +532,8 @@ const getAssetThumbUrl = (assetId?: number) => {
 const clearForm = () => {
   form.prompt = ''
   form.modelName = ''
-  form.duration = '5s'
-  form.cameraMotion = 'zoom_in'
+  form.duration = defaultVideoDuration.value
+  form.cameraMotion = defaultCameraMotion.value
   form.motionSpeed = 5
   selectedImageAsset.value = null
   selectedEndAsset.value = null
