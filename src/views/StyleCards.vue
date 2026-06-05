@@ -22,6 +22,7 @@
           </n-button>
         </n-space>
       </div>
+      <div v-if="tagLoadState === 'error'" class="filter-status">风格卡标签待确认，请稍后重试。</div>
     </n-card>
 
     <div v-if="loadingCards && cards === null" class="loading-box">
@@ -288,6 +289,7 @@ const currentUserId = ref<number | null>(null)
 const totalCards = ref<number | null>(null)
 const styleCardTags = ref<string[]>([])
 const assetLibraryLoadState = ref<'loading' | 'ready' | 'error'>('loading')
+const tagLoadState = ref<'loading' | 'ready' | 'error'>('loading')
 let searchTimer: ReturnType<typeof setTimeout> | null = null
 
 const imageAssets = computed(() => {
@@ -367,14 +369,20 @@ async function loadAssetLibrary() {
 }
 
 async function loadStyleCardTags() {
+  tagLoadState.value = 'loading'
   try {
     const res = await styleCardApi.getTags()
-    const values = Array.isArray((res as any).data) ? (res as any).data : []
+    if (!Array.isArray((res as any).data)) {
+      throw new Error('风格卡标签待确认')
+    }
+    const values = (res as any).data
     styleCardTags.value = values
       .map((item: unknown) => typeof item === 'string' ? item.trim() : '')
       .filter((item: string) => !!item)
+    tagLoadState.value = 'ready'
   } catch {
     styleCardTags.value = []
+    tagLoadState.value = 'error'
   }
 }
 
@@ -403,6 +411,10 @@ onBeforeUnmount(() => {
 watch([activeType, sortBy, searchQuery, () => projectStore.activeProjectId], () => {
   page.value = 1
   scheduleLoadCards()
+})
+watch(() => projectStore.activeProjectId, () => {
+  void loadStyleCardTags()
+  void loadAssetLibrary()
 })
 watch([page, pageSize], () => {
   scheduleLoadCards(0)
@@ -604,6 +616,7 @@ function handleApply(card: StyleCard) {
 .glass-card { background: rgba(15, 23, 42, 0.4) !important; backdrop-filter: blur(16px); border: 1px solid rgba(255, 255, 255, 0.08) !important; border-radius: 16px !important; }
 .filter-card { margin-bottom: 24px; }
 .filter-row { display: flex; justify-content: space-between; align-items: center; }
+.filter-status { margin-top: 10px; font-size: 12px; color: #f59e0b; }
 .filter-tabs { max-width: 400px; }
 .loading-box { display: flex; justify-content: center; padding: 80px 0; }
 .cards-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 16px; }

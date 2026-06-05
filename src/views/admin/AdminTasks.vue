@@ -14,6 +14,7 @@
         </n-space>
         <span class="count">共 {{ totalDisplay }} 条</span>
       </div>
+      <div v-if="taskMetaLoadState === 'error'" class="status-note">任务状态与类型选项待确认，请稍后重试。</div>
 
       <div v-if="loadingTasks && tasks === null" class="loading-box">
         <n-spin size="small" />
@@ -107,6 +108,7 @@ const pageSize = 10
 const total = ref<number | null>(null)
 const taskStatuses = ref<string[]>([])
 const taskTypes = ref<string[]>([])
+const taskMetaLoadState = ref<'loading' | 'ready' | 'error'>('loading')
 const totalDisplay = computed(() => total.value == null ? '-' : total.value)
 
 const statusOptions = computed(() => taskStatuses.value.map(value => ({
@@ -134,14 +136,20 @@ const formatTaskProgress = (progress: unknown) => {
 }
 
 async function loadTaskMeta() {
+  taskMetaLoadState.value = 'loading'
   try {
     const res = await request.get('/api/admin/tasks/meta')
     const data = (res as any).data || {}
-    taskStatuses.value = Array.isArray(data.statuses) ? data.statuses : []
-    taskTypes.value = Array.isArray(data.taskTypes) ? data.taskTypes : []
+    if (!Array.isArray(data.statuses) || !Array.isArray(data.taskTypes)) {
+      throw new Error('任务元数据待确认')
+    }
+    taskStatuses.value = data.statuses
+    taskTypes.value = data.taskTypes
+    taskMetaLoadState.value = 'ready'
   } catch {
     taskStatuses.value = []
     taskTypes.value = []
+    taskMetaLoadState.value = 'error'
   }
 }
 
@@ -233,6 +241,7 @@ function formatJson(s: string) {
 .toolbar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; flex-wrap: wrap; gap: 8px; }
 .loading-box { display: flex; justify-content: center; padding: 24px 0; }
 .count { font-size: 12px; color: var(--text-muted); }
+.status-note { margin-bottom: 12px; font-size: 12px; color: #f59e0b; }
 .admin-table { background: transparent !important; }
 .admin-table th { background: rgba(128,128,128,0.02) !important; color: var(--text-muted) !important; border-bottom: 1px solid var(--border-color) !important; font-size: 12px; }
 .admin-table td { border-bottom: 1px solid var(--border-light) !important; color: var(--text-secondary); padding: 8px; font-size: 12px; }

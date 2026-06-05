@@ -21,6 +21,7 @@
           </n-button>
         </n-space>
       </div>
+      <div v-if="tagLoadState === 'error'" class="filter-status">模板标签待确认，请稍后重试。</div>
     </n-card>
 
     <div v-if="loadingTemplates && templates === null" class="loading-box">
@@ -187,6 +188,7 @@ const saving = ref(false)
 const loadingTemplates = ref(false)
 const templates = ref<PromptTemplate[] | null>(null)
 const templateTags = ref<string[]>([])
+const tagLoadState = ref<'loading' | 'ready' | 'error'>('loading')
 const selectedTemplate = ref<PromptTemplate | null>(null)
 const currentUserId = ref<number | null>(null)
 const totalTemplates = ref<number | null>(null)
@@ -240,17 +242,23 @@ async function loadTemplates() {
 }
 
 async function loadTemplateTags() {
+  tagLoadState.value = 'loading'
   try {
     const res = await templateApi.getTags()
-    const values = Array.isArray((res as any).data) ? (res as any).data : []
+    if (!Array.isArray((res as any).data)) {
+      throw new Error('模板标签待确认')
+    }
+    const values = (res as any).data
     templateTags.value = values
       .map((item: unknown) => typeof item === 'string' ? item.trim() : '')
       .filter((item: string) => !!item)
     if (activeTag.value !== 'all' && !templateTags.value.includes(activeTag.value)) {
       activeTag.value = 'all'
     }
+    tagLoadState.value = 'ready'
   } catch {
     templateTags.value = []
+    tagLoadState.value = 'error'
   }
 }
 
@@ -279,6 +287,9 @@ onBeforeUnmount(() => {
 watch([activeTag, sortBy, searchQuery, () => projectStore.activeProjectId], () => {
   page.value = 1
   scheduleLoadTemplates()
+})
+watch(() => projectStore.activeProjectId, () => {
+  void loadTemplateTags()
 })
 watch([page, pageSize], () => {
   scheduleLoadTemplates(0)
@@ -442,6 +453,7 @@ const handleDelete = async (id: number) => {
 .subtitle { font-size: 13px; color: var(--text-muted); margin: 0; }
 .glass-card { background: rgba(15,23,42,0.4) !important; backdrop-filter: blur(16px); border: 1px solid var(--border-color) !important; border-radius: 16px !important; }
 .filter-row { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px; }
+.filter-status { margin-top: 10px; font-size: 12px; color: #f59e0b; }
 .filter-tabs { max-width: 700px; }
 .s-icon { width: 14px; height: 14px; color: var(--text-muted); }
 

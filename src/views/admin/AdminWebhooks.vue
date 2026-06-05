@@ -12,6 +12,7 @@
           <template #icon><Plus /></template>新建
         </n-button>
       </div>
+      <div v-if="eventOptionsLoadState === 'error'" class="status-note">Webhook 事件选项待确认，请稍后重试。</div>
 
       <div v-if="loadingList && list === null" class="loading-box">
         <n-spin size="small" />
@@ -57,8 +58,9 @@
           <n-input v-model:value="form.url" placeholder="https://example.com/webhook" />
         </n-form-item>
         <n-form-item label="触发事件">
-          <n-select v-model:value="form.events" :options="eventOptions" multiple />
+          <n-select v-model:value="form.events" :options="eventOptions" multiple :disabled="eventOptionsLoadState === 'error'" />
         </n-form-item>
+        <div v-if="eventOptionsLoadState === 'error'" class="status-note modal-status">当前无法确认可用事件类型，请稍后重试。</div>
         <n-form-item label="密钥 (Secret)">
           <n-input v-model:value="form.secret" placeholder="可选，用于验证请求来源" />
         </n-form-item>
@@ -82,6 +84,7 @@ const list = ref<any[] | null>(null)
 const showEditor = ref(false)
 const editingId = ref<number | null>(null)
 const eventOptions = ref<{ label: string; value: string }[]>([])
+const eventOptionsLoadState = ref<'loading' | 'ready' | 'error'>('loading')
 const form = reactive({ name: '', url: '', events: [] as string[], secret: '' })
 const eventLabelMap = computed(() => Object.fromEntries(eventOptions.value.map(item => [item.value, item.label])))
 const listCountDisplay = computed(() => list.value === null ? '-' : list.value.length)
@@ -95,7 +98,10 @@ async function load() {
   loadingList.value = true
   try {
     const res = await request.get('/api/admin/webhooks')
-    list.value = (res as any).data || []
+    if (!Array.isArray((res as any).data)) {
+      throw new Error('Webhook 数据待确认')
+    }
+    list.value = (res as any).data
   }
   catch (err: any) {
     list.value = null
@@ -106,15 +112,21 @@ async function load() {
 }
 
 async function loadEventOptions() {
+  eventOptionsLoadState.value = 'loading'
   try {
     const res = await request.get('/api/admin/webhooks/meta')
-    const options = Array.isArray((res as any).data) ? (res as any).data : []
+    if (!Array.isArray((res as any).data)) {
+      throw new Error('Webhook 事件待确认')
+    }
+    const options = (res as any).data
     eventOptions.value = options
+    eventOptionsLoadState.value = 'ready'
     if (form.events.length === 0) {
       form.events = defaultEvents()
     }
   } catch {
     eventOptions.value = []
+    eventOptionsLoadState.value = 'error'
   }
 }
 
@@ -206,6 +218,8 @@ function normalizeBinaryStatus(value: unknown): boolean | null {
 .toolbar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
 .loading-box { display: flex; justify-content: center; padding: 24px 0; }
 .count { font-size: 12px; color: #9ca3af; }
+.status-note { margin-bottom: 12px; font-size: 12px; color: #f59e0b; }
+.modal-status { margin-top: -4px; }
 .admin-table { background: transparent !important; }
 .admin-table th { background: rgba(255,255,255,0.02) !important; color: #9ca3af !important; border-bottom: 1px solid rgba(255,255,255,0.06) !important; font-size: 12px; }
 .admin-table td { border-bottom: 1px solid rgba(255,255,255,0.04) !important; color: #e5e7eb; padding: 8px; font-size: 13px; }

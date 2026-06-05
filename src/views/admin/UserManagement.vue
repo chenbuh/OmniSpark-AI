@@ -27,6 +27,7 @@
           </n-button>
         </n-space>
       </div>
+      <div v-if="roleOptionsLoadState === 'error'" class="status-note">角色选项待确认，请稍后重试。</div>
       <p class="import-tip">导入 CSV 若未提供密码列，系统会为对应账号自动生成随机初始密码，并在导入完成后一次性展示。</p>
 
       <!-- 加载态 -->
@@ -157,8 +158,9 @@
           <n-input v-model:value="createForm.nickname" placeholder="留空则同用户名" :maxlength="30" />
         </n-form-item>
         <n-form-item label="角色">
-          <n-select v-model:value="createForm.role" :options="roleOptions" />
+          <n-select v-model:value="createForm.role" :options="roleOptions" :disabled="roleOptionsLoadState === 'error'" />
         </n-form-item>
+        <div v-if="roleOptionsLoadState === 'error'" class="status-note modal-status">当前无法确认可用角色，请稍后重试。</div>
       </n-form>
       <template #footer>
         <n-button @click="showCreate = false">取消</n-button>
@@ -189,6 +191,7 @@ const page = ref(1)
 const pageSize = 10
 const total = ref<number | null>(null)
 const roleOptions = ref<{ label: string; value: string }[]>([])
+const roleOptionsLoadState = ref<'loading' | 'ready' | 'error'>('loading')
 const totalDisplay = computed(() => total.value == null ? '-' : total.value)
 
 // --- 内联编辑 ---
@@ -207,15 +210,21 @@ onMounted(async () => {
 })
 
 async function loadRoleOptions() {
+  roleOptionsLoadState.value = 'loading'
   try {
     const res = await request.get('/api/admin/users/roles')
-    const options = Array.isArray((res as any).data) ? (res as any).data : []
+    if (!Array.isArray((res as any).data)) {
+      throw new Error('角色选项待确认')
+    }
+    const options = (res as any).data
     roleOptions.value = options
+    roleOptionsLoadState.value = 'ready'
     if (!roleOptions.value.some(item => item.value === createForm.value.role)) {
       createForm.value.role = defaultCreateRole()
     }
   } catch {
     roleOptions.value = []
+    roleOptionsLoadState.value = 'error'
     createForm.value.role = defaultCreateRole()
   }
 }
@@ -476,6 +485,8 @@ function formatFull(dateStr: string): string {
 .glass-card { backdrop-filter: blur(16px); border: 1px solid var(--border-color) !important; border-radius: 16px !important; }
 .toolbar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; flex-wrap: wrap; gap: 8px; }
 .count { font-size: 12px; color: var(--text-muted); }
+.status-note { margin-bottom: 12px; font-size: 12px; color: #f59e0b; }
+.modal-status { margin-top: -4px; }
 .import-tip { margin: -4px 0 16px; font-size: 12px; color: var(--text-muted); }
 .s-icon { width: 14px; height: 14px; color: var(--text-muted); }
 .admin-table { background: transparent !important; }

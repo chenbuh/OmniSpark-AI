@@ -28,6 +28,7 @@
           </n-button>
         </n-space>
       </div>
+      <div v-if="categoriesLoadState === 'error'" class="filter-status">社区分类待确认，请稍后重试。</div>
     </n-card>
 
     <!-- 加载骨架 -->
@@ -251,6 +252,7 @@ const activeCategory = ref('all')
 const sortBy = ref('newest')
 const searchQuery = ref('')
 const categories = ref<string[]>([])
+const categoriesLoadState = ref<'loading' | 'ready' | 'error'>('loading')
 const showUploadModal = ref(false)
 const showDetailDrawer = ref(false)
 const detailPost = ref<any>(null)
@@ -375,17 +377,23 @@ async function loadPosts() {
 }
 
 async function loadCategories() {
+  categoriesLoadState.value = 'loading'
   try {
     const res = await request.get('/api/community/categories')
-    const values = Array.isArray((res as any).data) ? (res as any).data : []
+    if (!Array.isArray((res as any).data)) {
+      throw new Error('社区分类待确认')
+    }
+    const values = (res as any).data
     categories.value = values
       .map((item: unknown) => typeof item === 'string' ? item.trim() : '')
       .filter((item: string) => !!item)
     if (activeCategory.value !== 'all' && !categories.value.includes(activeCategory.value)) {
       activeCategory.value = 'all'
     }
+    categoriesLoadState.value = 'ready'
   } catch {
     categories.value = []
+    categoriesLoadState.value = 'error'
   }
 }
 
@@ -553,6 +561,7 @@ function handleCommunityCommentCountChange(count: number) {
 .subtitle { font-size: 13px; color: var(--text-muted); margin: 0; }
 .glass-card { background: rgba(15,23,42,0.4) !important; backdrop-filter: blur(16px); border: 1px solid var(--border-color) !important; border-radius: 16px !important; }
 .filter-bar { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px; }
+.filter-status { margin-top: 10px; font-size: 12px; color: #f59e0b; }
 .category-tabs { max-width: 600px; }
 .s-icon { width: 16px; height: 16px; color: var(--text-muted); }
 
