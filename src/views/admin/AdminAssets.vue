@@ -101,6 +101,43 @@ const assetTypeItemsLoadState = ref<'loading' | 'ready' | 'error'>('loading')
 const totalDisplay = computed(() => total.value == null ? '-' : total.value)
 const NO_CACHE_HEADERS = { 'X-No-Cache': '1' }
 
+function normalizeOptionalNumber(value: unknown) {
+  if (value == null || value === '') {
+    return null
+  }
+  const normalized = Number(value)
+  return Number.isFinite(normalized) ? normalized : null
+}
+
+function normalizeAssetRecord(value: unknown) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new Error('资产数据待确认')
+  }
+  const id = Number((value as any).id)
+  const projectId = normalizeOptionalNumber((value as any).projectId)
+  const taskId = normalizeOptionalNumber((value as any).taskId)
+  const assetType = typeof (value as any).assetType === 'string' ? (value as any).assetType.trim() : ''
+  const fileName = typeof (value as any).fileName === 'string' ? (value as any).fileName.trim() : ''
+  const fileUrl = typeof (value as any).fileUrl === 'string' ? (value as any).fileUrl.trim() : ''
+  if (!Number.isFinite(id) || id <= 0 || projectId == null || !assetType || !fileName || !fileUrl) {
+    throw new Error('资产数据待确认')
+  }
+  return {
+    ...(value as Record<string, unknown>),
+    id,
+    projectId,
+    taskId,
+    assetType,
+    fileName,
+    fileUrl,
+    thumbUrl: typeof (value as any).thumbUrl === 'string' ? (value as any).thumbUrl.trim() : '',
+    fileSize: normalizeOptionalNumber((value as any).fileSize),
+    prompt: typeof (value as any).prompt === 'string' ? (value as any).prompt : '',
+    modelName: typeof (value as any).modelName === 'string' ? (value as any).modelName : '',
+    createdAt: (value as any).createdAt ?? null
+  }
+}
+
 function requireAssetPage(value: unknown) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
     throw new Error('资产数据待确认')
@@ -110,8 +147,16 @@ function requireAssetPage(value: unknown) {
   if (!Array.isArray(records) || typeof count !== 'number') {
     throw new Error('资产数据待确认')
   }
+  const normalizedRecords = records.map((item: unknown) => normalizeAssetRecord(item))
+  const ids = new Set<number>()
+  normalizedRecords.forEach(item => {
+    if (ids.has(item.id)) {
+      throw new Error('资产数据待确认')
+    }
+    ids.add(item.id)
+  })
   return {
-    records,
+    records: normalizedRecords,
     total: count
   }
 }
@@ -204,6 +249,12 @@ async function handleDelete(id: number) {
     }
     if (previousTotal != null && total.value == null) {
       throw new Error('资产删除结果待确认')
+    }
+    if (previousTotal != null && total.value !== Math.max(0, previousTotal - 1)) {
+      throw new Error('资产删除结果待确认')
+    }
+    if (Number(previewAsset.value?.id) === id) {
+      previewAsset.value = null
     }
     message.success('已删除')
   } catch (err: any) { message.error(err.message || '删除失败') }

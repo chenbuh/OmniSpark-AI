@@ -110,6 +110,7 @@ const taskStatuses = ref<string[]>([])
 const taskTypes = ref<string[]>([])
 const taskMetaLoadState = ref<'loading' | 'ready' | 'error'>('loading')
 const totalDisplay = computed(() => total.value == null ? '-' : total.value)
+const NO_CACHE_HEADERS = { 'X-No-Cache': '1' }
 
 const statusOptions = computed(() => taskStatuses.value.map(value => ({
   label: statusLabel(value),
@@ -135,6 +136,48 @@ const formatTaskProgress = (progress: unknown) => {
   return Number.isNaN(normalized) ? '-' : `${Math.max(0, Math.min(100, normalized))}%`
 }
 
+function normalizeOptionalNumber(value: unknown) {
+  if (value == null || value === '') {
+    return null
+  }
+  const normalized = Number(value)
+  return Number.isFinite(normalized) ? normalized : null
+}
+
+function normalizeTaskRecord(value: unknown) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new Error('任务数据待确认')
+  }
+  const id = Number((value as any).id)
+  const projectId = normalizeOptionalNumber((value as any).projectId)
+  const taskType = typeof (value as any).taskType === 'string' ? (value as any).taskType.trim() : ''
+  const prompt = typeof (value as any).prompt === 'string' ? (value as any).prompt : ''
+  const status = typeof (value as any).status === 'string' ? (value as any).status.trim() : ''
+  const progress = normalizeOptionalNumber((value as any).progress)
+  const modelName = typeof (value as any).modelName === 'string' ? (value as any).modelName.trim() : ''
+  if (!Number.isFinite(id) || id <= 0 || projectId == null || !taskType || !status || !modelName) {
+    throw new Error('任务数据待确认')
+  }
+  return {
+    ...(value as Record<string, unknown>),
+    id,
+    projectId,
+    providerId: normalizeOptionalNumber((value as any).providerId),
+    taskType,
+    prompt,
+    negativePrompt: typeof (value as any).negativePrompt === 'string' ? (value as any).negativePrompt : '',
+    status,
+    progress,
+    progressText: typeof (value as any).progressText === 'string' ? (value as any).progressText : '',
+    modelName,
+    resultAssetId: normalizeOptionalNumber((value as any).resultAssetId),
+    errorMessage: typeof (value as any).errorMessage === 'string' ? (value as any).errorMessage : '',
+    requestJson: typeof (value as any).requestJson === 'string' ? (value as any).requestJson : '',
+    responseJson: typeof (value as any).responseJson === 'string' ? (value as any).responseJson : '',
+    createdAt: (value as any).createdAt ?? null
+  }
+}
+
 function requireTaskMeta(value: unknown) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
     throw new Error('任务元数据待确认')
@@ -144,9 +187,15 @@ function requireTaskMeta(value: unknown) {
   if (!Array.isArray(statuses) || !Array.isArray(taskTypesValue)) {
     throw new Error('任务元数据待确认')
   }
+  const normalizedStatuses = Array.from(new Set(
+    statuses.map((item: unknown) => typeof item === 'string' ? item.trim() : '').filter(Boolean)
+  ))
+  const normalizedTaskTypes = Array.from(new Set(
+    taskTypesValue.map((item: unknown) => typeof item === 'string' ? item.trim() : '').filter(Boolean)
+  ))
   return {
-    statuses,
-    taskTypes: taskTypesValue
+    statuses: normalizedStatuses,
+    taskTypes: normalizedTaskTypes
   }
 }
 
@@ -159,8 +208,16 @@ function requireTaskPage(value: unknown) {
   if (!Array.isArray(records) || typeof count !== 'number') {
     throw new Error('任务数据待确认')
   }
+  const normalizedRecords = records.map((item: unknown) => normalizeTaskRecord(item))
+  const ids = new Set<number>()
+  normalizedRecords.forEach(item => {
+    if (ids.has(item.id)) {
+      throw new Error('任务数据待确认')
+    }
+    ids.add(item.id)
+  })
   return {
-    records,
+    records: normalizedRecords,
     total: count
   }
 }
@@ -168,7 +225,7 @@ function requireTaskPage(value: unknown) {
 async function loadTaskMeta() {
   taskMetaLoadState.value = 'loading'
   try {
-    const res = await request.get('/api/admin/tasks/meta')
+    const res = await request.get('/api/admin/tasks/meta', { headers: NO_CACHE_HEADERS })
     const data = requireTaskMeta((res as any).data)
     taskStatuses.value = data.statuses
     taskTypes.value = data.taskTypes
@@ -186,14 +243,17 @@ function reload() {
   loadTasks()
 }
 
-async function loadTasks() {
+async function loadTasks(noCache = false) {
   loadingTasks.value = true
   try {
     const params: Record<string, any> = { page: page.value, pageSize }
     if (statusFilter.value) params.status = statusFilter.value
     if (typeFilter.value) params.taskType = typeFilter.value
     if (searchText.value) params.search = searchText.value
-    const res = await request.get('/api/admin/tasks', { params })
+    const res = await request.get('/api/admin/tasks', {
+      params,
+      headers: noCache ? NO_CACHE_HEADERS : undefined
+    })
     const data = requireTaskPage((res as any).data)
     tasks.value = data.records
     total.value = data.total
@@ -236,12 +296,23 @@ function taskTypeOrder(taskType: string) {
 
 async function handleDelete(id: number) {
   try {
+    const previousTotal = total.value
     await request.delete(`/api/admin/tasks/${id}`)
     // 删除当前页最后一条时回退一页,避免停留空页
     if ((tasks.value?.length || 0) === 1 && page.value > 1) page.value--
-    await loadTasks()
-    if (tasks.value?.some(task => task.id === id)) {
+    await loadTasks(true)
+    if (tasks.value?.some(task => Number(task.id) === id)) {
       throw new Error('删除结果待确认')
+    }
+    if (previousTotal != null && total.value == null) {
+      throw new Error('删除结果待确认')
+    }
+    if (previousTotal != null && total.value !== Math.max(0, previousTotal - 1)) {
+      throw new Error('删除结果待确认')
+    }
+    if (Number(detail.value?.id) === id) {
+      detail.value = null
+      showDrawer.value = false
     }
     message.success('已删除')
   } catch (err: any) { message.error(err.message || '删除失败') }
