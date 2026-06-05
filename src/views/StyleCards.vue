@@ -221,7 +221,13 @@
             <span class="picker-name">{{ asset.fileName }}</span>
           </div>
         </div>
-        <div v-if="imageAssets.length === 0" class="picker-empty">
+        <div v-if="assetLibraryLoadState === 'error'" class="picker-empty">
+          图片资产待确认，请稍后重试。
+        </div>
+        <div v-else-if="assetLibraryLoadState === 'loading'" class="picker-empty">
+          正在加载图片资产...
+        </div>
+        <div v-else-if="imageAssets.length === 0" class="picker-empty">
           资产库中尚无图片，可先上传本地图片或前往生图页生成。
         </div>
       </div>
@@ -281,6 +287,7 @@ const selectedCard = ref<StyleCard | null>(null)
 const currentUserId = ref<number | null>(null)
 const totalCards = ref<number | null>(null)
 const styleCardTags = ref<string[]>([])
+const assetLibraryLoadState = ref<'loading' | 'ready' | 'error'>('loading')
 let searchTimer: ReturnType<typeof setTimeout> | null = null
 
 const imageAssets = computed(() => {
@@ -333,13 +340,29 @@ async function loadCards() {
       page: page.value,
       pageSize: pageSize.value
     })
-    cards.value = res.data?.records || []
+    const records = res.data?.records
+    if (!Array.isArray(records)) {
+      cards.value = null
+      totalCards.value = null
+      return
+    }
+    cards.value = records
     totalCards.value = typeof res.data?.total === 'number' ? res.data.total : 0
   } catch {
     cards.value = null
     totalCards.value = null
   } finally {
     loadingCards.value = false
+  }
+}
+
+async function loadAssetLibrary() {
+  assetLibraryLoadState.value = 'loading'
+  try {
+    await assetStore.refresh({ projectId: projectStore.activeProjectId })
+    assetLibraryLoadState.value = 'ready'
+  } catch {
+    assetLibraryLoadState.value = 'error'
   }
 }
 
@@ -370,9 +393,7 @@ onMounted(async () => {
     currentUserId.value = info.id || null
   } catch {}
   await Promise.all([loadStyleCardTags(), loadCards()])
-  try {
-    await assetStore.refresh({ projectId: projectStore.activeProjectId })
-  } catch {}
+  await loadAssetLibrary()
 })
 onBeforeUnmount(() => {
   if (searchTimer) {
@@ -412,10 +433,8 @@ function canManage(card: StyleCard) {
 }
 
 async function openAssetPicker() {
+  await loadAssetLibrary()
   showAssetPicker.value = true
-  try {
-    await assetStore.refresh({ projectId: projectStore.activeProjectId })
-  } catch {}
 }
 
 function handleSelectAsset(asset: Asset) {

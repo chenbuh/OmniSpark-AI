@@ -514,7 +514,10 @@ async function loadAssets() {
     if (loadToken !== latestLoadToken) {
       return
     }
-    assetRecords.value = (pageRes.data?.records || []).map(item => assetStore.normalizeAsset(item))
+    if (!Array.isArray(pageRes.data?.records)) {
+      throw new Error('资产列表数据待确认')
+    }
+    assetRecords.value = pageRes.data.records.map(item => assetStore.normalizeAsset(item))
     filteredTotal.value = typeof pageRes.data?.total === 'number' ? pageRes.data.total : 0
     assetStats.value = {
       total: typeof statsRes.data?.total === 'number' ? statsRes.data.total : 0,

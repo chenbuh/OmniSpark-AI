@@ -223,7 +223,13 @@ async function loadTemplates() {
       page: page.value,
       pageSize: pageSize.value
     })
-    templates.value = res.data?.records || []
+    const records = res.data?.records
+    if (!Array.isArray(records)) {
+      templates.value = null
+      totalTemplates.value = null
+      return
+    }
+    templates.value = records
     totalTemplates.value = typeof res.data?.total === 'number' ? res.data.total : 0
   } catch {
     templates.value = null

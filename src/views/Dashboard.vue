@@ -594,7 +594,8 @@ onMounted(async () => {
       request.get('/api/announcements/active')
     ])
     if (tplResult.status === 'fulfilled') {
-      recommendedTemplates.value = tplResult.value.data?.records || []
+      const records = tplResult.value.data?.records
+      recommendedTemplates.value = Array.isArray(records) ? records : null
     } else {
       recommendedTemplates.value = null
       console.error(tplResult.reason)
@@ -617,7 +618,8 @@ onMounted(async () => {
 watch(() => projectStore.activeProjectId, async () => {
   try {
     const res = await templateApi.getTemplates({ projectId: projectStore.activeProjectId, sort: 'likes', page: 1, pageSize: 3 })
-    recommendedTemplates.value = res.data?.records || []
+    const records = res.data?.records
+    recommendedTemplates.value = Array.isArray(records) ? records : null
   } catch (e) {
     recommendedTemplates.value = null
     console.error(e)
