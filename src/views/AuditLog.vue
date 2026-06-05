@@ -28,7 +28,7 @@
             <n-button type="error" size="small" tertiary :loading="cleaning" @click="handleCleanup">清理日志</n-button>
           </template>
         </n-space>
-        <span class="count-lbl">共 {{ total }} 条记录</span>
+        <span class="count-lbl">共 {{ totalDisplay }} 条记录</span>
       </div>
     </n-card>
 
@@ -46,7 +46,7 @@
           </tr>
         </thead>
         <tbody>
-          <tr v-for="log in logs" :key="log.id">
+          <tr v-for="log in logs || []" :key="log.id">
             <td><code>#{{ log.id }}</code></td>
             <td>{{ log.username || '未知' }}</td>
             <td><n-tag size="small" :type="actionColor(log.action)">{{ formatAction(log.action) }}</n-tag></td>
@@ -54,12 +54,15 @@
             <td><code>{{ log.ip || '-' }}</code></td>
             <td>{{ log.createdAt?.substring(0, 19)?.replace('T', ' ') }}</td>
           </tr>
-          <tr v-if="logs.length === 0">
+          <tr v-if="logs !== null && logs.length === 0">
             <td colspan="6" class="empty-cell">暂无审计日志</td>
+          </tr>
+          <tr v-else-if="logs === null">
+            <td colspan="6" class="empty-cell">审计日志数据待确认</td>
           </tr>
         </tbody>
       </n-table>
-      <div class="pager" v-if="total > 0">
+      <div class="pager" v-if="(total ?? 0) > 0">
         <n-pagination
           v-model:page="page"
           :page-size="pageSize"
@@ -85,12 +88,12 @@ const dialog = useDialog()
 const userStore = useUserStore()
 const isAdmin = computed(() => userStore.userInfo?.role === 'admin')
 
-const logs = ref<any[]>([])
+const logs = ref<any[] | null>(null)
 const actionFilter = ref<string | null>(null)
 const page = ref(1)
 const pageSize = ref(20)
 const pageSizeOptions = [20, 50, 100]
-const total = ref(0)
+const total = ref<number | null>(null)
 const cleanupDays = ref(30)
 const cleaning = ref(false)
 const actions = ref<string[]>([])
@@ -101,6 +104,7 @@ const actionOptions = computed(() => [
     value: action
   }))
 ])
+const totalDisplay = computed(() => total.value == null ? '-' : total.value)
 
 const actionColor = (action: string) => {
   if (!action) return 'default'
@@ -124,9 +128,10 @@ async function loadLogs() {
     const res = await request.get('/api/audit-logs/my', { params })
     const data = (res as any).data || {}
     logs.value = data.records || []
-    total.value = data.total || 0
+    total.value = typeof data.total === 'number' ? data.total : 0
   } catch (err: any) {
-    logs.value = []
+    logs.value = null
+    total.value = null
     message.error(err.message || '加载审计日志失败')
   }
 }

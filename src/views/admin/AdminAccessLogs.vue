@@ -23,7 +23,7 @@
           <n-button size="small" type="primary" :loading="loading" @click="reload">查询</n-button>
           <n-button size="small" tertiary @click="resetFilters">重置</n-button>
         </n-space>
-        <span class="count-lbl">共 {{ total }} 条</span>
+        <span class="count-lbl">共 {{ totalDisplay }} 条</span>
       </div>
     </n-card>
 
@@ -65,7 +65,7 @@
           </tr>
         </thead>
         <tbody>
-          <tr v-for="log in logs" :key="log.id">
+          <tr v-for="log in logs || []" :key="log.id">
             <td><code>#{{ log.id }}</code></td>
             <td>{{ log.userId || '-' }}</td>
             <td>{{ log.apiKeyId || '-' }}</td>
@@ -85,10 +85,11 @@
             </td>
             <td>{{ formatTime(log.createdAt) }}</td>
           </tr>
-          <tr v-if="logs.length === 0"><td colspan="10" class="empty">暂无访问日志</td></tr>
+          <tr v-if="logs !== null && logs.length === 0"><td colspan="10" class="empty">暂无访问日志</td></tr>
+          <tr v-else-if="logs === null"><td colspan="10" class="empty">访问日志数据待确认</td></tr>
         </tbody>
       </n-table>
-      <div class="pager" v-if="total > 0">
+      <div class="pager" v-if="(total ?? 0) > 0">
         <n-pagination
           v-model:page="page"
           :page-size="pageSize"
@@ -108,9 +109,9 @@ import request from '@/api/request'
 const message = useMessage()
 const loading = ref(false)
 const summaryLoading = ref(false)
-const logs = ref<any[]>([])
+const logs = ref<any[] | null>(null)
 const summary = ref<Record<string, any>>({})
-const total = ref(0)
+const total = ref<number | null>(null)
 const page = ref(1)
 const pageSize = 20
 const filters = reactive({
@@ -127,6 +128,7 @@ const summaryCards = computed(() => [
   { label: '限流命中', value: formatSummaryMetric(summary.value.rateLimited) },
   { label: '风险命中', value: formatSummaryMetric(summary.value.riskHits) }
 ])
+const totalDisplay = computed(() => total.value == null ? '-' : total.value)
 
 async function loadSummary() {
   summaryLoading.value = true
@@ -148,9 +150,10 @@ async function loadLogs() {
     const res = await request.get('/api/admin/access-logs', { params })
     const data = (res as any).data || {}
     logs.value = data.records || []
-    total.value = data.total || 0
+    total.value = typeof data.total === 'number' ? data.total : 0
   } catch (err: any) {
-    logs.value = []
+    logs.value = null
+    total.value = null
     message.error(err.message || '加载访问日志失败')
   } finally {
     loading.value = false

@@ -87,7 +87,7 @@
                   全部已读
                 </n-button>
               </div>
-              <div class="notif-list" v-if="notifications.length > 0">
+              <div class="notif-list" v-if="notifications && notifications.length > 0">
                 <div
                   v-for="n in notifications.slice(0, 10)"
                   :key="n.id"
@@ -106,7 +106,8 @@
                   </div>
                 </div>
               </div>
-              <div class="notif-empty" v-else>暂无通知</div>
+              <div class="notif-empty" v-else-if="notifications !== null">暂无通知</div>
+              <div class="notif-empty" v-else>通知列表待确认</div>
             </div>
           </n-popover>
 
@@ -534,7 +535,7 @@ const handleExportProject = async () => {
 }
 
 // ===== 通知系统 =====
-const notifications = ref<any[]>([])
+const notifications = ref<any[] | null>(null)
 const unreadCount = ref<number | null>(null)
 let stompClient: any = null
 
@@ -556,7 +557,7 @@ const loadNotifications = async () => {
     notifications.value = Array.isArray(allJson.data) ? allJson.data : []
   } catch {
     unreadCount.value = null
-    notifications.value = []
+    notifications.value = null
   }
 }
 
@@ -575,6 +576,9 @@ const connectWebSocket = async () => {
         stompClient?.subscribe(`/topic/notifications/${userId}`, (msg: any) => {
           try {
             const notif = JSON.parse(msg.body)
+            if (notifications.value === null) {
+              notifications.value = []
+            }
             notifications.value.unshift(notif)
             if (!notif.isRead) unreadCount.value = (unreadCount.value ?? 0) + 1
           } catch {}
@@ -647,7 +651,7 @@ const handleMarkAllRead = async () => {
       method: 'POST',
       headers: { 'satoken': localStorage.getItem('satoken') || '' }
     })
-    notifications.value.forEach((n: any) => n.isRead = 1)
+    notifications.value?.forEach((n: any) => n.isRead = 1)
     unreadCount.value = 0
   } catch {}
 }

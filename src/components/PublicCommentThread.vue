@@ -15,7 +15,11 @@
       </div>
     </div>
 
-    <div class="comment-list" v-if="comments.length > 0">
+    <div v-if="loading && comments === null" class="empty-state">
+      <n-spin size="small" />
+    </div>
+
+    <div class="comment-list" v-else-if="comments && comments.length > 0">
       <div v-for="comment in comments" :key="comment.id" class="comment-card">
         <div class="comment-head">
           <div class="author">
@@ -100,7 +104,8 @@
       </div>
     </div>
 
-    <n-empty v-else description="还没有评论，来抢个沙发吧。" class="empty-state" />
+    <n-empty v-else-if="comments !== null" description="还没有评论，来抢个沙发吧。" class="empty-state" />
+    <n-empty v-else description="评论数据待确认，请稍后重试。" class="empty-state" />
   </div>
 </template>
 
@@ -133,7 +138,7 @@ const emit = defineEmits<{
 }>()
 
 const message = useMessage()
-const comments = ref<PublicComment[]>([])
+const comments = ref<PublicComment[] | null>(null)
 const loading = ref(false)
 const submitting = ref(false)
 const deletingId = ref<number | null>(null)
@@ -171,9 +176,9 @@ async function loadComments() {
   try {
     const res = await request.get(commentEndpoint.value)
     comments.value = (res as any).data || []
-    emit('countChange', totalComments(comments.value))
+    emit('countChange', totalComments(comments.value || []))
   } catch (err: any) {
-    comments.value = []
+    comments.value = null
     message.error(err.message || '加载评论失败')
   } finally {
     loading.value = false

@@ -11,7 +11,7 @@
           <tr><th style="width:60px">ID</th><th style="width:80px">用户ID</th><th>用户名</th><th style="width:140px">IP</th><th>User Agent</th><th style="width:160px">登录时间</th></tr>
         </thead>
         <tbody>
-          <tr v-for="log in logs" :key="log.id">
+          <tr v-for="log in logs || []" :key="log.id">
             <td><code>#{{ log.id }}</code></td>
             <td>{{ log.userId }}</td>
             <td>{{ log.username }}</td>
@@ -19,10 +19,11 @@
             <td><n-ellipsis :line-clamp="1" :tooltip="true">{{ log.userAgent }}</n-ellipsis></td>
             <td>{{ log.createdAt?.substring(0, 19)?.replace('T', ' ') }}</td>
           </tr>
-          <tr v-if="logs.length === 0"><td colspan="6" class="empty">暂无登录记录</td></tr>
+          <tr v-if="logs !== null && logs.length === 0"><td colspan="6" class="empty">暂无登录记录</td></tr>
+          <tr v-else-if="logs === null"><td colspan="6" class="empty">登录日志数据待确认</td></tr>
         </tbody>
       </n-table>
-      <div class="pager" v-if="total > pageSize">
+      <div class="pager" v-if="(total ?? 0) > pageSize">
         <n-pagination v-model:page="page" :page-size="pageSize" :item-count="total" @update:page="loadLogs" />
       </div>
     </n-card>
@@ -35,19 +36,20 @@ import { useMessage } from 'naive-ui'
 import request from '@/api/request'
 
 const message = useMessage()
-const logs = ref<any[]>([])
+const logs = ref<any[] | null>(null)
 const page = ref(1)
 const pageSize = 20
-const total = ref(0)
+const total = ref<number | null>(null)
 
 async function loadLogs() {
   try {
     const res = await request.get('/api/admin/login-logs', { params: { page: page.value, pageSize } })
     const data = (res as any).data || {}
     logs.value = data.records || []
-    total.value = data.total || 0
+    total.value = typeof data.total === 'number' ? data.total : 0
   } catch (err: any) {
-    logs.value = []
+    logs.value = null
+    total.value = null
     message.error(err.message || '加载登录日志失败')
   }
 }
