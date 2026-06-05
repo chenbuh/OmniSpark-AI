@@ -435,6 +435,10 @@ async function handleResetPassword(u: any) {
         if (typeof initial !== 'string' || !initial) {
           throw new Error('重置后的初始密码待确认')
         }
+        const confirmedUser = await loadUserByUsername(u.username)
+        if (!confirmedUser || Number(confirmedUser.id) !== Number(u.id) || confirmedUser.username !== u.username) {
+          throw new Error('用户重置密码结果待确认')
+        }
         dialog.success({
           title: '密码已重置',
           content: `用户「${u.username}」的新密码：${initial}（请妥善转交，关闭后无法再次查看）`,

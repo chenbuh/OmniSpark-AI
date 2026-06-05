@@ -202,14 +202,24 @@ function handleCleanup() {
     onPositiveClick: async () => {
       cleaning.value = true
       try {
+        const previousTotal = total.value
         const res = await request.delete('/api/audit-logs', { params: { daysOld: cleanupDays.value } })
         const deletedCount = toOptionalNumber((res as any).data)
         if (deletedCount == null) {
           throw new Error('清理结果待确认')
         }
-        message.success(`已清理 ${deletedCount} 条审计日志`)
         page.value = 1
         await loadLogs()
+        if (logs.value === null || total.value == null) {
+          throw new Error('清理结果待确认')
+        }
+        if (deletedCount < 0) {
+          throw new Error('清理结果待确认')
+        }
+        if (previousTotal != null && total.value > previousTotal) {
+          throw new Error('清理结果待确认')
+        }
+        message.success(`已清理 ${deletedCount} 条审计日志`)
       } catch (err: any) {
         message.error(err.message || '清理失败')
       } finally {
