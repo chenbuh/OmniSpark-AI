@@ -443,7 +443,20 @@ const handleSave = async () => {
         negativePrompt: form.negativePrompt || undefined,
         modelName: form.modelName || undefined
       })
-      requireTemplateResult((res as any).data, 'update')
+      const updated = requireTemplateResult((res as any).data, 'update')
+      await Promise.all([loadTemplateTags(), loadTemplates()])
+      const refreshed = templates.value?.find(item => Number(item.id) === currentEditingId)
+      if (
+        !refreshed
+        || Number(refreshed.id) !== updated.id
+        || refreshed.name !== form.name
+        || refreshed.content !== form.content
+        || String(refreshed.tag || '') !== form.tag.trim()
+        || String(refreshed.negativePrompt || '') !== (form.negativePrompt || '')
+        || String(refreshed.modelName || '') !== (form.modelName || '')
+      ) {
+        throw new Error('模板更新结果待确认')
+      }
       message.success('模板已更新！')
     } else {
       const res = await templateApi.createTemplate({
@@ -454,10 +467,21 @@ const handleSave = async () => {
         negativePrompt: form.negativePrompt || undefined,
         modelName: form.modelName || undefined
       })
-      requireTemplateResult((res as any).data, 'create')
+      const created = requireTemplateResult((res as any).data, 'create')
+      await Promise.all([loadTemplateTags(), loadTemplates()])
+      const refreshed = templates.value?.find(item => Number(item.id) === created.id)
+      if (
+        !refreshed
+        || refreshed.name !== form.name
+        || refreshed.content !== form.content
+        || String(refreshed.tag || '') !== form.tag.trim()
+        || String(refreshed.negativePrompt || '') !== (form.negativePrompt || '')
+        || String(refreshed.modelName || '') !== (form.modelName || '')
+      ) {
+        throw new Error('模板创建结果待确认')
+      }
       message.success('新提示词模板已收录！')
     }
-    await Promise.all([loadTemplateTags(), loadTemplates()])
     resetForm()
     showAddModal.value = false
   } catch (err: any) {

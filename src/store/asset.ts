@@ -57,22 +57,31 @@ export const useAssetStore = defineStore('asset', {
     assets: [] as Asset[]
   }),
   actions: {
-    normalizeAsset(asset: any): Asset {
+    normalizeAsset(asset: unknown): Asset {
+      if (!isPlainObject(asset)) {
+        throw new Error('资产结果待确认')
+      }
+      const assetType = typeof asset.assetType === 'string' ? asset.assetType : ''
+      if (assetType !== 'image' && assetType !== 'video' && assetType !== 'reference') {
+        throw new Error('资产结果待确认')
+      }
+      const id = parseRequiredNumber(asset.id)
+      const projectId = parseRequiredNumber(asset.projectId)
       const fileSizeBytes = parseOptionalFileSize(asset.fileSize)
       return {
-        id: Number(asset.id),
-        projectId: Number(asset.projectId),
+        id,
+        projectId,
         taskId: asset.taskId == null ? undefined : Number(asset.taskId),
-        assetType: asset.assetType,
-        fileName: asset.fileName || '',
+        assetType,
+        fileName: typeof asset.fileName === 'string' ? asset.fileName : '',
         fileUrl: resolveAssetUrl(asset.fileUrl),
         thumbUrl: resolveAssetUrl(asset.thumbUrl || asset.fileUrl),
-        mimeType: asset.mimeType || '',
+        mimeType: typeof asset.mimeType === 'string' ? asset.mimeType : '',
         fileSize: formatFileSize(fileSizeBytes),
         fileSizeBytes: fileSizeBytes == null ? undefined : fileSizeBytes,
         favorite: Number(asset.favorite ?? 0) !== 0,
-        prompt: asset.prompt || undefined,
-        modelName: asset.modelName || undefined,
+        prompt: typeof asset.prompt === 'string' && asset.prompt ? asset.prompt : undefined,
+        modelName: typeof asset.modelName === 'string' && asset.modelName ? asset.modelName : undefined,
         createdAt: String(asset.createdAt || '').replace('T', ' ').substring(0, 19) || '--'
       }
     },
@@ -100,8 +109,16 @@ export const useAssetStore = defineStore('asset', {
       return updated
     },
     async deleteAsset(id: number) {
+      const existing = this.assets.find(asset => asset.id === id)
       await assetApi.deleteAsset(id)
-      this.assets = this.assets.filter(a => a.id !== id)
+      if (existing?.projectId) {
+        await this.refresh({ projectId: existing.projectId })
+      } else {
+        await this.refresh()
+      }
+      if (this.assets.some(asset => asset.id === id)) {
+        throw new Error('资产删除结果待确认')
+      }
     },
     clear() {
       this.assets = []
@@ -115,4 +132,16 @@ function parseOptionalFileSize(value: unknown): number | null {
   }
   const parsed = Number(value)
   return Number.isFinite(parsed) ? parsed : null
+}
+
+function parseRequiredNumber(value: unknown): number {
+  const parsed = Number(value)
+  if (!Number.isFinite(parsed)) {
+    throw new Error('资产结果待确认')
+  }
+  return parsed
+}
+
+function isPlainObject(value: unknown): value is Record<string, any> {
+  return !!value && typeof value === 'object' && !Array.isArray(value)
 }
