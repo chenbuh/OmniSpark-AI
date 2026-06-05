@@ -101,13 +101,28 @@ export const useAssetStore = defineStore('asset', {
       return this.assets.filter(a => a.projectId === projectId)
     },
     async toggleFavorite(id: number) {
+      const existing = this.assets.find(asset => asset.id === id)
+      const previousFavorite = existing?.favorite
       const res = await assetApi.favoriteAsset(id)
       const updated = this.normalizeAsset(res.data)
+      if (existing?.projectId) {
+        await this.refresh({ projectId: existing.projectId })
+      }
+      const confirmedFromList = this.assets.find(asset => asset.id === id) || null
+      const confirmed = confirmedFromList || this.normalizeAsset((await assetApi.getAsset(id)).data)
+      if (confirmed.favorite !== updated.favorite) {
+        throw new Error('资产状态待确认')
+      }
+      if (typeof previousFavorite === 'boolean' && confirmed.favorite === previousFavorite) {
+        throw new Error('资产状态待确认')
+      }
       const idx = this.assets.findIndex(item => item.id === id)
       if (idx !== -1) {
-        this.assets[idx] = updated
+        this.assets[idx] = confirmed
+      } else {
+        this.assets.unshift(confirmed)
       }
-      return updated
+      return confirmed
     },
     async deleteAsset(id: number) {
       const existing = this.assets.find(asset => asset.id === id)
