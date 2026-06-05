@@ -219,7 +219,7 @@ const providerMeta = ref<ProviderMetaVO>(emptyProviderMeta())
 
 const form = reactive({
   name: '',
-  type: 'image' as string,
+  type: '' as string,
   baseUrl: '',
   apiKey: '',
   modelName: '',
@@ -228,15 +228,15 @@ const form = reactive({
   configJson: '',
   transcriptionModel: '',
   voice: '',
-  responseFormat: 'mp3',
+  responseFormat: '',
   speed: '',
   instructions: ''
 })
 
 const typeOptions = computed(() => providerMeta.value.providerTypes || [])
 const responseFormatOptions = computed(() => providerMeta.value.audioResponseFormats || [])
-const defaultProviderType = computed(() => providerMeta.value.defaults?.providerType || typeOptions.value[0]?.value || 'image')
-const defaultResponseFormat = computed(() => providerMeta.value.defaults?.audioResponseFormat || responseFormatOptions.value[0]?.value || 'mp3')
+const defaultProviderType = computed(() => providerMeta.value.defaults?.providerType || typeOptions.value[0]?.value || '')
+const defaultResponseFormat = computed(() => providerMeta.value.defaults?.audioResponseFormat || responseFormatOptions.value[0]?.value || '')
 
 const currentProviders = computed(() => {
   return providerStore.getProvidersByProject(projectStore.activeProjectId)
@@ -319,6 +319,10 @@ const handleTestConnection = async (provider: ModelProvider) => {
 }
 
 const handleOpenAddModal = () => {
+  if (typeOptions.value.length === 0) {
+    message.error('模型类型元数据尚未加载成功，暂时无法基于真实配置新增提供商')
+    return
+  }
   isEditMode.value = false
   editingId.value = null
   form.name = ''
@@ -358,6 +362,10 @@ const handleOpenEditModal = (provider: ModelProvider) => {
 }
 
 const handleSave = async () => {
+  if (!form.type) {
+    message.error('请选择真实的模型类型后再保存')
+    return false
+  }
   if (!form.name || !form.baseUrl || !form.apiKey || !form.modelName) {
     message.error('请完整填写所有核心模型配置字段！')
     return false

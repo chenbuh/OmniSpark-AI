@@ -24,7 +24,7 @@ export const useModelProviderStore = defineStore('modelProvider', {
         id: Number(provider.id),
         projectId: Number(provider.projectId),
         name: provider.name || '',
-        type: provider.type || 'custom',
+        type: provider.type || '',
         baseUrl: provider.baseUrl || '',
         apiKey: provider.apiKey || '',
         modelName: provider.modelName || '',
