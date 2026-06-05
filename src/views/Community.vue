@@ -237,12 +237,14 @@ import request from '@/api/request'
 import { assetApi } from '@/api/assets'
 import { useProjectStore } from '@/store/project'
 import { useAssetStore, resolveAssetUrl, type Asset } from '@/store/asset'
+import { useUserStore } from '@/store/user'
 
 const router = useRouter()
 const route = useRoute()
 const message = useMessage()
 const projectStore = useProjectStore()
 const assetStore = useAssetStore()
+const userStore = useUserStore()
 
 const loading = ref(true)
 const publishing = ref(false)
@@ -362,6 +364,7 @@ function requireCommunityPostResult(value: unknown, action: 'create' | 'update')
     id,
     title,
     prompt,
+    userId: Number((value as any).userId),
     negativePrompt: typeof (value as any).negativePrompt === 'string' ? (value as any).negativePrompt : '',
     modelName: typeof (value as any).modelName === 'string' ? (value as any).modelName : '',
     imageUrl: typeof (value as any).imageUrl === 'string' ? (value as any).imageUrl : '',
@@ -483,11 +486,7 @@ async function loadCategories() {
 }
 
 onMounted(async () => {
-  // 从 localStorage 获取当前用户 ID
-  try {
-    const info = JSON.parse(localStorage.getItem('userInfo') || '{}')
-    currentUserId.value = info.id || null
-  } catch {}
+  currentUserId.value = userStore.userInfo?.id || null
 
   if (route.query.sharePrompt) {
     form.prompt = route.query.sharePrompt as string
@@ -638,6 +637,8 @@ async function handlePublish() {
     const expectedImageUrl = toRelativeUrl(form.imageUrl)
     const expectedCategory = normalizeOptionalText(payload.category)
     const expectedTags = normalizeOptionalText(form.tags)
+    const previousTotal = total.value
+    const expectedAuthorId = currentUserId.value
     if (editingPostId.value) {
       const editingId = editingPostId.value
       const res = await request.put(`/api/community/posts/${editingId}`, payload)
@@ -652,6 +653,19 @@ async function handlePublish() {
         || toRelativeUrl(refreshed.imageUrl) !== expectedImageUrl
         || normalizeOptionalText(refreshed.category) !== expectedCategory
         || normalizeOptionalText(refreshed.tags) !== expectedTags
+        || (Number.isFinite(expectedAuthorId) && Number(refreshed.userId) !== Number(expectedAuthorId))
+        || (typeof previousTotal === 'number' && total.value !== previousTotal)
+      ) {
+        throw new Error('更新结果待确认')
+      }
+      const loaded = findLoadedPost(updated.id)
+      if (
+        loaded
+        && (
+          normalizeOptionalText(loaded.title) !== expectedTitle
+          || normalizeOptionalText(loaded.prompt) !== expectedPrompt
+          || normalizeOptionalText(loaded.category) !== expectedCategory
+        )
       ) {
         throw new Error('更新结果待确认')
       }
@@ -669,8 +683,22 @@ async function handlePublish() {
         || toRelativeUrl(refreshed.imageUrl) !== expectedImageUrl
         || normalizeOptionalText(refreshed.category) !== expectedCategory
         || normalizeOptionalText(refreshed.tags) !== expectedTags
+        || (Number.isFinite(expectedAuthorId) && Number(refreshed.userId) !== Number(expectedAuthorId))
       ) {
         throw new Error('发布结果待确认')
+      }
+      if (typeof previousTotal === 'number' && typeof total.value === 'number' && total.value < previousTotal + 1) {
+        throw new Error('发布结果待确认')
+      }
+      const loaded = findLoadedPost(created.id)
+      if (loaded) {
+        if (
+          normalizeOptionalText(loaded.title) !== expectedTitle
+          || normalizeOptionalText(loaded.prompt) !== expectedPrompt
+          || normalizeOptionalText(loaded.category) !== expectedCategory
+        ) {
+          throw new Error('发布结果待确认')
+        }
       }
       message.success('发布成功！')
     }
@@ -725,10 +753,14 @@ async function handleLike(post: any) {
 
 async function handleDelete(id: number) {
   try {
+    const previousTotal = total.value
     await request.delete(`/api/community/posts/${id}`)
     await loadCategories()
     await loadPosts()
     if (posts.value?.some((post: any) => post.id === id)) {
+      throw new Error('删除结果待确认')
+    }
+    if (typeof previousTotal === 'number' && typeof total.value === 'number' && total.value > Math.max(0, previousTotal - 1)) {
       throw new Error('删除结果待确认')
     }
     await expectCommunityPostDeleted(id)

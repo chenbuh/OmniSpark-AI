@@ -14,6 +14,7 @@
         </n-button>
       </div>
       <div v-if="providerMetaLoadState === 'error'" class="status-note">提供商类型与音频格式待确认，请稍后重试。</div>
+      <div v-if="providerListLoadState === 'error'" class="status-note">当前项目的提供商列表待确认，请稍后重试。</div>
 
       <n-table :single-line="false" class="providers-table" style="margin-top: 15px;">
         <thead>
@@ -234,6 +235,7 @@ const editingId = ref<number | null>(null)
 const testingId = ref<number | null>(null)
 const providerMeta = ref<ProviderMetaVO>(emptyProviderMeta())
 const providerMetaLoadState = ref<'loading' | 'ready' | 'error'>('loading')
+const providerListLoadState = ref<'loading' | 'ready' | 'error'>('loading')
 const preserveUnknownEnabled = ref(false)
 const preserveUnknownDefault = ref(false)
 const enabledTouched = ref(false)
@@ -271,7 +273,10 @@ const pagedProviders = computed(() => {
   const start = (page.value - 1) * pageSize
   return currentProviders.value.slice(start, start + pageSize)
 })
-watch(() => projectStore.activeProjectId, () => { page.value = 1 })
+watch(() => projectStore.activeProjectId, () => {
+  page.value = 1
+  void loadProviderList()
+})
 
 function emptyProviderMeta(): ProviderMetaVO {
   return {
@@ -376,6 +381,31 @@ async function loadProviderMeta() {
   } catch {
     providerMeta.value = emptyProviderMeta()
     providerMetaLoadState.value = 'error'
+  }
+}
+
+async function loadProviderList() {
+  providerListLoadState.value = 'loading'
+  try {
+    if (!projectStore.activeProjectId) {
+      providerStore.clear()
+      providerListLoadState.value = 'ready'
+      return
+    }
+    const providers = await providerStore.refresh(projectStore.activeProjectId)
+    if (!Array.isArray(providers)) {
+      throw new Error('模型提供商数据待确认')
+    }
+    const hasForeignProjectProvider = currentProviders.value.some(provider =>
+      provider.projectId !== projectStore.activeProjectId && provider.projectId !== 0
+    )
+    if (hasForeignProjectProvider) {
+      throw new Error('模型提供商数据待确认')
+    }
+    providerListLoadState.value = 'ready'
+  } catch (err: any) {
+    providerListLoadState.value = 'error'
+    message.error(err.message || '加载模型提供商失败')
   }
 }
 
@@ -576,7 +606,9 @@ const buildConfigJson = () => {
   return Object.keys(payload).length ? JSON.stringify(payload) : ''
 }
 
-onMounted(loadProviderMeta)
+onMounted(async () => {
+  await Promise.allSettled([loadProviderMeta(), loadProviderList()])
+})
 </script>
 
 <style scoped>
