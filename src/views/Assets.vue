@@ -51,9 +51,7 @@
 
       <n-tabs v-model:value="activeTab" type="segment" animated class="filter-tabs">
         <n-tab name="all">全部素材</n-tab>
-        <n-tab name="image">生成图像</n-tab>
-        <n-tab name="video">生成视频</n-tab>
-        <n-tab name="reference">参考素材</n-tab>
+        <n-tab v-for="item in assetTypeTabs" :key="item.value" :name="item.value">{{ item.label }}</n-tab>
         <n-tab name="favorite">我的收藏</n-tab>
       </n-tabs>
     </n-card>
@@ -76,7 +74,7 @@
               <Video v-if="asset.assetType === 'video'" class="badge-icon" />
               <ImageIcon v-else-if="asset.assetType === 'image'" class="badge-icon" />
               <Paperclip v-else class="badge-icon" />
-              {{ assetTypeLabelMap[asset.assetType] }}
+              {{ assetTypeLabel(asset.assetType) }}
             </span>
             <span v-if="asset.favorite" class="asset-badge favorite">
               <Heart class="badge-icon favorited" />
@@ -198,7 +196,7 @@
             <div class="info-item">
               <span class="info-label">资产类型</span>
               <n-tag size="small" :type="selectedAsset.assetType === 'video' ? 'warning' : selectedAsset.assetType === 'reference' ? 'info' : 'success'">
-                {{ assetTypeLabelMap[selectedAsset.assetType] }}
+                {{ assetTypeLabel(selectedAsset.assetType) }}
               </n-tag>
             </div>
             <div class="info-item">
@@ -316,6 +314,7 @@ import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useMessage } from 'naive-ui'
 import { assetApi, type AssetStats } from '@/api/assets'
+import { dictApi, type DataDictItem } from '@/api/dicts'
 import { subtitleApi, type SubtitleVO } from '@/api/subtitles'
 import { useAssetStore, type Asset, resolveAssetUrl } from '@/store/asset'
 import { useProjectStore } from '@/store/project'
@@ -341,11 +340,11 @@ import {
 
 type SortKey = 'latest' | 'oldest' | 'size' | 'name' | 'favorite'
 
-const assetTypeLabelMap: Record<Asset['assetType'], string> = {
-  image: '图像',
-  video: '视频',
-  reference: '参考素材'
-}
+const defaultAssetTypeItems: DataDictItem[] = [
+  { id: 1, dictId: 0, itemCode: 'image', itemName: '图像', sortOrder: 10, status: 1 },
+  { id: 2, dictId: 0, itemCode: 'video', itemName: '视频', sortOrder: 20, status: 1 },
+  { id: 3, dictId: 0, itemCode: 'reference', itemName: '参考素材', sortOrder: 30, status: 1 }
+]
 
 const route = useRoute()
 const router = useRouter()
@@ -356,7 +355,7 @@ const assetStore = useAssetStore()
 
 const loading = ref(false)
 const uploading = ref(false)
-const activeTab = ref<'all' | 'image' | 'video' | 'reference' | 'favorite'>('all')
+const activeTab = ref('all')
 const searchKeyword = ref('')
 const sortBy = ref<SortKey>('latest')
 const assetTab = ref<'own' | 'shared'>('own')
@@ -377,6 +376,7 @@ const assetStats = ref<AssetStats>({
 const assetRecords = ref<Asset[]>([])
 const filteredTotal = ref(0)
 const versionHistory = ref<Asset[]>([])
+const assetTypeItems = ref<DataDictItem[]>([...defaultAssetTypeItems])
 
 const subtitles = ref<SubtitleVO[]>([])
 const subGenerating = ref(false)
@@ -403,10 +403,17 @@ const currentProjectName = computed(() => {
 const summaryCards = computed(() => {
   return [
     { label: '总资产数', value: assetStats.value.total, hint: '当前空间的全部素材沉淀' },
-    { label: '图像成果', value: assetStats.value.imageCount, hint: '生成图像与关键画面' },
-    { label: '视频成果', value: assetStats.value.videoCount, hint: '可复用的视频片段与动画' },
-    { label: '参考素材', value: assetStats.value.referenceCount, hint: `其中收藏 ${assetStats.value.favoriteCount} 项` }
+    { label: `${assetTypeLabel('image')}成果`, value: assetStats.value.imageCount, hint: `已沉淀 ${assetTypeLabel('image')}类资产` },
+    { label: `${assetTypeLabel('video')}成果`, value: assetStats.value.videoCount, hint: `可复用的${assetTypeLabel('video')}内容` },
+    { label: assetTypeLabel('reference'), value: assetStats.value.referenceCount, hint: `其中收藏 ${assetStats.value.favoriteCount} 项` }
   ]
+})
+
+const assetTypeTabs = computed(() => {
+  return assetTypeItems.value.map(item => ({
+    label: item.itemName,
+    value: item.itemCode
+  }))
 })
 
 const libraryMetaDesc = computed(() => {
@@ -444,6 +451,30 @@ const currentProjectId = computed(() => {
 function formatCompactDate(value: string) {
   if (!value || value === '--') return '--'
   return value.length >= 16 ? value.substring(5, 16) : value
+}
+
+function assetTypeLabel(assetType?: string | null) {
+  const normalized = String(assetType || '').trim()
+  if (!normalized) {
+    return '未分类'
+  }
+  return assetTypeItems.value.find(item => item.itemCode === normalized)?.itemName
+    || defaultAssetTypeItems.find(item => item.itemCode === normalized)?.itemName
+    || normalized
+}
+
+async function loadAssetTypeItems() {
+  try {
+    const res = await dictApi.getItems('asset_category')
+    const items = Array.isArray((res as any).data) ? (res as any).data : []
+    assetTypeItems.value = items.length > 0 ? items : [...defaultAssetTypeItems]
+  } catch {
+    assetTypeItems.value = [...defaultAssetTypeItems]
+  }
+  if (activeTab.value !== 'all' && activeTab.value !== 'favorite'
+    && !assetTypeItems.value.some(item => item.itemCode === activeTab.value)) {
+    activeTab.value = 'all'
+  }
 }
 
 async function loadAssets() {
@@ -798,6 +829,7 @@ watch(() => route.query.assetId, () => {
 })
 
 onMounted(async () => {
+  await loadAssetTypeItems()
   await loadAssets()
   // 自动刷新
   refreshTimer = window.setInterval(() => { if (document.visibilityState === 'visible') loadAssets() }, 30000)

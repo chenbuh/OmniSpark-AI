@@ -28,7 +28,7 @@
           </div>
           <div class="asset-info">
             <span class="asset-id">#{{ a.id }}</span>
-            <n-tag size="tiny" :type="a.assetType==='image'?'success':a.assetType==='video'?'warning':'default'" round>{{ a.assetType }}</n-tag>
+            <n-tag size="tiny" :type="a.assetType==='image'?'success':a.assetType==='video'?'warning':'default'" round>{{ assetTypeLabel(a.assetType) }}</n-tag>
             <span class="asset-size">{{ a.fileSize || '-' }}</span>
           </div>
           <div class="asset-project">项目 #{{ a.projectId }}</div>
@@ -55,7 +55,7 @@
         <n-descriptions :column="3" size="small" label-placement="left" bordered>
           <n-descriptions-item label="ID">{{ previewAsset.id }}</n-descriptions-item>
           <n-descriptions-item label="项目">{{ previewAsset.projectId }}</n-descriptions-item>
-          <n-descriptions-item label="类型">{{ previewAsset.assetType }}</n-descriptions-item>
+          <n-descriptions-item label="类型">{{ assetTypeLabel(previewAsset.assetType) }}</n-descriptions-item>
           <n-descriptions-item label="文件名">{{ previewAsset.fileName }}</n-descriptions-item>
           <n-descriptions-item label="大小">{{ previewAsset.fileSize || '-' }}</n-descriptions-item>
           <n-descriptions-item label="时间">{{ String(previewAsset.createdAt||'').replace('T',' ').substring(0,19) }}</n-descriptions-item>
@@ -74,9 +74,10 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { computed, ref, onMounted } from 'vue'
 import { useMessage } from 'naive-ui'
 import { Eye, Video } from 'lucide-vue-next'
+import { dictApi, type DataDictItem } from '@/api/dicts'
 import request from '@/api/request'
 
 const message = useMessage()
@@ -88,12 +89,34 @@ const previewAsset = ref<any>(null)
 const page = ref(1)
 const pageSize = 12
 const total = ref(0)
+const assetTypeItems = ref<DataDictItem[]>([])
 
-const typeOptions = [
-  { label: '全部', value: '' }, { label: '图片', value: 'image' }, { label: '视频', value: 'video' }, { label: '参考图', value: 'reference' }
-]
+const typeOptions = computed(() => [
+  ...assetTypeItems.value.map(item => ({ label: item.itemName, value: item.itemCode }))
+])
 
-onMounted(loadAssets)
+onMounted(async () => {
+  await loadAssetTypeItems()
+  await loadAssets()
+})
+
+function assetTypeLabel(assetType?: string | null) {
+  const normalized = String(assetType || '').trim()
+  if (!normalized) {
+    return '未分类'
+  }
+  return assetTypeItems.value.find(item => item.itemCode === normalized)?.itemName || normalized
+}
+
+async function loadAssetTypeItems() {
+  try {
+    const res = await dictApi.getItems('asset_category')
+    const items = Array.isArray((res as any).data) ? (res as any).data : []
+    assetTypeItems.value = items
+  } catch {
+    assetTypeItems.value = []
+  }
+}
 
 // 过滤变化时回到第 1 页
 function reload() {

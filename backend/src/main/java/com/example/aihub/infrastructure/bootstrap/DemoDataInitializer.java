@@ -6,6 +6,10 @@ import com.example.aihub.infrastructure.entity.Role;
 import com.example.aihub.infrastructure.entity.ScheduledTask;
 import com.example.aihub.infrastructure.entity.SystemConfig;
 import com.example.aihub.infrastructure.entity.User;
+import com.example.aihub.infrastructure.entity.DataDict;
+import com.example.aihub.infrastructure.entity.DataDictItem;
+import com.example.aihub.infrastructure.mapper.DataDictItemMapper;
+import com.example.aihub.infrastructure.mapper.DataDictMapper;
 import com.example.aihub.infrastructure.mapper.RoleMapper;
 import com.example.aihub.infrastructure.mapper.ScheduledTaskMapper;
 import com.example.aihub.infrastructure.mapper.SystemConfigMapper;
@@ -30,6 +34,8 @@ public class DemoDataInitializer implements CommandLineRunner {
     private final RoleMapper roleMapper;
     private final SystemConfigMapper systemConfigMapper;
     private final ScheduledTaskMapper scheduledTaskMapper;
+    private final DataDictMapper dataDictMapper;
+    private final DataDictItemMapper dataDictItemMapper;
     private final SecureRandom secureRandom = new SecureRandom();
 
     @Value("${app.bootstrap.admin.username:admin}")
@@ -51,6 +57,7 @@ public class DemoDataInitializer implements CommandLineRunner {
         upsertRole("user", "普通用户");
         upsertAdminUser();
         ensureSystemConfig("platform.name", "OmniSpark AI", "system", "平台名称");
+        ensureAssetCategoryDict();
         seedScheduledTasks();
     }
 
@@ -124,6 +131,39 @@ public class DemoDataInitializer implements CommandLineRunner {
         config.setConfigGroup(group);
         config.setRemark(remark);
         systemConfigMapper.insert(config);
+    }
+
+    private void ensureAssetCategoryDict() {
+        DataDict dict = dataDictMapper.selectOne(new LambdaQueryWrapper<DataDict>()
+                .eq(DataDict::getDictCode, "asset_category"));
+        if (dict == null) {
+            dict = new DataDict();
+            dict.setDictCode("asset_category");
+            dict.setDictName("资产分类");
+            dict.setDescription("资产库与后台资产筛选使用的分类配置");
+            dict.setStatus(1);
+            dataDictMapper.insert(dict);
+        }
+
+        ensureAssetCategoryItem(dict.getId(), "image", "图像", 10);
+        ensureAssetCategoryItem(dict.getId(), "video", "视频", 20);
+        ensureAssetCategoryItem(dict.getId(), "reference", "参考素材", 30);
+    }
+
+    private void ensureAssetCategoryItem(Long dictId, String code, String name, int sortOrder) {
+        DataDictItem item = dataDictItemMapper.selectOne(new LambdaQueryWrapper<DataDictItem>()
+                .eq(DataDictItem::getDictId, dictId)
+                .eq(DataDictItem::getItemCode, code));
+        if (item != null) {
+            return;
+        }
+        item = new DataDictItem();
+        item.setDictId(dictId);
+        item.setItemCode(code);
+        item.setItemName(name);
+        item.setSortOrder(sortOrder);
+        item.setStatus(1);
+        dataDictItemMapper.insert(item);
     }
 
     private void seedScheduledTasks() {

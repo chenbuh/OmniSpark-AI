@@ -78,6 +78,21 @@ public class DataDictService {
         return listItems(dict.getId(), limit);
     }
 
+    public List<DataDictItem> getEnabledItemsByCode(String dictCode, int limit) {
+        DataDict dict = dictMapper.selectOne(new LambdaQueryWrapper<DataDict>()
+                .eq(DataDict::getDictCode, dictCode)
+                .eq(DataDict::getStatus, 1));
+        if (dict == null) {
+            return List.of();
+        }
+        return itemMapper.selectList(new LambdaQueryWrapper<DataDictItem>()
+                .eq(DataDictItem::getDictId, dict.getId())
+                .eq(DataDictItem::getStatus, 1)
+                .orderByAsc(DataDictItem::getSortOrder)
+                .orderByAsc(DataDictItem::getId)
+                .last("LIMIT " + PagingUtil.clampLimit(limit, 100, 100)));
+    }
+
     @Transactional(rollbackFor = Exception.class)
     public DataDictItem createItem(Long dictId, String code, String name, Integer sortOrder) {
         DataDict dict = dictMapper.selectById(dictId);
