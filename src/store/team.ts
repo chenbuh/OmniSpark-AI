@@ -63,16 +63,21 @@ export const useTeamStore = defineStore('team', {
           .filter(id => Number.isFinite(id) && id > 0)
       )
       await this.refresh()
+      const expectedName = normalizeOptionalText(name)
+      const expectedDescription = normalizeOptionalText(description)
+      const hasExpectedFields = (team: Team) =>
+        normalizeOptionalText(team.name) === expectedName
+        && normalizeOptionalText(team.description) === expectedDescription
       const responseId = parseRequiredTeamId((res as any).data?.id)
       if (responseId !== null) {
         const createdById = this.teams.find(item => item.id === responseId)
-        if (createdById) {
+        if (createdById && hasExpectedFields(createdById)) {
           return createdById
         }
       }
       const createdByDiff = this.teams.find(item =>
         !beforeIds.has(item.id)
-        && item.name === name
+        && hasExpectedFields(item)
       )
       if (createdByDiff) {
         return createdByDiff
@@ -107,4 +112,8 @@ function parseRequiredTeamId(value: unknown): number | null {
     return null
   }
   return parsed
+}
+
+function normalizeOptionalText(value: unknown): string {
+  return typeof value === 'string' ? value.trim() : ''
 }

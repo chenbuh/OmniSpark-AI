@@ -267,8 +267,13 @@ const handleCreateTeam = async () => {
   if (!createForm.value.name) { message.error('请输入团队名称'); return }
   creating.value = true
   try {
+    const expectedName = createForm.value.name.trim()
+    const expectedDescription = (createForm.value.description || '').trim()
     const createdTeam = await teamStore.createTeam(createForm.value.name, createForm.value.description)
     if (!hasValidTeamId(createdTeam)) {
+      throw new Error('团队创建结果待确认')
+    }
+    if (createdTeam.name.trim() !== expectedName || (createdTeam.description || '').trim() !== expectedDescription) {
       throw new Error('团队创建结果待确认')
     }
     teamsReady.value = true
@@ -324,14 +329,16 @@ const handleInviteMember = async () => {
   inviting.value = true
   try {
     const invitedUsername = inviteForm.value.username.trim()
+    const invitedRole = inviteForm.value.role
+    const selectedTeamId = selectedTeam.value.id
     const invitedRes = await teamApi.inviteMember({ teamId: selectedTeam.value.id, username: invitedUsername, role: inviteForm.value.role })
     const invitedMember = (invitedRes as any).data
     if (!invitedMember || typeof invitedMember !== 'object' || Array.isArray(invitedMember)) {
       throw new Error('邀请结果待确认')
     }
-    await loadMembers(selectedTeam.value.id)
+    await loadMembers(selectedTeamId)
     const matchedMember = teamStore.currentMembers.find(member => member.username === invitedUsername)
-    if (!matchedMember) {
+    if (!matchedMember || matchedMember.teamId !== selectedTeamId || matchedMember.role !== invitedRole || !Number.isFinite(matchedMember.userId) || matchedMember.userId <= 0) {
       throw new Error('邀请结果待确认')
     }
     inviteForm.value = { username: '', role: 'member' }

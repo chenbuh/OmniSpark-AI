@@ -61,16 +61,27 @@ export const useProjectStore = defineStore('project', {
       const res = await projectApi.createProject({ name, description })
       await this.refresh()
       const createdId = parseRequiredProjectId(res.data?.id)
-      if (createdId == null) {
-        const createdProject = this.projects.find(item => !previousProjectIds.has(item.id) && item.name === name)
-        if (createdProject) {
-          this.activeProjectId = createdProject.id
-          return createdProject
+      const expectedName = normalizeOptionalText(name)
+      const expectedDescription = normalizeOptionalText(description)
+      const hasExpectedFields = (project: Project) =>
+        normalizeOptionalText(project.name) === expectedName
+        && normalizeOptionalText(project.description) === expectedDescription
+      if (createdId != null) {
+        const createdById = this.projects.find(item => item.id === createdId)
+        if (createdById && hasExpectedFields(createdById)) {
+          this.activeProjectId = createdById.id
+          return createdById
         }
-        throw new Error('项目创建结果待确认')
       }
-      this.activeProjectId = createdId
-      return res.data
+      const createdProject = this.projects.find(item =>
+        !previousProjectIds.has(item.id)
+        && hasExpectedFields(item)
+      )
+      if (createdProject) {
+        this.activeProjectId = createdProject.id
+        return createdProject
+      }
+      throw new Error('项目创建结果待确认')
     },
     async updateProject(id: number, name: string, description: string) {
       const res = await projectApi.updateProject(id, { name, description })
@@ -100,4 +111,8 @@ function parseOptionalNumber(value: unknown): number | null {
 function parseRequiredProjectId(value: unknown): number | null {
   const parsed = parseOptionalNumber(value)
   return parsed != null && parsed > 0 ? parsed : null
+}
+
+function normalizeOptionalText(value: unknown): string {
+  return typeof value === 'string' ? value.trim() : ''
 }
