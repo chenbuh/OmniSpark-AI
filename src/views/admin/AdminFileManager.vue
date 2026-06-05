@@ -44,6 +44,7 @@
       <div v-if="loadingItems && items === null" class="loading-box">
         <n-spin size="small" />
       </div>
+      <div v-else-if="fileListLoadState === 'error'" class="status-note">目录内容待确认，请稍后重试。</div>
 
       <!-- 网格视图 -->
       <div v-else-if="viewMode === 'grid'" class="grid-view">
@@ -119,6 +120,7 @@ const items = ref<any[] | null>(null)
 const currentPath = ref('')
 const stats = ref<any>({})
 const statsLoadState = ref<'loading' | 'ready' | 'error'>('loading')
+const fileListLoadState = ref<'loading' | 'ready' | 'error'>('loading')
 const viewMode = ref('list')
 const showPreview = ref(false)
 const previewUrl = ref('')
@@ -142,12 +144,18 @@ onMounted(() => { loadStats(); loadFiles() })
 async function loadFiles(path?: string) {
   currentPath.value = path || ''
   loadingItems.value = true
+  fileListLoadState.value = 'loading'
   try {
     const res = await request.get('/api/admin/files', { params: { path: currentPath.value } })
     const data = (res as any).data
-    items.value = data?.items || []
+    if (!data || typeof data !== 'object' || !Array.isArray(data.items)) {
+      throw new Error('目录内容待确认')
+    }
+    items.value = data.items
+    fileListLoadState.value = 'ready'
   } catch {
     items.value = null
+    fileListLoadState.value = 'error'
   } finally {
     loadingItems.value = false
   }

@@ -6,6 +6,9 @@
     </div>
 
     <div class="summary-grid">
+      <n-card v-if="summaryLoadState === 'error'" class="glass-card metric-card metric-card--wide" :bordered="false">
+        <div class="status-note">访问日志汇总待确认，请稍后重试。</div>
+      </n-card>
       <n-card v-for="item in summaryCards" :key="item.label" class="glass-card metric-card" :bordered="false">
         <div class="metric-label">{{ item.label }}</div>
         <div class="metric-value">{{ item.value }}</div>
@@ -30,21 +33,24 @@
     <div class="detail-grid">
       <n-card class="glass-card" :bordered="false">
         <h3>高频 IP</h3>
-        <div v-for="item in summary.topIps || []" :key="item.name" class="rank-row">
+        <div v-for="item in summaryTopIps" :key="item.name" class="rank-row">
           <code>{{ item.name || '-' }}</code><span>{{ item.count }}</span>
         </div>
+        <div v-if="summaryLoadState === 'error'" class="empty">访问日志汇总待确认</div>
       </n-card>
       <n-card class="glass-card" :bordered="false">
         <h3>高频接口</h3>
-        <div v-for="item in summary.topPaths || []" :key="item.name" class="rank-row">
+        <div v-for="item in summaryTopPaths" :key="item.name" class="rank-row">
           <code>{{ item.name || '-' }}</code><span>{{ item.count }}</span>
         </div>
+        <div v-if="summaryLoadState === 'error'" class="empty">访问日志汇总待确认</div>
       </n-card>
       <n-card class="glass-card" :bordered="false">
         <h3>状态码</h3>
-        <div v-for="item in summary.statusCodes || []" :key="item.name" class="rank-row">
+        <div v-for="item in summaryStatusCodes" :key="item.name" class="rank-row">
           <code>{{ item.name || '-' }}</code><span>{{ item.count }}</span>
         </div>
+        <div v-if="summaryLoadState === 'error'" class="empty">访问日志汇总待确认</div>
       </n-card>
     </div>
 
@@ -109,6 +115,7 @@ import request from '@/api/request'
 const message = useMessage()
 const loading = ref(false)
 const summaryLoading = ref(false)
+const summaryLoadState = ref<'loading' | 'ready' | 'error'>('loading')
 const logs = ref<any[] | null>(null)
 const summary = ref<Record<string, any>>({})
 const total = ref<number | null>(null)
@@ -129,12 +136,25 @@ const summaryCards = computed(() => [
   { label: '风险命中', value: formatSummaryMetric(summary.value.riskHits) }
 ])
 const totalDisplay = computed(() => total.value == null ? '-' : total.value)
+const summaryTopIps = computed(() => Array.isArray(summary.value.topIps) ? summary.value.topIps : [])
+const summaryTopPaths = computed(() => Array.isArray(summary.value.topPaths) ? summary.value.topPaths : [])
+const summaryStatusCodes = computed(() => Array.isArray(summary.value.statusCodes) ? summary.value.statusCodes : [])
 
 async function loadSummary() {
   summaryLoading.value = true
+  summaryLoadState.value = 'loading'
   try {
     const res = await request.get('/api/admin/access-logs/summary', { params: { minutes: 60 } })
-    summary.value = (res as any).data || {}
+    const data = (res as any).data
+    if (!data || typeof data !== 'object' || Array.isArray(data)) {
+      throw new Error('访问日志汇总待确认')
+    }
+    summary.value = data
+    summaryLoadState.value = 'ready'
+  } catch (err: any) {
+    summary.value = {}
+    summaryLoadState.value = 'error'
+    message.error(err.message || '加载访问日志汇总失败')
   } finally {
     summaryLoading.value = false
   }
@@ -194,6 +214,9 @@ function formatTime(value?: string) {
 function formatSummaryWindow(value: unknown) {
   const normalized = toOptionalNumber(value)
   if (normalized == null) {
+    if (summaryLoadState.value === 'error') {
+      return '待确认'
+    }
     return summaryLoading.value ? '加载中' : '-'
   }
   return `${normalized} 分钟`
@@ -202,6 +225,9 @@ function formatSummaryWindow(value: unknown) {
 function formatSummaryMetric(value: unknown) {
   const normalized = toOptionalNumber(value)
   if (normalized == null) {
+    if (summaryLoadState.value === 'error') {
+      return '待确认'
+    }
     return summaryLoading.value ? '加载中' : '-'
   }
   return normalized
@@ -227,8 +253,10 @@ onMounted(reload)
 .detail-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; margin: 16px 0; }
 .glass-card { background: rgba(15,23,42,0.4) !important; backdrop-filter: blur(16px); border: 1px solid rgba(255,255,255,0.08) !important; border-radius: 16px !important; }
 .metric-card { min-height: 90px; }
+.metric-card--wide { grid-column: 1 / -1; min-height: auto; }
 .metric-label { font-size: 12px; color: #9ca3af; }
 .metric-value { margin-top: 10px; font-size: 26px; font-weight: 700; color: #f8fafc; }
+.status-note { font-size: 12px; color: #fca5a5; }
 .filter-row { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
 .count-lbl { font-size: 12px; color: #9ca3af; white-space: nowrap; }
 h3 { margin: 0 0 12px 0; font-size: 14px; color: #e5e7eb; }

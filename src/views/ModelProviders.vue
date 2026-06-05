@@ -9,10 +9,11 @@
     <n-card class="glass-card table-card" :bordered="false">
       <div class="actions-bar">
         <span class="count-lbl">当前空间已配置: {{ currentProviders.length }} 个</span>
-        <n-button type="primary" size="medium" @click="handleOpenAddModal">
+        <n-button type="primary" size="medium" :disabled="providerMetaLoadState !== 'ready'" @click="handleOpenAddModal">
           <template #icon><Plus /></template>添加提供商
         </n-button>
       </div>
+      <div v-if="providerMetaLoadState === 'error'" class="status-note">提供商类型与音频格式待确认，请稍后重试。</div>
 
       <n-table :single-line="false" class="providers-table" style="margin-top: 15px;">
         <thead>
@@ -124,7 +125,12 @@
         </n-form-item>
 
         <n-form-item label="模型类型">
-          <n-select v-model:value="form.type" :options="typeOptions" />
+          <n-select
+            v-model:value="form.type"
+            :options="typeOptions"
+            :disabled="providerMetaLoadState !== 'ready'"
+            :placeholder="providerMetaLoadState === 'error' ? '模型类型待确认' : '选择模型类型'"
+          />
         </n-form-item>
 
         <n-form-item label="API Base URL">
@@ -159,7 +165,12 @@
             </n-col>
             <n-col :span="12">
               <n-form-item label="输出格式">
-                <n-select v-model:value="form.responseFormat" :options="responseFormatOptions" />
+                <n-select
+                  v-model:value="form.responseFormat"
+                  :options="responseFormatOptions"
+                  :disabled="providerMetaLoadState !== 'ready'"
+                  :placeholder="providerMetaLoadState === 'error' ? '音频格式待确认' : '选择输出格式'"
+                />
               </n-form-item>
             </n-col>
           </n-row>
@@ -222,6 +233,7 @@ const isEditMode = ref(false)
 const editingId = ref<number | null>(null)
 const testingId = ref<number | null>(null)
 const providerMeta = ref<ProviderMetaVO>(emptyProviderMeta())
+const providerMetaLoadState = ref<'loading' | 'ready' | 'error'>('loading')
 const preserveUnknownEnabled = ref(false)
 const preserveUnknownDefault = ref(false)
 const enabledTouched = ref(false)
@@ -292,6 +304,7 @@ function resolveOptionValue(options: ProviderMetaOption[], preferredValue?: stri
 }
 
 async function loadProviderMeta() {
+  providerMetaLoadState.value = 'loading'
   try {
     const res = await providerApi.getMeta()
     const data = (res as any).data || {}
@@ -300,8 +313,10 @@ async function loadProviderMeta() {
       audioResponseFormats: Array.isArray(data.audioResponseFormats) ? data.audioResponseFormats : [],
       defaults: data.defaults && typeof data.defaults === 'object' ? data.defaults : {}
     }
+    providerMetaLoadState.value = 'ready'
   } catch {
     providerMeta.value = emptyProviderMeta()
+    providerMetaLoadState.value = 'error'
   }
 }
 
@@ -525,6 +540,11 @@ onMounted(loadProviderMeta)
 .count-lbl {
   font-size: 13px;
   color: #9ca3af;
+}
+.status-note {
+  margin-bottom: 12px;
+  font-size: 12px;
+  color: #fca5a5;
 }
 
 .pager { display: flex; justify-content: flex-end; margin-top: 16px; }

@@ -9,7 +9,11 @@
       <!-- 当前版本 -->
       <n-col :span="12">
         <n-card title="当前版本" class="glass-card" :bordered="false">
-          <n-descriptions :column="1">
+          <div v-if="versionLoadState === 'error'" class="status-note">当前版本信息待确认，请稍后重试。</div>
+          <div v-else-if="versionLoadState === 'loading'" class="check-placeholder">
+            <p>正在读取当前构建信息...</p>
+          </div>
+          <n-descriptions v-else-if="version" :column="1">
             <n-descriptions-item label="版本号"><n-tag type="success">{{ version.currentVersion }}</n-tag></n-descriptions-item>
             <n-descriptions-item label="构建时间">{{ version.buildTime }}</n-descriptions-item>
             <n-descriptions-item label="服务器时间">{{ version.serverTime }}</n-descriptions-item>
@@ -23,13 +27,21 @@
             </n-descriptions-item>
             <n-descriptions-item label="默认分支">{{ version.defaultBranch || '-' }}</n-descriptions-item>
           </n-descriptions>
+          <n-empty v-else description="当前版本信息待确认，请稍后重试。" style="padding: 16px 0;" />
         </n-card>
       </n-col>
 
       <!-- 更新检查 -->
       <n-col :span="12">
         <n-card title="检查更新" class="glass-card" :bordered="false">
-          <div v-if="!updateCheck" class="check-placeholder">
+          <div v-if="updateCheckLoadState === 'error'" class="check-placeholder">
+            <p>更新信息待确认，请稍后重试。</p>
+            <n-button type="primary" @click="checkUpdate" :loading="checking">
+              <template #icon><RefreshCw /></template>重新检查
+            </n-button>
+          </div>
+
+          <div v-else-if="!updateCheck" class="check-placeholder">
             <p>点击下方按钮拉取仓库最新发布信息。</p>
             <n-button type="primary" @click="checkUpdate" :loading="checking">
               <template #icon><RefreshCw /></template>检查更新
@@ -121,30 +133,44 @@ interface UpdateCheckInfo {
   error?: string
 }
 
-const version = ref<VersionInfo>({})
+const version = ref<VersionInfo | null>(null)
 const updateCheck = ref<UpdateCheckInfo | null>(null)
 const checking = ref(false)
+const versionLoadState = ref<'loading' | 'ready' | 'error'>('loading')
+const updateCheckLoadState = ref<'loading' | 'ready' | 'error'>('loading')
 
 async function loadVersion() {
+  versionLoadState.value = 'loading'
   try {
     const res = await request.get<VersionInfo>('/api/admin/version')
-    version.value = (res as any).data || {}
-  } catch {}
+    const data = (res as any).data
+    if (!data || typeof data !== 'object' || Array.isArray(data)) {
+      throw new Error('当前版本信息待确认')
+    }
+    version.value = data
+    versionLoadState.value = 'ready'
+  } catch {
+    version.value = null
+    versionLoadState.value = 'error'
+  }
 }
 
 async function checkUpdate() {
   checking.value = true
+  updateCheckLoadState.value = 'loading'
   try {
     const res = await request.get<UpdateCheckInfo>('/api/admin/version/check', {
       params: { refresh: true }
     })
-    updateCheck.value = (res as any).data
-  } catch (err: any) {
-    updateCheck.value = {
-      latestVersion: '查询失败',
-      hasUpdate: false,
-      error: err?.message || '网络错误'
+    const data = (res as any).data
+    if (!data || typeof data !== 'object' || Array.isArray(data)) {
+      throw new Error('更新信息待确认')
     }
+    updateCheck.value = data
+    updateCheckLoadState.value = 'ready'
+  } catch {
+    updateCheck.value = null
+    updateCheckLoadState.value = 'error'
   } finally {
     checking.value = false
   }
@@ -175,6 +201,7 @@ onMounted(() => {
 .subtitle { font-size: 13px; color: var(--text-muted); margin: 0; }
 .glass-card { background: rgba(15,23,42,0.4) !important; backdrop-filter: blur(16px); border: 1px solid rgba(255,255,255,0.08) !important; border-radius: 16px !important; }
 .check-placeholder { text-align: center; padding: 20px; color: #9ca3af; display: flex; flex-direction: column; align-items: center; gap: 16px; }
+.status-note { font-size: 12px; color: #fca5a5; }
 .update-result { display: flex; flex-direction: column; gap: 8px; }
 .notes-text { font-size: 12px; line-height: 1.7; margin-bottom: 10px; white-space: pre-wrap; }
 .action-row { display: flex; flex-wrap: wrap; gap: 8px; }
