@@ -23,7 +23,10 @@
             <td><code>#{{ a.id }}</code></td>
             <td>{{ a.title }}</td>
             <td><n-tag size="small" :type="a.priority === 'high' ? 'error' : a.priority === 'normal' ? 'info' : 'default'">{{ a.priority }}</n-tag></td>
-            <td><n-switch :value="a.status === 1" @update:value="handleToggle(a.id)" /></td>
+            <td>
+              <n-tag v-if="normalizeBinaryStatus(a.status) === null" size="small" type="warning">状态待确认</n-tag>
+              <n-switch v-else :value="normalizeBinaryStatus(a.status) === true" @update:value="handleToggle(a.id)" />
+            </td>
             <td>
               <n-space>
                 <n-button size="tiny" secondary @click="editAnnouncement(a)">编辑</n-button>
@@ -98,6 +101,12 @@ async function handleToggle(id: number) {
 async function handleDelete(id: number) {
   try { await request.delete(`/api/admin/announcements/${id}`); list.value = list.value.filter(a => a.id !== id); message.success('已删除') }
   catch { message.error('删除失败') }
+}
+
+function normalizeBinaryStatus(value: unknown): boolean | null {
+  if (value === 1 || value === '1' || value === true || value === 'true') return true
+  if (value === 0 || value === '0' || value === false || value === 'false') return false
+  return null
 }
 </script>
 

@@ -50,7 +50,10 @@
                 <td>{{ item.sortOrder }}</td>
                 <td><code>{{ item.itemCode }}</code></td>
                 <td>{{ item.itemName }}</td>
-                <td><n-switch :value="item.status === 1" @update:value="toggleItemStatus(item)" size="small" /></td>
+                <td>
+                  <n-tag v-if="normalizeBinaryStatus(item.status) === null" size="small" type="warning">状态待确认</n-tag>
+                  <n-switch v-else :value="normalizeBinaryStatus(item.status) === true" @update:value="toggleItemStatus(item)" size="small" />
+                </td>
                 <td>
                   <n-space>
                     <n-button size="tiny" secondary @click="editItem(item)">编辑</n-button>
@@ -165,8 +168,16 @@ function editItem(item: any) {
 }
 
 async function toggleItemStatus(item: any) {
-  try { await request.put(`/api/admin/dict/items/${item.id}?status=${item.status === 1 ? 0 : 1}`); item.status = item.status === 1 ? 0 : 1 }
+  const current = normalizeBinaryStatus(item.status)
+  if (current === null) { message.error('条目状态尚未明确，暂时无法切换'); return }
+  try { await request.put(`/api/admin/dict/items/${item.id}?status=${current ? 0 : 1}`); item.status = current ? 0 : 1 }
   catch { message.error('操作失败') }
+}
+
+function normalizeBinaryStatus(value: unknown): boolean | null {
+  if (value === 1 || value === '1' || value === true || value === 'true') return true
+  if (value === 0 || value === '0' || value === false || value === 'false') return false
+  return null
 }
 
 async function handleDeleteItem(id: number) {

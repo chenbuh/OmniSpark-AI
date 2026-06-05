@@ -23,7 +23,10 @@
             <td>{{ w.name }}</td>
             <td><n-ellipsis :line-clamp="1" :tooltip="true" style="max-width:300px;">{{ w.url }}</n-ellipsis></td>
             <td><n-tag size="small">{{ eventLabels(w.events) }}</n-tag></td>
-            <td><n-switch :value="w.status === 1" @update:value="toggleStatus(w)" /></td>
+            <td>
+              <n-tag v-if="normalizeBinaryStatus(w.status) === null" size="small" type="warning">状态待确认</n-tag>
+              <n-switch v-else :value="normalizeBinaryStatus(w.status) === true" @update:value="toggleStatus(w)" />
+            </td>
             <td>
               <n-space>
                 <n-button size="tiny" secondary @click="editWebhook(w)">编辑</n-button>
@@ -154,15 +157,23 @@ async function handleSave() {
 }
 
 async function toggleStatus(w: any) {
+  const current = normalizeBinaryStatus(w.status)
+  if (current === null) { message.error('Webhook 状态尚未明确，暂时无法切换'); return }
   try {
-    await request.put(`/api/admin/webhooks/${w.id}?name=${encodeURIComponent(w.name)}&url=${encodeURIComponent(w.url)}&events=${encodeURIComponent(Array.isArray(w.events) ? w.events.join(',') : w.events)}&status=${w.status === 1 ? 0 : 1}`)
-    w.status = w.status === 1 ? 0 : 1
+    await request.put(`/api/admin/webhooks/${w.id}?name=${encodeURIComponent(w.name)}&url=${encodeURIComponent(w.url)}&events=${encodeURIComponent(Array.isArray(w.events) ? w.events.join(',') : w.events)}&status=${current ? 0 : 1}`)
+    w.status = current ? 0 : 1
   } catch { message.error('操作失败') }
 }
 
 async function handleDelete(id: number) {
   try { await request.delete(`/api/admin/webhooks/${id}`); list.value = list.value.filter(w => w.id !== id); message.success('已删除') }
   catch { message.error('删除失败') }
+}
+
+function normalizeBinaryStatus(value: unknown): boolean | null {
+  if (value === 1 || value === '1' || value === true || value === 'true') return true
+  if (value === 0 || value === '0' || value === false || value === 'false') return false
+  return null
 }
 </script>
 
