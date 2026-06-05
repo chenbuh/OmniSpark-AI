@@ -44,10 +44,13 @@
           <n-select
             v-model:value="projectStore.activeProjectId"
             :options="projectOptions"
+            :placeholder="projectSelectorPlaceholder"
+            :disabled="projectSelectorDisabled"
             class="project-selector"
             size="medium"
             @update:value="handleProjectChange"
           />
+          <span v-if="projectSelectorStatusText" class="project-status-note">{{ projectSelectorStatusText }}</span>
           <n-button type="primary" size="medium" secondary class="add-proj-btn" @click="showAddProjectModal = true">
             <template #icon>
               <Plus />
@@ -316,6 +319,30 @@ const projectOptions = computed(() => {
     label: p.name,
     value: p.id
   }))
+})
+const projectSelectorPlaceholder = computed(() => {
+  if (projectStore.loadState === 'error') {
+    return '项目列表待确认'
+  }
+  if (projectStore.loadState === 'loading') {
+    return '项目空间加载中'
+  }
+  if (projectStore.loadState === 'ready' && projectOptions.value.length === 0) {
+    return '暂无项目空间'
+  }
+  return '选择项目空间'
+})
+const projectSelectorDisabled = computed(() => {
+  return projectStore.loadState === 'error' || (projectStore.loadState === 'ready' && projectOptions.value.length === 0)
+})
+const projectSelectorStatusText = computed(() => {
+  if (projectStore.loadState === 'error') {
+    return '项目列表待确认'
+  }
+  if (projectStore.loadState === 'ready' && projectOptions.value.length === 0) {
+    return '暂无项目空间'
+  }
+  return ''
 })
 
 // 侧边栏菜单配置
@@ -820,6 +847,12 @@ const handleUserDropdownSelect = async (key: string) => {
 
 .project-selector {
   width: 180px;
+}
+
+.project-status-note {
+  font-size: 12px;
+  color: #f59e0b;
+  white-space: nowrap;
 }
 
 .add-proj-btn {

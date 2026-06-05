@@ -77,7 +77,10 @@ async function loadLogs() {
     const params: Record<string, any> = { lines: lineCount.value }
     if (search.value) params.search = search.value
     const res = await request.get('/api/admin/logs', { params })
-    logs.value = ((res as any).data?.lines) || []
+    if (!Array.isArray((res as any).data?.lines)) {
+      throw new Error('日志数据待确认')
+    }
+    logs.value = (res as any).data.lines
     errorNotified = false
     // 滚动到底部
     setTimeout(() => {

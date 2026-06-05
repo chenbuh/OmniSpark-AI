@@ -175,8 +175,12 @@ async function loadComments() {
   loading.value = true
   try {
     const res = await request.get(commentEndpoint.value)
-    comments.value = (res as any).data || []
-    emit('countChange', totalComments(comments.value || []))
+    if (!Array.isArray((res as any).data)) {
+      throw new Error('评论数据待确认')
+    }
+    const loadedComments = (res as any).data as PublicComment[]
+    comments.value = loadedComments
+    emit('countChange', totalComments(loadedComments))
   } catch (err: any) {
     comments.value = null
     message.error(err.message || '加载评论失败')

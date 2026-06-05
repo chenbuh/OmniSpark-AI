@@ -13,7 +13,8 @@ export interface Project {
 export const useProjectStore = defineStore('project', {
   state: () => ({
     projects: [] as Project[],
-    activeProjectId: 0
+    activeProjectId: 0,
+    loadState: 'idle' as 'idle' | 'loading' | 'ready' | 'error'
   }),
   actions: {
     normalizeProject(project: any): Project {
@@ -38,12 +39,19 @@ export const useProjectStore = defineStore('project', {
       }
     },
     async refresh() {
-      const res = await projectApi.getProjects()
-      if (!Array.isArray(res.data)) {
-        throw new Error('项目数据待确认')
+      this.loadState = 'loading'
+      try {
+        const res = await projectApi.getProjects()
+        if (!Array.isArray(res.data)) {
+          throw new Error('项目数据待确认')
+        }
+        this.setProjects(res.data)
+        this.loadState = 'ready'
+        return this.projects
+      } catch (error) {
+        this.loadState = 'error'
+        throw error
       }
-      this.setProjects(res.data)
-      return this.projects
     },
     setActiveProject(id: number) {
       this.activeProjectId = id
@@ -66,6 +74,7 @@ export const useProjectStore = defineStore('project', {
     clear() {
       this.projects = []
       this.activeProjectId = 0
+      this.loadState = 'idle'
     }
   }
 })

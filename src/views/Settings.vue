@@ -244,8 +244,13 @@ const pagedLogs = computed(() => {
   return (loginLogs.value || []).slice(start, start + logPageSize)
 })
 const latestLoginLog = computed(() => loginLogs.value?.[0] || null)
-const loginLogsCountLabel = computed(() => loginLogs.value === null ? '-' : `${loginLogs.value.length} 条`)
-const latestLoginTime = computed(() => formatFull(latestLoginLog.value?.createdAt || ''))
+const loginLogsCountLabel = computed(() => loginLogs.value === null ? '待确认' : `${loginLogs.value.length} 条`)
+const latestLoginTime = computed(() => {
+  if (loginLogs.value === null) {
+    return '待确认'
+  }
+  return formatFull(latestLoginLog.value?.createdAt || '')
+})
 const latestLoginIp = computed(() => latestLoginLog.value ? (latestLoginLog.value.ip || '-') : (loginLogs.value === null ? '待确认' : '-'))
 
 function getLogTimestamp(dateStr: string): number {
@@ -258,7 +263,10 @@ onMounted(async () => {
   try {
     loadingLogs.value = true
     const logsRes = await request.get('/api/auth/login-logs?limit=100')
-    const logs = Array.isArray((logsRes as any).data) ? (logsRes as any).data : []
+    if (!Array.isArray((logsRes as any).data)) {
+      throw new Error('登录记录待确认')
+    }
+    const logs = (logsRes as any).data
     loginLogs.value = [...logs].sort((a, b) => getLogTimestamp(b?.createdAt) - getLogTimestamp(a?.createdAt))
   } catch {
     loginLogs.value = null
