@@ -463,6 +463,39 @@ function requireStyleCardLikeResult(value: unknown) {
   }
   throw new Error('点赞结果待确认')
 }
+
+function findLoadedStyleCard(id: number) {
+  return cards.value?.find(item => Number(item.id) === id) || null
+}
+
+function assertStyleCardLikeConfirmed(
+  previous: { liked: number; likesCount: number; commentsCount: number },
+  refreshed: ReturnType<typeof requireStyleCardDetail>,
+  expectedLiked: number
+) {
+  if (previous.liked === expectedLiked) {
+    throw new Error('点赞结果待确认')
+  }
+  if (refreshed.liked !== expectedLiked) {
+    throw new Error('点赞结果待确认')
+  }
+  const expectedLikesCount = Math.max(0, previous.likesCount + (expectedLiked === 1 ? 1 : -1))
+  if (refreshed.likesCount !== expectedLikesCount) {
+    throw new Error('点赞结果待确认')
+  }
+  if (refreshed.commentsCount !== previous.commentsCount) {
+    throw new Error('点赞结果待确认')
+  }
+}
+
+async function expectStyleCardDeleted(id: number) {
+  try {
+    await styleCardApi.get(id)
+  } catch {
+    return
+  }
+  throw new Error('卡片删除结果待确认')
+}
 const tagOptions = computed(() => {
   const values = new Set<string>(styleCardTags.value)
   if (form.tag?.trim()) {
@@ -746,6 +779,12 @@ async function handleSave() {
 
 async function handleLike(card: StyleCard) {
   try {
+    const previousLiked = Number(card?.liked)
+    const previousLikesCount = Number(card?.likesCount)
+    const previousCommentsCount = Number(card?.commentsCount)
+    if (![0, 1].includes(previousLiked) || !Number.isFinite(previousLikesCount) || previousLikesCount < 0 || !Number.isFinite(previousCommentsCount) || previousCommentsCount < 0) {
+      throw new Error('点赞结果待确认')
+    }
     const res = await request.post(`/api/style-cards/${card.id}/like`)
     const liked = requireStyleCardLikeResult((res as any).data)
     await loadCards()
@@ -753,7 +792,16 @@ async function handleLike(card: StyleCard) {
       throw new Error('点赞结果待确认')
     }
     const refreshed = requireStyleCardDetail((await styleCardApi.get(card.id) as any).data, 'update')
-    if (refreshed.liked !== liked) {
+    assertStyleCardLikeConfirmed({
+      liked: previousLiked,
+      likesCount: previousLikesCount,
+      commentsCount: previousCommentsCount
+    }, refreshed, liked)
+    const loaded = findLoadedStyleCard(card.id)
+    if (!loaded) {
+      throw new Error('点赞结果待确认')
+    }
+    if (Number(loaded.liked) !== liked || Number(loaded.likesCount) !== refreshed.likesCount || Number(loaded.commentsCount) !== refreshed.commentsCount) {
       throw new Error('点赞结果待确认')
     }
     const refreshedState = toStyleCardState(refreshed)
@@ -792,6 +840,10 @@ async function handleDelete(id: number) {
     await Promise.all([loadStyleCardTags(), loadCards()])
     if (cards.value?.some(item => Number(item.id) === id)) {
       throw new Error('卡片删除结果待确认')
+    }
+    await expectStyleCardDeleted(id)
+    if (selectedCard.value?.id === id) {
+      selectedCard.value = null
     }
     message.success('已删除')
   } catch (err: any) {

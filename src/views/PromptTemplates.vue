@@ -270,6 +270,39 @@ function requireLikeToggleResult(value: unknown) {
   throw new Error('点赞结果待确认')
 }
 
+function findLoadedTemplate(id: number) {
+  return templates.value?.find(item => Number(item.id) === id) || null
+}
+
+function assertTemplateLikeConfirmed(
+  previous: { liked: number; likesCount: number; commentsCount: number },
+  refreshed: ReturnType<typeof requireTemplateDetail>,
+  expectedLiked: number
+) {
+  if (previous.liked === expectedLiked) {
+    throw new Error('点赞结果待确认')
+  }
+  if (refreshed.liked !== expectedLiked) {
+    throw new Error('点赞结果待确认')
+  }
+  const expectedLikesCount = Math.max(0, previous.likesCount + (expectedLiked === 1 ? 1 : -1))
+  if (refreshed.likesCount !== expectedLikesCount) {
+    throw new Error('点赞结果待确认')
+  }
+  if (refreshed.commentsCount !== previous.commentsCount) {
+    throw new Error('点赞结果待确认')
+  }
+}
+
+async function expectTemplateDeleted(id: number) {
+  try {
+    await templateApi.get(id)
+  } catch {
+    return
+  }
+  throw new Error('模板删除结果待确认')
+}
+
 function normalizeOptionalText(value: unknown) {
   return typeof value === 'string' ? value.trim() : ''
 }
@@ -415,6 +448,12 @@ function handleApplyToVideo(tpl: PromptTemplate) {
 
 async function handleLike(tpl: PromptTemplate) {
   try {
+    const previousLiked = Number(tpl?.liked)
+    const previousLikesCount = Number(tpl?.likesCount)
+    const previousCommentsCount = Number(tpl?.commentsCount)
+    if (![0, 1].includes(previousLiked) || !Number.isFinite(previousLikesCount) || previousLikesCount < 0 || !Number.isFinite(previousCommentsCount) || previousCommentsCount < 0) {
+      throw new Error('点赞结果待确认')
+    }
     const res = await request.post(`/api/prompt-templates/${tpl.id}/like`)
     const liked = requireLikeToggleResult((res as any).data)
     await loadTemplates()
@@ -422,7 +461,16 @@ async function handleLike(tpl: PromptTemplate) {
       throw new Error('点赞结果待确认')
     }
     const refreshed = requireTemplateDetail((await templateApi.get(tpl.id) as any).data, 'update')
-    if (refreshed.liked !== liked) {
+    assertTemplateLikeConfirmed({
+      liked: previousLiked,
+      likesCount: previousLikesCount,
+      commentsCount: previousCommentsCount
+    }, refreshed, liked)
+    const loaded = findLoadedTemplate(tpl.id)
+    if (!loaded) {
+      throw new Error('点赞结果待确认')
+    }
+    if (Number(loaded.liked) !== liked || Number(loaded.likesCount) !== refreshed.likesCount || Number(loaded.commentsCount) !== refreshed.commentsCount) {
       throw new Error('点赞结果待确认')
     }
     const target = templates.value.find(item => item.id === tpl.id)
@@ -551,6 +599,10 @@ const handleDelete = async (id: number) => {
         await Promise.all([loadTemplateTags(), loadTemplates()])
         if (templates.value?.some(item => Number(item.id) === id)) {
           throw new Error('模板删除结果待确认')
+        }
+        await expectTemplateDeleted(id)
+        if (selectedTemplate.value?.id === id) {
+          selectedTemplate.value = null
         }
         message.success('已删除')
       } catch (err: any) {
