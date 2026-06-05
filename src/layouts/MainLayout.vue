@@ -116,7 +116,7 @@
               <n-avatar round size="medium" :src="userStore.userInfo?.avatar" />
               <div class="user-info-text">
                 <span class="username">{{ userStore.userInfo?.nickname }}</span>
-                <span class="role-badge" :class="userStore.userInfo?.role">{{ userStore.userInfo?.role === 'admin' ? '超级管理员' : '创作者' }}</span>
+                <span class="role-badge" :class="userStore.userInfo?.role">{{ formatUserRole(userStore.userInfo?.role) }}</span>
               </div>
             </div>
           </n-dropdown>
@@ -222,6 +222,7 @@ import { useUserStore } from '@/store/user'
 import { useProjectStore } from '@/store/project'
 import { useTeamStore } from '@/store/team'
 import { projectShareApi } from '@/api/projectShares'
+import { formatUserRole } from '@/utils/role'
 import {
   LayoutDashboard, Image, Video, ClipboardList, Library,
   Layers, BookOpen, BarChart3, Plus, Bell, Zap,

@@ -26,7 +26,7 @@
                 </template>
               </div>
               <span class="role-badge" :class="userStore.userInfo?.role">
-                {{ userStore.userInfo?.role === 'admin' ? '超级管理员' : '创作者' }}
+                {{ displayRoleLabel }}
               </span>
               <span class="username">系统账号: {{ userStore.userInfo?.username }}</span>
             </div>
@@ -34,18 +34,27 @@
         </n-card>
       </n-col>
 
-      <!-- 系统参数 -->
+      <!-- 账号概览 -->
       <n-col :span="12">
-        <n-card title="系统运行参数" class="glass-card" :bordered="false">
-          <n-form label-placement="top" size="medium">
-            <n-form-item label="任务最大并行重试次数">
-              <n-input-number v-model:value="settings.maxRetries" :min="1" :max="5" />
-            </n-form-item>
-            <n-form-item label="单次最大生图张数限制">
-              <n-slider v-model:value="settings.maxBatchCount" :min="1" :max="8" :step="1" />
-              <span class="slider-lbl">{{ settings.maxBatchCount }} 张 / 单次任务</span>
-            </n-form-item>
-          </n-form>
+        <n-card title="账号与登录概览" class="glass-card" :bordered="false">
+          <div class="summary-grid">
+            <div class="summary-item">
+              <span class="summary-label">当前角色</span>
+              <span class="summary-value">{{ displayRoleLabel }}</span>
+            </div>
+            <div class="summary-item">
+              <span class="summary-label">登录记录</span>
+              <span class="summary-value">{{ loginLogs.length }} 条</span>
+            </div>
+            <div class="summary-item">
+              <span class="summary-label">最近登录时间</span>
+              <span class="summary-value">{{ latestLoginTime }}</span>
+            </div>
+            <div class="summary-item">
+              <span class="summary-label">最近登录 IP</span>
+              <span class="summary-value">{{ latestLoginIp }}</span>
+            </div>
+          </div>
         </n-card>
       </n-col>
     </n-row>
@@ -126,17 +135,19 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, computed, watch, onMounted } from 'vue'
+import { ref, reactive, computed, onMounted } from 'vue'
 import { useMessage, useDialog } from 'naive-ui'
 import { Pencil } from 'lucide-vue-next'
 import { useUserStore } from '@/store/user'
 import request from '@/api/request'
 import { PASSWORD_REQUIREMENT_TEXT, validatePasswordStrength } from '@/utils/password'
 import { encryptPassword } from '@/utils/passwordEncryption'
+import { formatUserRole } from '@/utils/role'
 
 const message = useMessage()
 const dialog = useDialog()
 const userStore = useUserStore()
+const displayRoleLabel = computed(() => formatUserRole(userStore.userInfo?.role))
 
 // ===== 主题 =====
 const isDark = ref((window as any).__isDark?.value !== false)
@@ -231,24 +242,22 @@ const pagedLogs = computed(() => {
   const start = (logPage.value - 1) * logPageSize
   return loginLogs.value.slice(start, start + logPageSize)
 })
+const latestLoginLog = computed(() => loginLogs.value[0] || null)
+const latestLoginTime = computed(() => formatFull(latestLoginLog.value?.createdAt || ''))
+const latestLoginIp = computed(() => latestLoginLog.value?.ip || '-')
 
-// ===== 系统参数 (localStorage) =====
-const settings = reactive({
-  maxRetries: Number(localStorage.getItem('sys_max_retries') || '3'),
-  maxBatchCount: Number(localStorage.getItem('sys_max_batch') || '4')
-})
-
-watch(settings, (newVal) => {
-  localStorage.setItem('sys_max_retries', newVal.maxRetries.toString())
-  localStorage.setItem('sys_max_batch', newVal.maxBatchCount.toString())
-})
+function getLogTimestamp(dateStr: string): number {
+  const timestamp = Date.parse(String(dateStr || ''))
+  return Number.isNaN(timestamp) ? 0 : timestamp
+}
 
 // ===== 生命周期 =====
 onMounted(async () => {
   try {
     loadingLogs.value = true
     const logsRes = await request.get('/api/auth/login-logs?limit=100')
-    loginLogs.value = (logsRes as any).data || []
+    const logs = Array.isArray((logsRes as any).data) ? (logsRes as any).data : []
+    loginLogs.value = [...logs].sort((a, b) => getLogTimestamp(b?.createdAt) - getLogTimestamp(a?.createdAt))
   } catch {} finally {
     loadingLogs.value = false
   }
@@ -283,7 +292,18 @@ function formatFull(dateStr: string): string {
 .role-badge.admin { background-color: rgba(139, 92, 246, 0.15); color: #a78bfa; }
 .role-badge.user { background-color: rgba(59, 130, 246, 0.15); color: #60a5fa; }
 
-.slider-lbl { font-size: 11px; color: #10b981; font-weight: 600; text-align: right; width: 100%; display: block; margin-top: -6px; }
+.summary-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.summary-item {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 14px;
+  border: 1px solid var(--border-color);
+  border-radius: 14px;
+  background: rgba(127, 127, 127, 0.04);
+}
+.summary-label { font-size: 12px; color: var(--text-muted); }
+.summary-value { font-size: 15px; font-weight: 600; color: var(--text-primary); word-break: break-all; }
 
 .theme-switch-box { display: flex; gap: 16px; justify-content: center; padding: 12px 0; }
 .theme-option {
