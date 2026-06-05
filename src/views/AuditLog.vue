@@ -100,6 +100,7 @@ const cleanupDays = ref(30)
 const cleaning = ref(false)
 const actions = ref<string[]>([])
 const actionOptionsLoadState = ref<'loading' | 'ready' | 'error'>('loading')
+const NO_CACHE_HEADERS = { 'X-No-Cache': '1' }
 const actionOptions = computed(() => [
   { label: '全部', value: '' },
   ...actions.value.map(action => ({
@@ -142,10 +143,10 @@ const toOptionalNumber = (value: unknown): number | null => {
 
 async function loadLogs() {
   try {
-    // 普通用户仅查看本人审计日志，走统一 request 封装
     const params: Record<string, any> = { page: page.value, size: pageSize.value }
     if (actionFilter.value) params.action = actionFilter.value
-    const res = await request.get('/api/audit-logs/my', { params })
+    const endpoint = isAdmin.value ? '/api/audit-logs' : '/api/audit-logs/my'
+    const res = await request.get(endpoint, { params })
     const data = (res as any).data || {}
     if (!Array.isArray(data.records)) {
       logs.value = null
@@ -158,6 +159,45 @@ async function loadLogs() {
     logs.value = null
     total.value = null
     message.error(err.message || '加载审计日志失败')
+  }
+}
+
+async function loadCleanupPreview(noCache = false) {
+  const res = await request.get('/api/audit-logs/cleanup-preview', {
+    params: { daysOld: cleanupDays.value },
+    headers: noCache ? NO_CACHE_HEADERS : undefined
+  })
+  const count = toOptionalNumber((res as any).data)
+  if (count == null || count < 0) {
+    throw new Error('清理结果待确认')
+  }
+  return count
+}
+
+function requireCleanupConfirmed(
+  deletedCount: number,
+  previewBefore: number,
+  previewAfter: number,
+  previousTotal: number | null,
+  currentTotal: number | null
+) {
+  if (deletedCount < 0 || previewBefore < 0 || previewAfter < 0) {
+    throw new Error('清理结果待确认')
+  }
+  if (previewAfter > previewBefore) {
+    throw new Error('清理结果待确认')
+  }
+  if (previewAfter > Math.max(0, previewBefore - deletedCount)) {
+    throw new Error('清理结果待确认')
+  }
+  if (previewBefore > 0 && deletedCount === 0) {
+    throw new Error('清理结果待确认')
+  }
+  if (previousTotal != null && currentTotal == null) {
+    throw new Error('清理结果待确认')
+  }
+  if (previousTotal != null && currentTotal != null && currentTotal > previousTotal) {
+    throw new Error('清理结果待确认')
   }
 }
 
@@ -203,22 +243,28 @@ function handleCleanup() {
       cleaning.value = true
       try {
         const previousTotal = total.value
+        const previewBefore = await loadCleanupPreview(true)
         const res = await request.delete('/api/audit-logs', { params: { daysOld: cleanupDays.value } })
         const deletedCount = toOptionalNumber((res as any).data)
         if (deletedCount == null) {
           throw new Error('清理结果待确认')
         }
         page.value = 1
-        await loadLogs()
+        const params: Record<string, any> = { page: page.value, size: pageSize.value }
+        if (actionFilter.value) params.action = actionFilter.value
+        const endpoint = isAdmin.value ? '/api/audit-logs' : '/api/audit-logs/my'
+        const refreshRes = await request.get(endpoint, { params, headers: NO_CACHE_HEADERS })
+        const refreshData = (refreshRes as any).data || {}
+        if (!Array.isArray(refreshData.records)) {
+          throw new Error('清理结果待确认')
+        }
+        logs.value = refreshData.records
+        total.value = typeof refreshData.total === 'number' ? refreshData.total : null
+        const previewAfter = await loadCleanupPreview(true)
         if (logs.value === null || total.value == null) {
           throw new Error('清理结果待确认')
         }
-        if (deletedCount < 0) {
-          throw new Error('清理结果待确认')
-        }
-        if (previousTotal != null && total.value > previousTotal) {
-          throw new Error('清理结果待确认')
-        }
+        requireCleanupConfirmed(deletedCount, previewBefore, previewAfter, previousTotal, total.value)
         message.success(`已清理 ${deletedCount} 条审计日志`)
       } catch (err: any) {
         message.error(err.message || '清理失败')

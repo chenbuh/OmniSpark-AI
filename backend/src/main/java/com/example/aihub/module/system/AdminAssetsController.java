@@ -44,6 +44,15 @@ public class AdminAssetsController {
         return ApiResult.ok(new PageResult<>(p.getTotal(), p.getPages(), records));
     }
 
+    @GetMapping("/{id}")
+    public ApiResult<AssetVO> detail(@PathVariable Long id) {
+        Asset asset = assetMapper.selectById(id);
+        if (asset == null) {
+            return ApiResult.fail("资产不存在");
+        }
+        return ApiResult.ok(assetService.toVO(asset));
+    }
+
     @DeleteMapping("/{id}")
     public ApiResult<Void> delete(@PathVariable Long id) {
         assetService.adminDelete(id);

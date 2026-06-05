@@ -64,6 +64,7 @@ const previewing = ref(false)
 const cleaning = ref(false)
 const previewLoadState = ref<'idle' | 'loading' | 'ready' | 'error'>('idle')
 const resultLoadState = ref<'idle' | 'ready' | 'error'>('idle')
+const NO_CACHE_HEADERS = { 'X-No-Cache': '1' }
 
 const cleanupItems = [
   { key: 'oldTasks', label: '过期任务', color: '#f59e0b' },
@@ -102,7 +103,11 @@ function snapshotCleanupMetrics(source: any, keys: string[]) {
   return Object.fromEntries(keys.map((key) => [key, toOptionalNumber(source?.[key]) ?? 0])) as Record<string, number>
 }
 
-function requireCleanupExecutionConfirmed(resultPayload: any, previewSnapshot: Record<string, number> | null) {
+function requireCleanupExecutionConfirmed(
+  resultPayload: any,
+  previewSnapshot: Record<string, number> | null,
+  confirmedPreviewSnapshot: Record<string, number> | null
+) {
   const deletedMetrics = snapshotCleanupMetrics(resultPayload, cleanupItems.map(item => cleanupResultKey(item.key)))
   const deletedTotal = Object.values(deletedMetrics).reduce((sum, value) => sum + value, 0)
   if (previewSnapshot) {
@@ -117,6 +122,36 @@ function requireCleanupExecutionConfirmed(resultPayload: any, previewSnapshot: R
       throw new Error('清理结果待确认')
     }
   }
+  if (previewSnapshot && confirmedPreviewSnapshot) {
+    const previewTotal = Object.values(previewSnapshot).reduce((sum, value) => sum + value, 0)
+    const confirmedTotal = Object.values(confirmedPreviewSnapshot).reduce((sum, value) => sum + value, 0)
+    for (const item of cleanupItems) {
+      const key = item.key
+      const before = previewSnapshot[key]
+      const after = confirmedPreviewSnapshot[key]
+      const deletedValue = deletedMetrics[cleanupResultKey(key)]
+      if (after > before) {
+        throw new Error('清理结果待确认')
+      }
+      if (after > Math.max(0, before - deletedValue)) {
+        throw new Error('清理结果待确认')
+      }
+      if (before > 0 && deletedValue === 0 && after >= before) {
+        throw new Error('清理结果待确认')
+      }
+    }
+    if (previewTotal > 0 && confirmedTotal >= previewTotal) {
+      throw new Error('清理结果待确认')
+    }
+  }
+}
+
+async function fetchCleanupPreview(noCache = false) {
+  const res = await request.get('/api/admin/cleanup/preview', {
+    params: { daysOld: daysOld.value },
+    headers: noCache ? NO_CACHE_HEADERS : undefined
+  })
+  return normalizeCleanupPayload((res as any).data, cleanupItems.map(item => item.key), true)
 }
 
 async function handlePreview() {
@@ -125,8 +160,7 @@ async function handlePreview() {
   resultLoadState.value = 'idle'
   try {
     previewLoadState.value = 'loading'
-    const res = await request.get('/api/admin/cleanup/preview', { params: { daysOld: daysOld.value } })
-    preview.value = normalizeCleanupPayload((res as any).data, cleanupItems.map(item => item.key), true)
+    preview.value = await fetchCleanupPreview(true)
     previewLoadState.value = 'ready'
   } catch (err: any) {
     preview.value = null
@@ -139,19 +173,20 @@ async function handlePreview() {
 async function handleExecute() {
   cleaning.value = true
   try {
-    const previewSnapshot = preview.value
-      ? snapshotCleanupMetrics(preview.value, cleanupItems.map(item => item.key))
-      : null
+    const previewPayload = preview.value ?? await fetchCleanupPreview(true)
+    const previewSnapshot = snapshotCleanupMetrics(previewPayload, cleanupItems.map(item => item.key))
     const res = await request.delete('/api/admin/cleanup/execute', { params: { daysOld: daysOld.value } })
     const normalizedResult = normalizeCleanupPayload(
       (res as any).data,
       cleanupItems.map(item => cleanupResultKey(item.key))
     )
-    requireCleanupExecutionConfirmed(normalizedResult, previewSnapshot)
+    const confirmedPreview = await fetchCleanupPreview(true)
+    const confirmedPreviewSnapshot = snapshotCleanupMetrics(confirmedPreview, cleanupItems.map(item => item.key))
+    requireCleanupExecutionConfirmed(normalizedResult, previewSnapshot, confirmedPreviewSnapshot)
     result.value = normalizedResult
     resultLoadState.value = 'ready'
-    preview.value = null
-    previewLoadState.value = 'idle'
+    preview.value = confirmedPreview
+    previewLoadState.value = 'ready'
     message.success('清理完成！')
   } catch (err: any) {
     result.value = null

@@ -99,6 +99,7 @@ const total = ref<number | null>(null)
 const assetTypeItems = ref<DataDictItem[]>([])
 const assetTypeItemsLoadState = ref<'loading' | 'ready' | 'error'>('loading')
 const totalDisplay = computed(() => total.value == null ? '-' : total.value)
+const NO_CACHE_HEADERS = { 'X-No-Cache': '1' }
 
 function requireAssetPage(value: unknown) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
@@ -154,13 +155,16 @@ function reload() {
   loadAssets()
 }
 
-async function loadAssets() {
+async function loadAssets(noCache = false) {
   loadingAssets.value = true
   try {
     const params: Record<string, any> = { page: page.value, pageSize }
     if (typeFilter.value) params.assetType = typeFilter.value
     if (searchText.value) params.search = searchText.value
-    const res = await request.get('/api/admin/assets', { params })
+    const res = await request.get('/api/admin/assets', {
+      params,
+      headers: noCache ? NO_CACHE_HEADERS : undefined
+    })
     const data = requireAssetPage((res as any).data)
     assets.value = data.records
     total.value = data.total
@@ -173,12 +177,32 @@ async function loadAssets() {
   }
 }
 
+async function isAssetDeleted(id: number) {
+  try {
+    await request.get(`/api/admin/assets/${id}`, { headers: NO_CACHE_HEADERS })
+    return false
+  } catch (err: any) {
+    const errorMessage = String(err?.message || '')
+    if (errorMessage.includes('资产不存在')) {
+      return true
+    }
+    throw err
+  }
+}
+
 async function handleDelete(id: number) {
   try {
+    const previousTotal = total.value
     await request.delete(`/api/admin/assets/${id}`)
     if ((assets.value?.length || 0) === 1 && page.value > 1) page.value--
-    await loadAssets()
+    await loadAssets(true)
     if (assets.value?.some(asset => Number(asset.id) === id)) {
+      throw new Error('资产删除结果待确认')
+    }
+    if (!(await isAssetDeleted(id))) {
+      throw new Error('资产删除结果待确认')
+    }
+    if (previousTotal != null && total.value == null) {
       throw new Error('资产删除结果待确认')
     }
     message.success('已删除')

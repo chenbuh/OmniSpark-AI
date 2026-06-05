@@ -74,6 +74,13 @@ public class AuditLogService {
                 .toList();
     }
 
+    public long countOlderThan(int daysOld) {
+        LocalDateTime cutoff = LocalDateTime.now().minusDays(daysOld);
+        Long count = auditLogMapper.selectCount(new LambdaQueryWrapper<AuditLog>()
+                .lt(AuditLog::getCreatedAt, cutoff));
+        return count == null ? 0L : count;
+    }
+
     /** 删除 N 天前的审计日志,返回删除条数(由控制器做权限与下限校验)。 */
     @org.springframework.transaction.annotation.Transactional(rollbackFor = Exception.class)
     public long deleteOlderThan(int daysOld) {
