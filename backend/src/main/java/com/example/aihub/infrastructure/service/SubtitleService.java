@@ -167,6 +167,17 @@ public class SubtitleService {
         subtitleMapper.delete(new LambdaQueryWrapper<Subtitle>().eq(Subtitle::getProjectId, projectId));
     }
 
+    @Transactional(rollbackFor = Exception.class)
+    public void deleteByAssetIds(List<Long> assetIds) {
+        if (assetIds == null || assetIds.isEmpty()) {
+            return;
+        }
+        List<Subtitle> subtitles = subtitleMapper.selectList(
+                new LambdaQueryWrapper<Subtitle>().in(Subtitle::getAssetId, assetIds));
+        subtitles.forEach(sub -> deleteVoiceFile(sub.getVoiceUrl()));
+        subtitleMapper.delete(new LambdaQueryWrapper<Subtitle>().in(Subtitle::getAssetId, assetIds));
+    }
+
     // ===== 内部方法 =====
 
     private String transcribeAssetToSrt(Asset asset, String language, String prompt) {
