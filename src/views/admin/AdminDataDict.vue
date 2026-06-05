@@ -131,6 +131,7 @@ const dictsLoadState = ref<'loading' | 'ready' | 'error'>('loading')
 const itemsLoadState = ref<'loading' | 'ready' | 'error'>('ready')
 const dictCountDisplay = computed(() => dicts.value === null ? '-' : dicts.value.length)
 const itemCountDisplay = computed(() => items.value === null ? '-' : items.value.length)
+const NO_CACHE_HEADERS = { 'X-No-Cache': '1' }
 
 function requireDict(value: unknown, action: 'create' | 'update') {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
@@ -142,7 +143,12 @@ function requireDict(value: unknown, action: 'create' | 'update') {
   if (!Number.isFinite(id) || id <= 0 || !code || !name) {
     throw new Error(action === 'create' ? '字典创建结果待确认' : '字典更新结果待确认')
   }
-  return { id, code, name }
+  return {
+    id,
+    code,
+    name,
+    description: typeof (value as any).description === 'string' ? (value as any).description : ''
+  }
 }
 
 function requireDictItem(value: unknown, action: 'create' | 'update') {
@@ -157,8 +163,74 @@ function requireDictItem(value: unknown, action: 'create' | 'update') {
   }
   return {
     id,
+    code,
+    name,
+    sortOrder: Number((value as any).sortOrder),
     status: normalizeBinaryStatus((value as any).status)
   }
+}
+
+function normalizeDictRecord(value: unknown) {
+  const dict = requireDict(value, 'update')
+  return {
+    ...(value as Record<string, unknown>),
+    id: dict.id,
+    dictCode: dict.code,
+    dictName: dict.name,
+    description: dict.description
+  }
+}
+
+function normalizeDictList(value: unknown) {
+  if (!Array.isArray(value)) {
+    throw new Error('字典数据待确认')
+  }
+  const normalized = value.map((item: unknown) => normalizeDictRecord(item))
+  const ids = new Set<number>()
+  for (const item of normalized) {
+    if (ids.has(item.id)) {
+      throw new Error('字典数据待确认')
+    }
+    ids.add(item.id)
+  }
+  return normalized
+}
+
+function normalizeDictItemRecord(value: unknown) {
+  const item = requireDictItem(value, 'update')
+  if (!Number.isFinite(item.sortOrder)) {
+    throw new Error('字典条目待确认')
+  }
+  return {
+    ...(value as Record<string, unknown>),
+    id: item.id,
+    itemCode: item.code,
+    itemName: item.name,
+    sortOrder: item.sortOrder,
+    status: item.status
+  }
+}
+
+function normalizeDictItemList(value: unknown) {
+  if (!Array.isArray(value)) {
+    throw new Error('字典条目待确认')
+  }
+  const normalized = value.map((item: unknown) => normalizeDictItemRecord(item))
+  const ids = new Set<number>()
+  for (const item of normalized) {
+    if (ids.has(item.id)) {
+      throw new Error('字典条目待确认')
+    }
+    ids.add(item.id)
+  }
+  return normalized
+}
+
+function syncActiveDictFromList() {
+  if (!activeDict.value || !dicts.value) {
+    return
+  }
+  activeDict.value = dicts.value.find(item => Number(item.id) === Number(activeDict.value?.id)) || null
 }
 
 onMounted(loadDicts)
@@ -166,11 +238,9 @@ onMounted(loadDicts)
 async function loadDicts() {
   dictsLoadState.value = 'loading'
   try {
-    const res = await request.get('/api/admin/dict')
-    if (!Array.isArray((res as any).data)) {
-      throw new Error('字典数据待确认')
-    }
-    dicts.value = (res as any).data
+    const res = await request.get('/api/admin/dict', { headers: NO_CACHE_HEADERS })
+    dicts.value = normalizeDictList((res as any).data)
+    syncActiveDictFromList()
     dictsLoadState.value = 'ready'
   } catch (err: any) {
     dicts.value = null
@@ -184,11 +254,8 @@ async function selectDict(d: any) {
   items.value = null
   itemsLoadState.value = 'loading'
   try {
-    const res = await request.get(`/api/admin/dict/${d.id}/items`)
-    if (!Array.isArray((res as any).data)) {
-      throw new Error('字典条目待确认')
-    }
-    items.value = (res as any).data
+    const res = await request.get(`/api/admin/dict/${d.id}/items`, { headers: NO_CACHE_HEADERS })
+    items.value = normalizeDictItemList((res as any).data)
     itemsLoadState.value = 'ready'
   } catch (err: any) {
     items.value = null
@@ -200,13 +267,19 @@ async function selectDict(d: any) {
 async function handleSaveDict() {
   if (!dictForm.code || !dictForm.name) { message.error('编码和名称为必填'); return false }
   try {
+    const previousCount = dicts.value?.length
     if (editingDict.value) {
       const currentEditingId = Number(editingDict.value)
       const res = await request.put(`/api/admin/dict/${currentEditingId}?name=${encodeURIComponent(dictForm.name)}&description=${encodeURIComponent(dictForm.description)}`)
       requireDict((res as any).data, 'update')
       await loadDicts()
       const refreshed = dicts.value?.find(item => Number(item.id) === currentEditingId)
-      if (!refreshed || refreshed.dictName !== dictForm.name || (refreshed.description || '') !== dictForm.description) {
+      if (
+        !refreshed
+        || refreshed.dictName !== dictForm.name
+        || (refreshed.description || '') !== dictForm.description
+        || (typeof previousCount === 'number' && dicts.value?.length !== previousCount)
+      ) {
         throw new Error('字典更新结果待确认')
       }
       if (activeDict.value?.id === currentEditingId) {
@@ -217,19 +290,29 @@ async function handleSaveDict() {
       const created = requireDict((res as any).data, 'create')
       await loadDicts()
       const refreshed = dicts.value?.find(item => Number(item.id) === created.id)
-      if (!refreshed || refreshed.dictCode !== dictForm.code || refreshed.dictName !== dictForm.name) {
+      if (
+        !refreshed
+        || refreshed.dictCode !== dictForm.code
+        || refreshed.dictName !== dictForm.name
+        || (refreshed.description || '') !== dictForm.description
+        || (typeof previousCount === 'number' && typeof dicts.value?.length === 'number' && dicts.value.length < previousCount + 1)
+      ) {
         throw new Error('字典创建结果待确认')
       }
     }
-    message.success('已保存'); showDictEditor.value = false; await loadDicts(); return true
+    message.success('已保存'); showDictEditor.value = false; return true
   } catch (err: any) { message.error(err.message || '操作失败'); return false }
 }
 
 async function handleDeleteDict(id: number) {
   try {
+    const previousCount = dicts.value?.length
     await request.delete(`/api/admin/dict/${id}`)
     await loadDicts()
     if (dicts.value?.some(d => Number(d.id) === id)) {
+      throw new Error('字典删除结果待确认')
+    }
+    if (typeof previousCount === 'number' && typeof dicts.value?.length === 'number' && dicts.value.length > Math.max(0, previousCount - 1)) {
       throw new Error('字典删除结果待确认')
     }
     if (activeDict.value?.id === id) {
@@ -246,13 +329,19 @@ async function handleSaveItem() {
   if (!itemForm.code || !itemForm.name || !activeDict.value) { message.error('编码和名称为必填'); return false }
   try {
     const activeDictId = Number(activeDict.value.id)
+    const previousCount = items.value?.length
     if (editingItem.value) {
       const currentEditingId = Number(editingItem.value)
       const res = await request.put(`/api/admin/dict/items/${currentEditingId}?name=${encodeURIComponent(itemForm.name)}&sortOrder=${itemForm.sortOrder}`)
       requireDictItem((res as any).data, 'update')
       await selectDict(activeDict.value)
       const refreshed = items.value?.find(item => Number(item.id) === currentEditingId)
-      if (!refreshed || refreshed.itemName !== itemForm.name || Number(refreshed.sortOrder) !== itemForm.sortOrder) {
+      if (
+        !refreshed
+        || refreshed.itemName !== itemForm.name
+        || Number(refreshed.sortOrder) !== itemForm.sortOrder
+        || (typeof previousCount === 'number' && items.value?.length !== previousCount)
+      ) {
         throw new Error('条目更新结果待确认')
       }
     } else {
@@ -260,7 +349,13 @@ async function handleSaveItem() {
       const created = requireDictItem((res as any).data, 'create')
       await selectDict(activeDict.value)
       const refreshed = items.value?.find(item => Number(item.id) === created.id)
-      if (!refreshed || refreshed.itemCode !== itemForm.code || refreshed.itemName !== itemForm.name || Number(refreshed.sortOrder) !== itemForm.sortOrder) {
+      if (
+        !refreshed
+        || refreshed.itemCode !== itemForm.code
+        || refreshed.itemName !== itemForm.name
+        || Number(refreshed.sortOrder) !== itemForm.sortOrder
+        || (typeof previousCount === 'number' && typeof items.value?.length === 'number' && items.value.length < previousCount + 1)
+      ) {
         throw new Error('条目创建结果待确认')
       }
     }
@@ -295,9 +390,13 @@ function normalizeBinaryStatus(value: unknown): boolean | null {
 
 async function handleDeleteItem(id: number) {
   try {
+    const previousCount = items.value?.length
     await request.delete(`/api/admin/dict/items/${id}`)
     await selectDict(activeDict.value)
     if (items.value?.some(i => Number(i.id) === id)) {
+      throw new Error('条目删除结果待确认')
+    }
+    if (typeof previousCount === 'number' && typeof items.value?.length === 'number' && items.value.length > Math.max(0, previousCount - 1)) {
       throw new Error('条目删除结果待确认')
     }
     message.success('已删除')
