@@ -307,6 +307,9 @@ async function handleCreate() {
   creating.value = true
   try {
     const searchKeyword = search.value.trim().toLowerCase()
+    const expectedUsername = createForm.value.username.trim()
+    const expectedNickname = (createForm.value.nickname || '').trim() || expectedUsername
+    const expectedRole = createForm.value.role
     const params = new URLSearchParams({ username: createForm.value.username })
     if (createForm.value.password) {
       params.set('encryptedPassword', await encryptPassword(createForm.value.password))
@@ -320,8 +323,13 @@ async function handleCreate() {
     await loadUsers()
     const shouldAppearInCurrentList = !searchKeyword
       || createdUser.username.toLowerCase().includes(searchKeyword)
-      || (createForm.value.nickname || '').trim().toLowerCase().includes(searchKeyword)
-    if (page.value === 1 && shouldAppearInCurrentList && !users.value?.some(user => Number(user.id) === createdUser.id)) {
+      || expectedNickname.toLowerCase().includes(searchKeyword)
+    const listedUser = users.value?.find(user => Number(user.id) === createdUser.id) || null
+    if (page.value === 1 && shouldAppearInCurrentList && !listedUser) {
+      throw new Error('用户创建结果待确认')
+    }
+    const confirmedUser = listedUser || await loadUserByUsername(createdUser.username)
+    if (!confirmedUser || confirmedUser.username !== expectedUsername || (confirmedUser.nickname || '') !== expectedNickname || confirmedUser.role !== expectedRole) {
       throw new Error('用户创建结果待确认')
     }
     showCreate.value = false
@@ -479,7 +487,7 @@ async function handleExport() {
     link.click()
     URL.revokeObjectURL(url)
     message.success('导出成功')
-  } catch { message.error('导出失败') }
+  } catch (err: any) { message.error(err.message || '导出失败') }
 }
 
 // --- 导入 ---
@@ -491,6 +499,8 @@ function triggerImport() {
     const file = e.target?.files?.[0]
     if (!file) return
     try {
+      const previousTotal = total.value
+      const previousSearch = search.value.trim()
       const text = await file.text()
       const res = await request.post('/api/admin/users/import', text, {
         headers: { 'Content-Type': 'text/plain;charset=UTF-8' }
@@ -506,11 +516,24 @@ function triggerImport() {
         if (importResult.generatedCredentials != null && !Array.isArray(importResult.generatedCredentials)) {
           throw new Error('导入结果待确认')
         }
-        message.success(`导入完成：成功 ${importResult.success} 条，失败 ${importResult.failed} 条`)
         const generatedCredentials = Array.isArray(importResult.generatedCredentials) ? importResult.generatedCredentials : []
         if (generatedCredentials.some((item: any) => !item || typeof item !== 'object' || typeof item.username !== 'string' || typeof item.initialPassword !== 'string' || !item.initialPassword)) {
           throw new Error('导入结果待确认')
         }
+        await loadUsers()
+        if (importResult.success > 0 && total.value === null) {
+          throw new Error('导入结果待确认')
+        }
+        if (importResult.success > 0 && !previousSearch && previousTotal !== null && total.value !== null && total.value < previousTotal + importResult.success) {
+          throw new Error('导入结果待确认')
+        }
+        for (const item of generatedCredentials.slice(0, 5)) {
+          const confirmedUser = await loadUserByUsername(item.username)
+          if (!confirmedUser || confirmedUser.username !== item.username) {
+            throw new Error('导入结果待确认')
+          }
+        }
+        message.success(`导入完成：成功 ${importResult.success} 条，失败 ${importResult.failed} 条`)
         if (generatedCredentials.length > 0) {
           dialog.success({
             title: '导入成功',
@@ -518,14 +541,24 @@ function triggerImport() {
             positiveText: '我已记录'
           })
         }
-        await loadUsers()
-        if (importResult.success > 0 && total.value === null) {
-          throw new Error('导入结果待确认')
-        }
       } else message.error((res as any).message || '导入失败')
     } catch (err: any) { message.error('导入失败: ' + (err.message || '文件格式错误')) }
   }
   input.click()
+}
+
+async function loadUserByUsername(username: string) {
+  const keyword = username.trim()
+  if (!keyword) return null
+  const res = await request.get('/api/admin/users', {
+    params: {
+      page: 1,
+      pageSize: 100,
+      search: keyword
+    }
+  })
+  const data = requireUsersPage((res as any).data)
+  return data.records.find((item: any) => String(item.username || '') === keyword) || null
 }
 
 function buildGeneratedCredentialSummary(items: Array<{ username?: string; initialPassword?: string }>) {
