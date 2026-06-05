@@ -40,9 +40,13 @@
         </template>
       </div>
 
+      <div v-if="loadingItems && items === null" class="loading-box">
+        <n-spin size="small" />
+      </div>
+
       <!-- 网格视图 -->
-      <div v-if="viewMode === 'grid'" class="grid-view">
-        <div v-for="item in items" :key="item.relativePath" class="grid-item" @dblclick="openItem(item)">
+      <div v-else-if="viewMode === 'grid'" class="grid-view">
+        <div v-for="item in items || []" :key="item.relativePath" class="grid-item" @dblclick="openItem(item)">
           <div v-if="isImage(item)" class="grid-thumb" @click="previewFile(item)">
             <img :src="previewPath(item.relativePath)" class="thumb-img" loading="lazy" />
           </div>
@@ -60,7 +64,8 @@
             </n-popconfirm>
           </div>
         </div>
-        <div v-if="items.length === 0" class="empty-text">文件夹为空</div>
+        <div v-if="items !== null && items.length === 0" class="empty-text">文件夹为空</div>
+        <div v-else-if="items === null" class="empty-text">目录内容待确认，请稍后重试。</div>
       </div>
 
       <!-- 列表视图 -->
@@ -69,7 +74,7 @@
           <tr><th>名称</th><th style="width:100px">大小</th><th style="width:160px">修改时间</th><th style="width:100px">操作</th></tr>
         </thead>
         <tbody>
-          <tr v-for="item in items" :key="item.relativePath" @dblclick="openItem(item)">
+          <tr v-for="item in items || []" :key="item.relativePath" @dblclick="openItem(item)">
             <td><span class="file-icon">{{ item.isDir ? '📁' : getIcon(item.mimeType) }}</span> {{ item.name }}</td>
             <td>{{ item.isDir ? '-' : formatSize(item.size) }}</td>
             <td>{{ new Date(item.lastModified).toLocaleString() }}</td>
@@ -82,6 +87,12 @@
                 </n-popconfirm>
               </n-space>
             </td>
+          </tr>
+          <tr v-if="items !== null && items.length === 0">
+            <td colspan="4" class="empty-text">文件夹为空</td>
+          </tr>
+          <tr v-else-if="items === null">
+            <td colspan="4" class="empty-text">目录内容待确认，请稍后重试。</td>
           </tr>
         </tbody>
       </n-table>
@@ -102,7 +113,8 @@ import request, { API_BASE_URL } from '@/api/request'
 
 const message = useMessage()
 
-const items = ref<any[]>([])
+const loadingItems = ref(true)
+const items = ref<any[] | null>(null)
 const currentPath = ref('')
 const stats = ref<any>({})
 const viewMode = ref('list')
@@ -115,11 +127,16 @@ onMounted(() => { loadStats(); loadFiles() })
 
 async function loadFiles(path?: string) {
   currentPath.value = path || ''
+  loadingItems.value = true
   try {
     const res = await request.get('/api/admin/files', { params: { path: currentPath.value } })
     const data = (res as any).data
     items.value = data?.items || []
-  } catch { items.value = [] }
+  } catch {
+    items.value = null
+  } finally {
+    loadingItems.value = false
+  }
 }
 
 async function loadStats() {
@@ -188,6 +205,7 @@ function formatSize(bytes: number) {
 .stats-bar .stat-item { font-size: 13px; color: #d1d5db; }
 .stats-bar .stat-item strong { color: #10b981; }
 .toolbar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+.loading-box { display: flex; justify-content: center; padding: 24px 0; }
 .breadcrumbs { display: flex; align-items: center; gap: 4px; margin-bottom: 12px; padding: 6px 10px; background: rgba(255,255,255,0.02); border-radius: 6px; font-size: 12px; }
 .crumb { color: #3b82f6; cursor: pointer; }
 .crumb:hover { text-decoration: underline; }

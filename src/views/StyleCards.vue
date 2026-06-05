@@ -24,7 +24,11 @@
       </div>
     </n-card>
 
-    <div class="cards-grid" v-if="cards.length > 0">
+    <div v-if="loadingCards && cards === null" class="loading-box">
+      <n-spin size="small" />
+    </div>
+
+    <div class="cards-grid" v-else-if="cards && cards.length > 0">
       <div v-for="card in cards" :key="card.id" class="card-item glass-card">
         <div class="card-preview" v-if="card.previewUrl">
           <img :src="resolveAssetUrl(card.previewUrl)" :alt="card.name || '卡片预览图'" class="preview-img" />
@@ -85,7 +89,18 @@
       </div>
     </div>
 
-    <div class="pager" v-if="totalCards > 0">
+    <div class="empty-box" v-else-if="cards !== null">
+      <Palette class="empty-icon" />
+      <h3>暂无角色卡或风格卡</h3>
+      <p>创建一个预设卡片，保存完整的提示词、模型和参数配置，下次一键复用。</p>
+    </div>
+    <div class="empty-box" v-else>
+      <Palette class="empty-icon" />
+      <h3>卡片数据待确认</h3>
+      <p>当前无法确认角色卡或风格卡列表，请稍后重试。</p>
+    </div>
+
+    <div class="pager" v-if="(totalCards ?? 0) > 0">
       <n-pagination
         v-model:page="page"
         :page-size="pageSize"
@@ -94,12 +109,6 @@
         :page-sizes="pageSizeOptions"
         @update:page-size="handlePageSizeChange"
       />
-    </div>
-
-    <div class="empty-box" v-if="totalCards === 0">
-      <Palette class="empty-icon" />
-      <h3>暂无角色卡或风格卡</h3>
-      <p>创建一个预设卡片，保存完整的提示词、模型和参数配置，下次一键复用。</p>
     </div>
 
     <n-modal v-model:show="showAddModal" preset="card" title="新建卡片" style="width: 540px;" closable>
@@ -260,7 +269,8 @@ const assetStore = useAssetStore()
 const activeType = ref('all')
 const sortBy = ref('newest')
 const searchQuery = ref('')
-const cards = ref<StyleCard[]>([])
+const loadingCards = ref(false)
+const cards = ref<StyleCard[] | null>(null)
 const showAddModal = ref(false)
 const editingCard = ref<StyleCard | null>(null)
 const showAssetPicker = ref(false)
@@ -269,7 +279,7 @@ const uploading = ref(false)
 const uploadInput = ref<HTMLInputElement | null>(null)
 const selectedCard = ref<StyleCard | null>(null)
 const currentUserId = ref<number | null>(null)
-const totalCards = ref(0)
+const totalCards = ref<number | null>(null)
 const styleCardTags = ref<string[]>([])
 let searchTimer: ReturnType<typeof setTimeout> | null = null
 
@@ -313,6 +323,7 @@ function handlePageSizeChange(size: number) {
 }
 
 async function loadCards() {
+  loadingCards.value = true
   try {
     const res = await styleCardApi.list({
       projectId: projectStore.activeProjectId,
@@ -323,10 +334,12 @@ async function loadCards() {
       pageSize: pageSize.value
     })
     cards.value = res.data?.records || []
-    totalCards.value = Number(res.data?.total || 0)
+    totalCards.value = typeof res.data?.total === 'number' ? res.data.total : 0
   } catch {
-    cards.value = []
-    totalCards.value = 0
+    cards.value = null
+    totalCards.value = null
+  } finally {
+    loadingCards.value = false
   }
 }
 
@@ -531,7 +544,7 @@ function openComments(card: StyleCard) {
 function handleCommentCountChange(count: number) {
   if (!selectedCard.value) return
   selectedCard.value.commentsCount = count
-  const target = cards.value.find(item => item.id === selectedCard.value?.id)
+  const target = cards.value?.find(item => item.id === selectedCard.value?.id)
   if (target) {
     target.commentsCount = count
   }
@@ -573,6 +586,7 @@ function handleApply(card: StyleCard) {
 .filter-card { margin-bottom: 24px; }
 .filter-row { display: flex; justify-content: space-between; align-items: center; }
 .filter-tabs { max-width: 400px; }
+.loading-box { display: flex; justify-content: center; padding: 80px 0; }
 .cards-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 16px; }
 .pager { display: flex; justify-content: flex-end; margin-top: 20px; }
 .card-item { display: flex; flex-direction: column; overflow: hidden; transition: transform 0.2s, box-shadow 0.2s; }

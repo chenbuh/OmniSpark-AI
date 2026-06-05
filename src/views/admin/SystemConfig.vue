@@ -6,7 +6,10 @@
     </div>
 
     <n-card class="glass-card" :bordered="false">
-      <n-table :single-line="false" class="config-table">
+      <div v-if="loadingConfigs && configs === null" class="loading-box">
+        <n-spin size="small" />
+      </div>
+      <n-table v-else :single-line="false" class="config-table">
         <thead>
           <tr>
             <th style="width:80px">ID</th>
@@ -17,7 +20,7 @@
           </tr>
         </thead>
         <tbody>
-          <tr v-for="cfg in configs" :key="cfg.id">
+          <tr v-for="cfg in configs || []" :key="cfg.id">
             <td><code>#{{ cfg.id }}</code></td>
             <td><code>{{ cfg.configKey }}</code></td>
             <td>
@@ -29,6 +32,12 @@
               <n-button v-if="editingId === cfg.id" size="tiny" type="primary" @click="handleSave(cfg.id)">保存</n-button>
               <n-button v-else size="tiny" secondary @click="startEdit(cfg)">编辑</n-button>
             </td>
+          </tr>
+          <tr v-if="configs !== null && configs.length === 0">
+            <td colspan="5" class="empty-cell">暂无系统配置</td>
+          </tr>
+          <tr v-else-if="configs === null">
+            <td colspan="5" class="empty-cell">系统配置待确认，请稍后重试。</td>
           </tr>
         </tbody>
       </n-table>
@@ -57,16 +66,22 @@ import { useMessage } from 'naive-ui'
 import request from '@/api/request'
 
 const message = useMessage()
-const configs = ref<any[]>([])
+const loadingConfigs = ref(true)
+const configs = ref<any[] | null>(null)
 const health = ref<any>(null)
 const editingId = ref<number | null>(null)
 const editValue = ref('')
 
 async function loadConfigs() {
+  loadingConfigs.value = true
   try {
     const res = await request.get('/api/admin/config')
     configs.value = (res as any).data || []
-  } catch { configs.value = [] }
+  } catch {
+    configs.value = null
+  } finally {
+    loadingConfigs.value = false
+  }
 }
 
 async function loadHealth() {
@@ -99,8 +114,10 @@ async function handleSave(id: number) {
 .page-header h2 { font-size: 24px; font-weight: 700; margin: 0 0 6px 0; color: #fff; }
 .subtitle { font-size: 13px; color: #9ca3af; margin: 0; }
 .glass-card { background: rgba(15,23,42,0.4) !important; backdrop-filter: blur(16px); border: 1px solid rgba(255,255,255,0.08) !important; border-radius: 16px !important; }
+.loading-box { display: flex; justify-content: center; padding: 24px 0; }
 .config-table { background: transparent !important; }
 .config-table th { background: rgba(255,255,255,0.02) !important; color: #9ca3af !important; border-bottom: 1px solid rgba(255,255,255,0.06) !important; font-size: 12px; }
 .config-table td { border-bottom: 1px solid rgba(255,255,255,0.04) !important; color: #e5e7eb; padding: 10px 8px; font-size: 13px; }
 .cfg-val { font-size: 13px; color: #d1d5db; word-break: break-all; }
+.empty-cell { text-align: center; padding: 30px !important; color: #9ca3af; }
 </style>

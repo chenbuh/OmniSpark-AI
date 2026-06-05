@@ -11,10 +11,14 @@
           <n-select v-model:value="typeFilter" :options="typeOptions" placeholder="资产类型" style="width:140px" clearable @update:value="reload" />
           <n-input v-model:value="searchText" placeholder="搜索文件名..." style="width:200px;" clearable @update:value="reload" />
         </n-space>
-        <span class="count">共 {{ total }} 个资产</span>
+        <span class="count">共 {{ totalDisplay }} 个资产</span>
       </div>
 
-      <div class="assets-grid" v-if="assets.length > 0">
+      <div v-if="loadingAssets && assets === null" class="loading-box">
+        <n-spin size="small" />
+      </div>
+
+      <div class="assets-grid" v-else-if="assets && assets.length > 0">
         <div v-for="a in assets" :key="a.id" class="asset-card" @click="openPreview(a)">
           <div class="asset-thumb">
             <img v-if="a.assetType === 'image' || a.assetType === 'reference'" :src="a.thumbUrl || a.fileUrl" class="thumb-img" loading="lazy" />
@@ -35,9 +39,10 @@
         </div>
       </div>
 
-      <n-empty v-else description="暂无资产" style="padding:40px 0;" />
+      <n-empty v-else-if="assets !== null" description="暂无资产" style="padding:40px 0;" />
+      <n-empty v-else description="资产数据待确认，请稍后重试。" style="padding:40px 0;" />
 
-      <div class="pager" v-if="total > pageSize">
+      <div class="pager" v-if="(total ?? 0) > pageSize">
         <n-pagination v-model:page="page" :page-size="pageSize" :item-count="total" @update:page="loadAssets" />
       </div>
     </n-card>
@@ -81,15 +86,17 @@ import { dictApi, type DataDictItem } from '@/api/dicts'
 import request from '@/api/request'
 
 const message = useMessage()
-const assets = ref<any[]>([])
+const loadingAssets = ref(true)
+const assets = ref<any[] | null>(null)
 const typeFilter = ref<string | null>(null)
 const searchText = ref('')
 const showPreview = ref(false)
 const previewAsset = ref<any>(null)
 const page = ref(1)
 const pageSize = 12
-const total = ref(0)
+const total = ref<number | null>(null)
 const assetTypeItems = ref<DataDictItem[]>([])
+const totalDisplay = computed(() => total.value == null ? '-' : total.value)
 
 const typeOptions = computed(() => [
   ...assetTypeItems.value.map(item => ({ label: item.itemName, value: item.itemCode }))
@@ -125,6 +132,7 @@ function reload() {
 }
 
 async function loadAssets() {
+  loadingAssets.value = true
   try {
     const params: Record<string, any> = { page: page.value, pageSize }
     if (typeFilter.value) params.assetType = typeFilter.value
@@ -132,15 +140,21 @@ async function loadAssets() {
     const res = await request.get('/api/admin/assets', { params })
     const data = (res as any).data || {}
     assets.value = data.records || []
-    total.value = data.total || 0
-  } catch (err: any) { assets.value = []; message.error(err.message || '加载资产失败') }
+    total.value = typeof data.total === 'number' ? data.total : 0
+  } catch (err: any) {
+    assets.value = null
+    total.value = null
+    message.error(err.message || '加载资产失败')
+  } finally {
+    loadingAssets.value = false
+  }
 }
 
 async function handleDelete(id: number) {
   try {
     await request.delete(`/api/admin/assets/${id}`)
     message.success('已删除')
-    if (assets.value.length === 1 && page.value > 1) page.value--
+    if ((assets.value?.length || 0) === 1 && page.value > 1) page.value--
     await loadAssets()
   } catch (err: any) { message.error(err.message || '删除失败') }
 }
@@ -167,6 +181,7 @@ function downloadAsset() {
 .subtitle { font-size: 13px; color: var(--text-muted); margin: 0; }
 .glass-card { background: rgba(15,23,42,0.4) !important; backdrop-filter: blur(16px); border: 1px solid var(--border-color) !important; border-radius: 16px !important; }
 .toolbar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; flex-wrap: wrap; gap: 8px; }
+.loading-box { display: flex; justify-content: center; padding: 24px 0; }
 .count { font-size: 12px; color: var(--text-muted); }
 .pager { display: flex; justify-content: flex-end; margin-top: 16px; }
 

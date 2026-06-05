@@ -34,7 +34,7 @@
     <SkeletonCard v-if="loading" type="grid" :count="8" />
 
     <!-- 瀑布流 -->
-    <div class="posts-grid" v-else-if="posts.length > 0">
+    <div class="posts-grid" v-else-if="posts && posts.length > 0">
       <div v-for="post in posts" :key="post.id" class="post-card glass-card">
         <div class="post-image" v-if="post.imageUrl" @click="showDetail(post)">
           <img :src="post.imageUrl" class="post-img" loading="lazy" />
@@ -73,9 +73,14 @@
       </div>
     </div>
 
-    <n-empty v-else description="暂无社区内容，成为第一个分享者！" style="padding: 60px 0;" />
+    <n-empty
+      v-else-if="posts !== null"
+      description="暂无社区内容，成为第一个分享者！"
+      style="padding: 60px 0;"
+    />
+    <n-empty v-else description="社区内容待确认，请稍后重试。" style="padding: 60px 0;" />
 
-    <div class="pager" v-if="total > 0">
+    <div class="pager" v-if="(total ?? 0) > 0">
       <n-pagination
         v-model:page="page"
         :page-size="pageSize"
@@ -241,7 +246,7 @@ const assetStore = useAssetStore()
 const loading = ref(true)
 const publishing = ref(false)
 const uploadingImage = ref(false)
-const posts = ref<any[]>([])
+const posts = ref<any[] | null>(null)
 const activeCategory = ref('all')
 const sortBy = ref('newest')
 const searchQuery = ref('')
@@ -255,7 +260,7 @@ const showAssetPicker = ref(false)
 const page = ref(1)
 const pageSize = ref(20)
 const pageSizeOptions = [12, 20, 40, 80]
-const total = ref(0)
+const total = ref<number | null>(null)
 
 const currentUserId = ref<number | null>(null)
 
@@ -354,9 +359,10 @@ async function loadPosts() {
       ...post,
       imageUrl: resolveAssetUrl(post.imageUrl)
     }))
-    total.value = data.total || 0
+    total.value = typeof data.total === 'number' ? data.total : 0
   } catch (err: any) {
-    posts.value = []
+    posts.value = null
+    total.value = null
     message.error(err.message || '加载社区内容失败')
   } finally {
     loading.value = false
@@ -528,7 +534,7 @@ function showDetail(post: any) {
 function handleCommunityCommentCountChange(count: number) {
   if (!detailPost.value) return
   detailPost.value.commentsCount = count
-  const target = posts.value.find((item: any) => item.id === detailPost.value?.id)
+  const target = posts.value?.find((item: any) => item.id === detailPost.value?.id)
   if (target) {
     target.commentsCount = count
   }

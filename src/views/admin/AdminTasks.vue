@@ -12,10 +12,14 @@
           <n-select v-model:value="typeFilter" :options="typeOptions" placeholder="类型" style="width:120px" clearable @update:value="reload" />
           <n-input v-model:value="searchText" placeholder="搜索提示词..." style="width:200px;" clearable @update:value="reload" />
         </n-space>
-        <span class="count">共 {{ total }} 条</span>
+        <span class="count">共 {{ totalDisplay }} 条</span>
       </div>
 
-      <n-table :single-line="false" class="admin-table">
+      <div v-if="loadingTasks && tasks === null" class="loading-box">
+        <n-spin size="small" />
+      </div>
+
+      <n-table v-else :single-line="false" class="admin-table">
         <thead>
           <tr>
             <th style="width:55px">ID</th>
@@ -29,7 +33,7 @@
           </tr>
         </thead>
         <tbody>
-          <tr v-for="t in tasks" :key="t.id">
+          <tr v-for="t in tasks || []" :key="t.id">
             <td><code>#{{ t.id }}</code></td>
             <td>{{ t.projectId }}</td>
             <td><n-tag size="small" :type="taskTypeTagType(t.taskType)" round>{{ taskTypeLabel(t.taskType) }}</n-tag></td>
@@ -44,10 +48,11 @@
               </n-space>
             </td>
           </tr>
-          <tr v-if="tasks.length===0"><td colspan="8" class="empty-cell">暂无任务</td></tr>
+          <tr v-if="tasks !== null && tasks.length === 0"><td colspan="8" class="empty-cell">暂无任务</td></tr>
+          <tr v-else-if="tasks === null"><td colspan="8" class="empty-cell">任务数据待确认，请稍后重试。</td></tr>
         </tbody>
       </n-table>
-      <div class="pager" v-if="total > pageSize">
+      <div class="pager" v-if="(total ?? 0) > pageSize">
         <n-pagination v-model:page="page" :page-size="pageSize" :item-count="total" @update:page="loadTasks" />
       </div>
     </n-card>
@@ -90,7 +95,8 @@ import { FileText, Trash2 } from 'lucide-vue-next'
 import request from '@/api/request'
 
 const message = useMessage()
-const tasks = ref<any[]>([])
+const loadingTasks = ref(true)
+const tasks = ref<any[] | null>(null)
 const statusFilter = ref<string | null>(null)
 const typeFilter = ref<string | null>(null)
 const searchText = ref('')
@@ -98,9 +104,10 @@ const showDrawer = ref(false)
 const detail = ref<any>(null)
 const page = ref(1)
 const pageSize = 10
-const total = ref(0)
+const total = ref<number | null>(null)
 const taskStatuses = ref<string[]>([])
 const taskTypes = ref<string[]>([])
+const totalDisplay = computed(() => total.value == null ? '-' : total.value)
 
 const statusOptions = computed(() => taskStatuses.value.map(value => ({
   label: statusLabel(value),
@@ -145,6 +152,7 @@ function reload() {
 }
 
 async function loadTasks() {
+  loadingTasks.value = true
   try {
     const params: Record<string, any> = { page: page.value, pageSize }
     if (statusFilter.value) params.status = statusFilter.value
@@ -153,9 +161,15 @@ async function loadTasks() {
     const res = await request.get('/api/admin/tasks', { params })
     const data = (res as any).data || {}
     tasks.value = data.records || []
-    total.value = data.total || 0
-    mergeTaskMetaFromRecords(tasks.value)
-  } catch (err: any) { tasks.value = []; message.error(err.message || '加载任务失败') }
+    total.value = typeof data.total === 'number' ? data.total : 0
+    mergeTaskMetaFromRecords(tasks.value || [])
+  } catch (err: any) {
+    tasks.value = null
+    total.value = null
+    message.error(err.message || '加载任务失败')
+  } finally {
+    loadingTasks.value = false
+  }
 }
 
 function mergeTaskMetaFromRecords(records: any[]) {
@@ -190,7 +204,7 @@ async function handleDelete(id: number) {
     await request.delete(`/api/admin/tasks/${id}`)
     message.success('已删除')
     // 删除当前页最后一条时回退一页,避免停留空页
-    if (tasks.value.length === 1 && page.value > 1) page.value--
+    if ((tasks.value?.length || 0) === 1 && page.value > 1) page.value--
     await loadTasks()
   } catch (err: any) { message.error(err.message || '删除失败') }
 }
@@ -212,6 +226,7 @@ function formatJson(s: string) {
 .subtitle { font-size: 13px; color: var(--text-muted); margin: 0; }
 .glass-card { background: rgba(15,23,42,0.4) !important; backdrop-filter: blur(16px); border: 1px solid var(--border-color) !important; border-radius: 16px !important; }
 .toolbar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; flex-wrap: wrap; gap: 8px; }
+.loading-box { display: flex; justify-content: center; padding: 24px 0; }
 .count { font-size: 12px; color: var(--text-muted); }
 .admin-table { background: transparent !important; }
 .admin-table th { background: rgba(128,128,128,0.02) !important; color: var(--text-muted) !important; border-bottom: 1px solid var(--border-color) !important; font-size: 12px; }

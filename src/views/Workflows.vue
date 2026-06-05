@@ -22,7 +22,7 @@
         <n-card class="glass-card" :bordered="false">
           <template #header>
             <div class="card-header-row">
-              <span>我的工作流 ({{ filteredWorkflows.length }})</span>
+              <span>我的工作流 ({{ workflowCountDisplay }})</span>
               <n-input
                 v-model:value="searchQuery"
                 clearable
@@ -35,7 +35,10 @@
             </div>
           </template>
 
-          <div v-if="filteredWorkflows.length > 0" class="wf-list">
+          <div v-if="loading && filteredWorkflows === null" class="loading-box">
+            <n-spin size="small" />
+          </div>
+          <div v-else-if="filteredWorkflows && filteredWorkflows.length > 0" class="wf-list">
             <div
               v-for="wf in pagedWorkflows"
               :key="wf.id"
@@ -56,9 +59,10 @@
               </n-button>
             </div>
           </div>
-          <n-empty v-else description="当前项目还没有工作流" />
-          <div class="pager" v-if="filteredWorkflows.length > wfPageSize">
-            <n-pagination v-model:page="wfPage" :page-size="wfPageSize" :item-count="filteredWorkflows.length" simple />
+          <n-empty v-else-if="filteredWorkflows !== null" description="当前项目还没有工作流" />
+          <n-empty v-else description="工作流数据待确认，请稍后重试。" />
+          <div class="pager" v-if="(filteredWorkflows?.length || 0) > wfPageSize">
+            <n-pagination v-model:page="wfPage" :page-size="wfPageSize" :item-count="filteredWorkflows?.length || 0" simple />
           </div>
         </n-card>
       </n-col>
@@ -95,7 +99,7 @@
             </div>
             <div class="summary-chip">
               <span>最近运行</span>
-              <strong>{{ runs[0]?.status ? runStatusLabel(runs[0].status) : '暂无' }}</strong>
+              <strong>{{ latestRunStatus }}</strong>
             </div>
           </div>
 
@@ -122,7 +126,10 @@
 
           <n-collapse style="margin-top: 18px;">
             <n-collapse-item name="runs" title="运行历史">
-              <div v-if="runs.length > 0" class="runs-list">
+              <div v-if="runsLoading && runs === null" class="loading-box">
+                <n-spin size="small" />
+              </div>
+              <div v-else-if="runs && runs.length > 0" class="runs-list">
                 <div v-for="run in runs" :key="run.id" class="run-card">
                   <div class="run-head">
                     <div class="run-head-left">
@@ -153,13 +160,14 @@
                   </div>
                 </div>
               </div>
-              <n-empty v-else description="暂无运行记录" style="padding: 12px 0;" />
+              <n-empty v-else-if="runs !== null" description="暂无运行记录" style="padding: 12px 0;" />
+              <n-empty v-else description="运行记录待确认，请稍后重试。" style="padding: 12px 0;" />
             </n-collapse-item>
           </n-collapse>
         </n-card>
 
         <n-card v-else class="glass-card" :bordered="false">
-          <n-empty description="从左侧选择一个工作流，或新建一条自动化创作链路" />
+          <n-empty :description="workflows === null ? '工作流数据待确认，请稍后重试。' : '从左侧选择一个工作流，或新建一条自动化创作链路'" />
         </n-card>
       </n-col>
     </n-row>
@@ -372,15 +380,16 @@ const projectStore = useProjectStore()
 const providerStore = useModelProviderStore()
 const assetStore = useAssetStore()
 
-const loading = ref(false)
+const loading = ref(true)
 const executing = ref(false)
+const runsLoading = ref(false)
 const searchQuery = ref('')
 const showEditor = ref(false)
 const editorMode = ref<'create' | 'edit'>('create')
 
-const workflows = ref<WorkflowRecord[]>([])
+const workflows = ref<WorkflowRecord[] | null>(null)
 const selectedWorkflow = ref<WorkflowRecord | null>(null)
-const runs = ref<WorkflowRunVO[]>([])
+const runs = ref<WorkflowRunVO[] | null>(null)
 
 const editForm = reactive({
   id: null as number | null,
@@ -401,7 +410,10 @@ const defaultImageSize = computed(() => workflowMeta.value.defaults?.imageSize |
 const defaultVideoDuration = computed(() => workflowMeta.value.defaults?.videoDuration || videoDurationOptions.value[0]?.value || '')
 const defaultSubtitleLanguage = computed(() => workflowMeta.value.defaults?.subtitleLanguage || subtitleLanguageOptions.value[0]?.value || '')
 
-const filteredWorkflows = computed(() => {
+const filteredWorkflows = computed<WorkflowRecord[] | null>(() => {
+  if (workflows.value === null) {
+    return null
+  }
   const query = searchQuery.value.trim().toLowerCase()
   const currentProjectId = projectStore.activeProjectId
   return workflows.value.filter(item => {
@@ -412,11 +424,21 @@ const filteredWorkflows = computed(() => {
       .some(value => String(value || '').toLowerCase().includes(query))
   })
 })
+const workflowCountDisplay = computed(() => filteredWorkflows.value === null ? '-' : filteredWorkflows.value.length)
+const latestRunStatus = computed(() => {
+  if (runs.value === null) {
+    return '待确认'
+  }
+  return runs.value[0]?.status ? runStatusLabel(runs.value[0].status) : '暂无'
+})
 
 // 前端分页(workflows 全量不动)
 const wfPage = ref(1)
 const wfPageSize = 10
 const pagedWorkflows = computed(() => {
+  if (!filteredWorkflows.value) {
+    return []
+  }
   const start = (wfPage.value - 1) * wfPageSize
   return filteredWorkflows.value.slice(start, start + wfPageSize)
 })
@@ -621,27 +643,38 @@ async function loadWorkflowMeta() {
 async function loadWorkflows() {
   try {
     const res = await workflowApi.list(projectStore.activeProjectId)
-    workflows.value = ((res as any).data || []).map((item: WorkflowVO) => normalizeWorkflow(item))
+    const records = ((res as any).data || []).map((item: WorkflowVO) => normalizeWorkflow(item))
+    workflows.value = records
     if (selectedWorkflow.value) {
-      const next = workflows.value.find(item => item.id === selectedWorkflow.value?.id) || null
+      const next = records.find((item: WorkflowRecord) => item.id === selectedWorkflow.value?.id) || null
       selectedWorkflow.value = next
       if (next) {
         await loadRuns(next.id)
+      } else {
+        runs.value = []
       }
-    } else if (workflows.value.length > 0) {
-      await selectWorkflow(workflows.value[0])
+    } else if (records.length > 0) {
+      await selectWorkflow(records[0])
+    } else {
+      runs.value = []
     }
   } catch {
-    workflows.value = []
+    workflows.value = null
+    selectedWorkflow.value = null
+    runs.value = null
   }
 }
 
 async function loadRuns(workflowId: number) {
+  runsLoading.value = true
+  runs.value = null
   try {
     const res = await workflowApi.listRuns(workflowId)
     runs.value = (res as any).data || []
   } catch {
-    runs.value = []
+    runs.value = null
+  } finally {
+    runsLoading.value = false
   }
 }
 
@@ -795,7 +828,7 @@ async function handleDelete(id: number) {
       selectedWorkflow.value = null
       runs.value = []
     }
-    workflows.value = workflows.value.filter(item => item.id !== id)
+    workflows.value = workflows.value?.filter(item => item.id !== id) || []
     message.success('工作流已删除')
   } catch (err: any) {
     message.error(err.message || '删除失败')
@@ -859,7 +892,7 @@ function formatRunResultStep(stepIndex: unknown) {
 
 watch(() => projectStore.activeProjectId, async () => {
   selectedWorkflow.value = null
-  runs.value = []
+  runs.value = null
   await loadPageData()
 })
 
@@ -933,6 +966,12 @@ onMounted(async () => {
   display: flex;
   flex-direction: column;
   gap: 8px;
+}
+
+.loading-box {
+  display: flex;
+  justify-content: center;
+  padding: 24px 0;
 }
 
 .pager { display: flex; justify-content: center; margin-top: 14px; }

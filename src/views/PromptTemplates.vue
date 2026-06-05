@@ -23,7 +23,11 @@
       </div>
     </n-card>
 
-    <div class="templates-grid" v-if="templates.length > 0">
+    <div v-if="loadingTemplates && templates === null" class="loading-box">
+      <n-spin size="small" />
+    </div>
+
+    <div class="templates-grid" v-else-if="templates && templates.length > 0">
       <div v-for="tpl in templates" :key="tpl.id" class="tpl-card glass-card">
         <div class="tpl-header">
           <span class="tpl-name">{{ tpl.name }}</span>
@@ -76,13 +80,18 @@
       </div>
     </div>
 
-    <n-empty v-else description="暂无匹配的模板，点击「新建模板」创建第一个！" style="padding: 80px 0;">
+    <n-empty
+      v-else-if="templates !== null"
+      description="暂无匹配的模板，点击「新建模板」创建第一个！"
+      style="padding: 80px 0;"
+    >
       <template #extra>
         <BookOpen style="width:48px;height:48px;opacity:0.3;margin-bottom:8px;" />
       </template>
     </n-empty>
+    <n-empty v-else description="模板数据待确认，请稍后重试。" style="padding: 80px 0;" />
 
-    <div class="pager" v-if="totalTemplates > 0">
+    <div class="pager" v-if="(totalTemplates ?? 0) > 0">
       <n-pagination
         v-model:page="page"
         :page-size="pageSize"
@@ -175,11 +184,12 @@ const showAddModal = ref(false)
 const showCommentDrawer = ref(false)
 const editingId = ref<number | null>(null)
 const saving = ref(false)
-const templates = ref<PromptTemplate[]>([])
+const loadingTemplates = ref(false)
+const templates = ref<PromptTemplate[] | null>(null)
 const templateTags = ref<string[]>([])
 const selectedTemplate = ref<PromptTemplate | null>(null)
 const currentUserId = ref<number | null>(null)
-const totalTemplates = ref(0)
+const totalTemplates = ref<number | null>(null)
 let searchTimer: ReturnType<typeof setTimeout> | null = null
 const page = ref(1)
 const pageSize = ref(12)
@@ -203,6 +213,7 @@ const sortOptions = [
 ]
 
 async function loadTemplates() {
+  loadingTemplates.value = true
   try {
     const res = await templateApi.getTemplates({
       projectId: projectStore.activeProjectId,
@@ -213,10 +224,12 @@ async function loadTemplates() {
       pageSize: pageSize.value
     })
     templates.value = res.data?.records || []
-    totalTemplates.value = Number(res.data?.total || 0)
+    totalTemplates.value = typeof res.data?.total === 'number' ? res.data.total : 0
   } catch {
-    templates.value = []
-    totalTemplates.value = 0
+    templates.value = null
+    totalTemplates.value = null
+  } finally {
+    loadingTemplates.value = false
   }
 }
 
@@ -333,7 +346,7 @@ function openComments(tpl: PromptTemplate) {
 function handleCommentCountChange(count: number) {
   if (!selectedTemplate.value) return
   selectedTemplate.value.commentsCount = count
-  const target = templates.value.find(item => item.id === selectedTemplate.value?.id)
+  const target = templates.value?.find(item => item.id === selectedTemplate.value?.id)
   if (target) {
     target.commentsCount = count
   }
@@ -427,6 +440,7 @@ const handleDelete = async (id: number) => {
 .s-icon { width: 14px; height: 14px; color: var(--text-muted); }
 
 .templates-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 16px; margin-top: 24px; }
+.loading-box { display: flex; justify-content: center; padding: 80px 0; }
 .pager { display: flex; justify-content: flex-end; margin-top: 20px; }
 .tpl-card { display: flex; flex-direction: column; padding: 16px; transition: all .25s; }
 .tpl-card:hover { transform: translateY(-3px); border-color: #10b981 !important; box-shadow: 0 8px 24px rgba(0,0,0,0.25); }
