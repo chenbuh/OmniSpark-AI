@@ -1,6 +1,7 @@
 package com.example.aihub.infrastructure.service;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.example.aihub.common.security.ClientIpResolver;
 import com.example.aihub.common.util.PagingUtil;
 import com.example.aihub.common.util.VoMapper;
@@ -57,6 +58,20 @@ public class AuditLogService {
                 .map(item -> VoMapper.copy(item, AuditLogVO.class))
                 .toList();
         return new com.example.aihub.common.result.PageResult<>(p.getTotal(), p.getPages(), records);
+    }
+
+    public List<String> actions(Long userId) {
+        QueryWrapper<AuditLog> wrapper = new QueryWrapper<AuditLog>()
+                .select("DISTINCT action")
+                .isNotNull("action");
+        if (userId != null) {
+            wrapper.eq("user_id", userId);
+        }
+        return auditLogMapper.selectObjs(wrapper).stream()
+                .map(String::valueOf)
+                .filter(value -> !value.isBlank())
+                .sorted(String::compareToIgnoreCase)
+                .toList();
     }
 
     /** 删除 N 天前的审计日志,返回删除条数(由控制器做权限与下限校验)。 */

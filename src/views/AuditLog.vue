@@ -75,7 +75,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import { computed, ref, onMounted } from 'vue'
 import { useMessage, useDialog } from 'naive-ui'
 import request from '@/api/request'
 import { useUserStore } from '@/store/user'
@@ -93,23 +93,14 @@ const pageSizeOptions = [20, 50, 100]
 const total = ref(0)
 const cleanupDays = ref(30)
 const cleaning = ref(false)
-
-const actionOptions = [
+const actions = ref<string[]>([])
+const actionOptions = computed(() => [
   { label: '全部', value: '' },
-  { label: '登录', value: 'Auth_login' },
-  { label: '注册', value: 'Auth_register' },
-  { label: '退出', value: 'Auth_logout' },
-  { label: '创建项目', value: 'Project_create' },
-  { label: '删除项目', value: 'Project_delete' },
-  { label: '创建团队', value: 'Team_create' },
-  { label: '邀请成员', value: 'Team_inviteMember' },
-  { label: '生图', value: 'Generation_image' },
-  { label: '生视频', value: 'Generation_video' },
-  { label: '上传资产', value: 'Asset_upload' },
-  { label: '删除资产', value: 'Asset_delete' },
-  { label: '添加模型', value: 'ModelProvider_create' },
-  { label: '测试连接', value: 'ModelProvider_test' }
-]
+  ...actions.value.map(action => ({
+    label: formatAction(action),
+    value: action
+  }))
+])
 
 const actionColor = (action: string) => {
   if (!action) return 'default'
@@ -137,6 +128,18 @@ async function loadLogs() {
   } catch (err: any) {
     logs.value = []
     message.error(err.message || '加载审计日志失败')
+  }
+}
+
+async function loadActions() {
+  try {
+    const res = await request.get('/api/audit-logs/actions')
+    actions.value = Array.isArray((res as any).data) ? (res as any).data : []
+    if (actionFilter.value && !actions.value.includes(actionFilter.value)) {
+      actionFilter.value = null
+    }
+  } catch {
+    actions.value = []
   }
 }
 
@@ -176,7 +179,10 @@ function handleCleanup() {
   })
 }
 
-onMounted(loadLogs)
+onMounted(async () => {
+  await loadActions()
+  await loadLogs()
+})
 </script>
 
 <style scoped>
