@@ -16,6 +16,7 @@ import com.example.aihub.infrastructure.service.AuthService;
 import com.example.aihub.infrastructure.service.CaptchaService;
 import com.example.aihub.infrastructure.service.PasswordEncryptionService;
 import com.example.aihub.infrastructure.vo.LoginVO;
+import com.example.aihub.infrastructure.vo.PasswordChangeResultVO;
 import com.example.aihub.infrastructure.vo.PasswordPublicKeyVO;
 import com.example.aihub.infrastructure.vo.UserVO;
 import jakarta.validation.Valid;
@@ -102,15 +103,14 @@ public class AuthController {
 
     @PutMapping("/password")
     @SaCheckLogin
-    public ApiResult<Void> changePassword(@RequestParam(required = false) String oldPassword,
-                                           @RequestParam(required = false) String newPassword,
-                                           @RequestParam(required = false) String encryptedOldPassword,
-                                           @RequestParam(required = false) String encryptedNewPassword) {
+    public ApiResult<PasswordChangeResultVO> changePassword(@RequestParam(required = false) String oldPassword,
+                                                            @RequestParam(required = false) String newPassword,
+                                                            @RequestParam(required = false) String encryptedOldPassword,
+                                                            @RequestParam(required = false) String encryptedNewPassword) {
         Long userId = Long.valueOf(String.valueOf(cn.dev33.satoken.stp.StpUtil.getLoginId()));
         String resolvedOldPassword = passwordEncryptionService.resolvePassword(oldPassword, encryptedOldPassword);
         String resolvedNewPassword = passwordEncryptionService.resolvePassword(newPassword, encryptedNewPassword);
-        authService.changePassword(userId, resolvedOldPassword, resolvedNewPassword);
-        return ApiResult.ok();
+        return ApiResult.ok(authService.changePassword(userId, resolvedOldPassword, resolvedNewPassword));
     }
 
     @GetMapping("/login-logs")

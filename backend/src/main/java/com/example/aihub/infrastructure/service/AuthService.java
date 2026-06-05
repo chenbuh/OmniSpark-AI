@@ -12,6 +12,7 @@ import com.example.aihub.infrastructure.mapper.LoginLogMapper;
 import com.example.aihub.infrastructure.mapper.QuotaRecordMapper;
 import com.example.aihub.infrastructure.mapper.UserMapper;
 import com.example.aihub.infrastructure.vo.LoginVO;
+import com.example.aihub.infrastructure.vo.PasswordChangeResultVO;
 import com.example.aihub.infrastructure.vo.UserVO;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -105,7 +106,7 @@ public class AuthService {
     }
 
     @Transactional(rollbackFor = Exception.class)
-    public void changePassword(Long userId, String oldPassword, String newPassword) {
+    public PasswordChangeResultVO changePassword(Long userId, String oldPassword, String newPassword) {
         User user = userMapper.selectById(userId);
         if (user == null) throw new BusinessException("用户不存在");
         if (oldPassword == null || oldPassword.isBlank()) {
@@ -118,8 +119,30 @@ public class AuthService {
             throw new BusinessException("当前密码错误");
         }
         validatePassword(newPassword, user.getUsername());
-        user.setPassword(PasswordUtil.encode(newPassword));
-        userMapper.updateById(user);
+        String encodedPassword = PasswordUtil.encode(newPassword);
+        if (encodedPassword == null || encodedPassword.isBlank()) {
+            throw new BusinessException("密码修改结果待确认");
+        }
+        if (PasswordUtil.matches(newPassword, user.getPassword())) {
+            throw new BusinessException("新密码不能与当前密码相同");
+        }
+        user.setPassword(encodedPassword);
+        int affected = userMapper.updateById(user);
+        if (affected <= 0) {
+            throw new BusinessException("密码修改结果待确认");
+        }
+        User refreshed = userMapper.selectById(userId);
+        if (refreshed == null
+                || refreshed.getUpdatedAt() == null
+                || !PasswordUtil.matches(newPassword, refreshed.getPassword())
+                || PasswordUtil.matches(oldPassword, refreshed.getPassword())) {
+            throw new BusinessException("密码修改结果待确认");
+        }
+        PasswordChangeResultVO result = new PasswordChangeResultVO();
+        result.setUserId(refreshed.getId());
+        result.setChanged(true);
+        result.setUpdatedAt(refreshed.getUpdatedAt());
+        return result;
     }
 
     public User findById(Long userId) {

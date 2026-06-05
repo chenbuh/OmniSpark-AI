@@ -219,10 +219,14 @@ async function handleChangePassword() {
           encryptedOldPassword: await encryptPassword(passwordForm.oldPassword),
           encryptedNewPassword: await encryptPassword(passwordForm.newPassword)
         })
-        await request.put('/api/auth/password', params.toString(), {
+        const res = await request.put('/api/auth/password', params.toString(), {
           headers: { 'Content-Type': 'application/x-www-form-urlencoded' }
         })
-        await authApi.getMe()
+        const changed = requirePasswordChangeResult((res as any).data, userStore.userInfo?.id)
+        const confirmedProfile = await authApi.getMe()
+        if (confirmedProfile.id !== changed.userId) {
+          throw new Error('密码修改结果待确认')
+        }
         message.success('密码已修改')
         passwordForm.oldPassword = ''
         passwordForm.newPassword = ''
@@ -282,6 +286,30 @@ function requireProfileUser(payload: unknown) {
     nickname: record.nickname,
     avatar: typeof record.avatar === 'string' ? record.avatar : '',
     role: record.role
+  }
+}
+
+function requirePasswordChangeResult(payload: unknown, expectedUserId?: number) {
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
+    throw new Error('密码修改结果待确认')
+  }
+  const record = payload as Record<string, unknown>
+  const userId = Number(record.userId)
+  if (!Number.isFinite(userId) || userId <= 0) {
+    throw new Error('密码修改结果待确认')
+  }
+  if (expectedUserId && userId !== expectedUserId) {
+    throw new Error('密码修改结果待确认')
+  }
+  if (record.changed !== true) {
+    throw new Error('密码修改结果待确认')
+  }
+  if (typeof record.updatedAt !== 'string' || !record.updatedAt.trim()) {
+    throw new Error('密码修改结果待确认')
+  }
+  return {
+    userId,
+    updatedAt: record.updatedAt
   }
 }
 
