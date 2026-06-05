@@ -202,10 +202,21 @@ function previewFile(item: any) {
 
 async function handleDelete(item: any) {
   try {
+    const previousFileCount = typeof stats.value?.fileCount === 'number' ? stats.value.fileCount : null
+    const previousTotalSize = typeof stats.value?.totalSize === 'number' ? stats.value.totalSize : null
     await request.delete('/api/admin/files', { params: { path: item.relativePath } })
-    await loadFiles(currentPath.value)
+    await Promise.all([loadFiles(currentPath.value), loadStats()])
     if (items.value?.some(entry => entry.relativePath === item.relativePath)) {
       throw new Error('文件删除结果待确认')
+    }
+    if (statsLoadState.value !== 'ready') {
+      throw new Error('文件统计待确认')
+    }
+    if (!item.isDir && previousFileCount !== null && typeof stats.value?.fileCount === 'number' && stats.value.fileCount >= previousFileCount) {
+      throw new Error('文件删除结果待确认')
+    }
+    if (!item.isDir && previousTotalSize !== null && typeof stats.value?.totalSize === 'number' && stats.value.totalSize > previousTotalSize) {
+      throw new Error('文件统计待确认')
     }
     message.success('已删除')
   } catch (err: any) { message.error(err.message || '删除失败') }

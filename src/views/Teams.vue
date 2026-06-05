@@ -242,6 +242,14 @@ async function loadTeams() {
   }
 }
 
+function syncSelectedTeamFromStore() {
+  if (!selectedTeam.value) {
+    return
+  }
+  const refreshed = teamStore.teams.find(team => team.id === selectedTeam.value?.id) || null
+  selectedTeam.value = refreshed
+}
+
 async function loadMembers(teamId: number) {
   membersLoading.value = true
   membersReady.value = false
@@ -296,9 +304,13 @@ const handleTeamAction = (key: string, team: Team) => {
       negativeText: '取消',
       onPositiveClick: async () => {
         try {
+          const deletingTeamId = team.id
           await teamStore.deleteTeam(team.id)
-          if (selectedTeam.value?.id === team.id) selectedTeam.value = null
+          if (selectedTeam.value?.id === deletingTeamId) selectedTeam.value = null
           membersReady.value = false
+          if (teamStore.teams.some(item => item.id === deletingTeamId)) {
+            throw new Error('团队解散结果待确认')
+          }
           message.success('团队已解散')
         } catch (err: any) {
           message.error(err.message || '解散失败')
@@ -331,16 +343,25 @@ const handleInviteMember = async () => {
     const invitedUsername = inviteForm.value.username.trim()
     const invitedRole = inviteForm.value.role
     const selectedTeamId = selectedTeam.value.id
+    const previousMemberCount = teamStore.teams.find(team => team.id === selectedTeamId)?.memberCount
     const invitedRes = await teamApi.inviteMember({ teamId: selectedTeam.value.id, username: invitedUsername, role: inviteForm.value.role })
     const invitedMember = (invitedRes as any).data
     if (!invitedMember || typeof invitedMember !== 'object' || Array.isArray(invitedMember)) {
       throw new Error('邀请结果待确认')
     }
-    await loadMembers(selectedTeamId)
+    await Promise.all([loadMembers(selectedTeamId), loadTeams()])
     const matchedMember = teamStore.currentMembers.find(member => member.username === invitedUsername)
     if (!matchedMember || matchedMember.teamId !== selectedTeamId || matchedMember.role !== invitedRole || !Number.isFinite(matchedMember.userId) || matchedMember.userId <= 0) {
       throw new Error('邀请结果待确认')
     }
+    const refreshedTeam = teamStore.teams.find(team => team.id === selectedTeamId)
+    if (!refreshedTeam) {
+      throw new Error('邀请结果待确认')
+    }
+    if (typeof previousMemberCount === 'number' && typeof refreshedTeam.memberCount === 'number' && refreshedTeam.memberCount < previousMemberCount + 1) {
+      throw new Error('邀请结果待确认')
+    }
+    syncSelectedTeamFromStore()
     inviteForm.value = { username: '', role: 'member' }
     showInviteModal.value = false
     message.success('邀请成功！')
@@ -357,11 +378,21 @@ const handleRemoveMember = async (member: any) => {
     negativeText: '取消',
     onPositiveClick: async () => {
       try {
-        await teamApi.removeMember(selectedTeam.value!.id, member.userId)
-        await loadMembers(selectedTeam.value!.id)
+        const selectedTeamId = selectedTeam.value!.id
+        const previousMemberCount = teamStore.teams.find(team => team.id === selectedTeamId)?.memberCount
+        await teamApi.removeMember(selectedTeamId, member.userId)
+        await Promise.all([loadMembers(selectedTeamId), loadTeams()])
         if (teamStore.currentMembers.some(item => item.userId === member.userId)) {
           throw new Error('成员移除结果待确认')
         }
+        const refreshedTeam = teamStore.teams.find(team => team.id === selectedTeamId)
+        if (!refreshedTeam) {
+          throw new Error('成员移除结果待确认')
+        }
+        if (typeof previousMemberCount === 'number' && typeof refreshedTeam.memberCount === 'number' && refreshedTeam.memberCount > Math.max(0, previousMemberCount - 1)) {
+          throw new Error('成员移除结果待确认')
+        }
+        syncSelectedTeamFromStore()
         message.success(`已移除 ${memberDisplayName(member)}`)
       } catch (err: any) {
         message.error(err.message || '移除失败')
