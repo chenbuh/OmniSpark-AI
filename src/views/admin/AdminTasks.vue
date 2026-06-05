@@ -128,8 +128,8 @@ async function loadTaskMeta() {
     taskStatuses.value = Array.isArray(data.statuses) ? data.statuses : []
     taskTypes.value = Array.isArray(data.taskTypes) ? data.taskTypes : []
   } catch {
-    taskStatuses.value = ['pending', 'running', 'success', 'failed']
-    taskTypes.value = ['image', 'video']
+    taskStatuses.value = []
+    taskTypes.value = []
   }
 }
 
@@ -149,7 +149,35 @@ async function loadTasks() {
     const data = (res as any).data || {}
     tasks.value = data.records || []
     total.value = data.total || 0
+    mergeTaskMetaFromRecords(tasks.value)
   } catch (err: any) { tasks.value = []; message.error(err.message || '加载任务失败') }
+}
+
+function mergeTaskMetaFromRecords(records: any[]) {
+  const statusSet = new Set(taskStatuses.value)
+  const typeSet = new Set(taskTypes.value)
+  records.forEach(record => {
+    const status = typeof record?.status === 'string' ? record.status.trim() : ''
+    const taskType = typeof record?.taskType === 'string' ? record.taskType.trim() : ''
+    if (status) statusSet.add(status)
+    if (taskType) typeSet.add(taskType)
+  })
+  taskStatuses.value = Array.from(statusSet).sort((left, right) => taskStatusOrder(left) - taskStatusOrder(right) || left.localeCompare(right))
+  taskTypes.value = Array.from(typeSet).sort((left, right) => taskTypeOrder(left) - taskTypeOrder(right) || left.localeCompare(right))
+}
+
+function taskStatusOrder(status: string) {
+  if (status === 'pending') return 0
+  if (status === 'running') return 1
+  if (status === 'success') return 2
+  if (status === 'failed') return 3
+  return 99
+}
+
+function taskTypeOrder(taskType: string) {
+  if (taskType === 'image') return 0
+  if (taskType === 'video') return 1
+  return 99
 }
 
 async function handleDelete(id: number) {
