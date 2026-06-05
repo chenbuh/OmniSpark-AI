@@ -7,13 +7,16 @@
 
     <n-card class="glass-card" :bordered="false">
       <div class="toolbar">
-        <span class="count">共 {{ tasks.length }} 个任务</span>
+        <span class="count">共 {{ tasksCountDisplay }} 个任务</span>
         <n-button type="primary" size="small" @click="openCreate">
           <template #icon><Plus /></template>新建任务
         </n-button>
       </div>
 
-      <n-table :single-line="false" class="admin-table">
+      <div v-if="loadingTasks && tasks === null" class="loading-box">
+        <n-spin size="small" />
+      </div>
+      <n-table v-else :single-line="false" class="admin-table">
         <thead>
           <tr>
             <th style="width:50px">ID</th>
@@ -28,7 +31,7 @@
           </tr>
         </thead>
         <tbody>
-          <tr v-for="t in tasks" :key="t.id">
+          <tr v-for="t in tasks || []" :key="t.id">
             <td><code>#{{ t.id }}</code></td>
             <td>{{ t.name }}</td>
             <td><n-ellipsis :line-clamp="1">{{ t.description }}</n-ellipsis></td>
@@ -53,6 +56,12 @@
                 </n-button>
               </n-space>
             </td>
+          </tr>
+          <tr v-if="tasks !== null && tasks.length === 0">
+            <td colspan="9" class="empty-cell">暂无定时任务</td>
+          </tr>
+          <tr v-else-if="tasks === null">
+            <td colspan="9" class="empty-cell">定时任务数据待确认，请稍后重试。</td>
           </tr>
         </tbody>
       </n-table>
@@ -102,13 +111,14 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, onMounted } from 'vue'
+import { computed, ref, reactive, onMounted } from 'vue'
 import { useMessage } from 'naive-ui'
 import { Plus, Play, Edit3, Trash2 } from 'lucide-vue-next'
 import request, { clearCache } from '@/api/request'
 
 const message = useMessage()
-const tasks = ref<any[]>([])
+const loadingTasks = ref(true)
+const tasks = ref<any[] | null>(null)
 const runningId = ref<number | null>(null)
 const showEditor = ref(false)
 const editingId = ref<number | null>(null)
@@ -117,6 +127,7 @@ const form = reactive({
   name: '', description: '', taskType: 'cleanup', cron: '0 0 3 * * ?'
 })
 const cleanupDays = ref(30)
+const tasksCountDisplay = computed(() => tasks.value === null ? '-' : tasks.value.length)
 
 const typeOptions = [
   { label: '数据清理', value: 'cleanup' }
@@ -126,7 +137,15 @@ onMounted(load)
 
 async function load() {
   clearCache('scheduled-tasks')
-  try { const res = await request.get('/api/admin/scheduled-tasks', { headers: { 'x-no-cache': '1' } }); tasks.value = (res as any).data || [] } catch {}
+  loadingTasks.value = true
+  try {
+    const res = await request.get('/api/admin/scheduled-tasks', { headers: { 'x-no-cache': '1' } })
+    tasks.value = (res as any).data || []
+  } catch {
+    tasks.value = null
+  } finally {
+    loadingTasks.value = false
+  }
 }
 
 function openCreate() {
@@ -177,12 +196,12 @@ async function handleSave() {
 }
 
 async function handleDelete(id: number) {
-  try { await request.delete(`/api/admin/scheduled-tasks/${id}`); tasks.value = tasks.value.filter(t => t.id !== id); message.success('已删除') }
+  try { await request.delete(`/api/admin/scheduled-tasks/${id}`); tasks.value = tasks.value?.filter(t => t.id !== id) || []; message.success('已删除') }
   catch (err: any) { message.error(err.message || '删除失败') }
 }
 
 async function handleToggle(id: number) {
-  const task = tasks.value.find(item => item.id === id)
+  const task = tasks.value?.find(item => item.id === id)
   if (normalizeBinaryStatus(task?.enabled) === null) {
     message.error('定时任务状态尚未明确，暂时无法切换')
     return
@@ -214,6 +233,8 @@ async function handleRunNow(id: number) {
 .subtitle { font-size: 13px; color: var(--text-muted); margin: 0; }
 .glass-card { background: rgba(15,23,42,0.4) !important; backdrop-filter: blur(16px); border: 1px solid var(--border-color) !important; border-radius: 16px !important; }
 .toolbar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
+.loading-box { display: flex; justify-content: center; padding: 24px 0; }
 .count { font-size: 12px; color: var(--text-muted); }
 .cron-hint { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; font-size: 12px; color: var(--text-muted); margin-bottom: 10px; }
+.empty-cell { text-align: center; padding: 24px !important; color: var(--text-muted); }
 </style>

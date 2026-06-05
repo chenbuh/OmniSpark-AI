@@ -8,18 +8,21 @@
     <!-- 新建按钮 -->
     <n-card class="glass-card" :bordered="false">
       <div class="toolbar">
-        <span class="count">共 {{ list.length }} 条公告</span>
+        <span class="count">共 {{ listCountDisplay }} 条公告</span>
         <n-button type="primary" @click="showEditor = true; editingId = null; Object.assign(form, { title: '', content: '', priority: 'normal' })">
           <template #icon><Plus /></template>新建公告
         </n-button>
       </div>
 
-      <n-table :single-line="false" class="admin-table">
+      <div v-if="loadingList && list === null" class="loading-box">
+        <n-spin size="small" />
+      </div>
+      <n-table v-else :single-line="false" class="admin-table">
         <thead>
           <tr><th style="width:60px">ID</th><th>标题</th><th style="width:80px">优先级</th><th style="width:80px">状态</th><th style="width:200px">操作</th></tr>
         </thead>
         <tbody>
-          <tr v-for="a in list" :key="a.id">
+          <tr v-for="a in list || []" :key="a.id">
             <td><code>#{{ a.id }}</code></td>
             <td>{{ a.title }}</td>
             <td><n-tag size="small" :type="a.priority === 'high' ? 'error' : a.priority === 'normal' ? 'info' : 'default'">{{ a.priority }}</n-tag></td>
@@ -33,6 +36,12 @@
                 <n-button size="tiny" type="error" tertiary @click="handleDelete(a.id)">删除</n-button>
               </n-space>
             </td>
+          </tr>
+          <tr v-if="list !== null && list.length === 0">
+            <td colspan="5" class="empty-cell">暂无公告</td>
+          </tr>
+          <tr v-else-if="list === null">
+            <td colspan="5" class="empty-cell">公告数据待确认，请稍后重试。</td>
           </tr>
         </tbody>
       </n-table>
@@ -59,21 +68,31 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, onMounted } from 'vue'
+import { computed, ref, reactive, onMounted } from 'vue'
 import { useMessage } from 'naive-ui'
 import { Plus } from 'lucide-vue-next'
 import request from '@/api/request'
 
 const message = useMessage()
-const list = ref<any[]>([])
+const loadingList = ref(true)
+const list = ref<any[] | null>(null)
 const showEditor = ref(false)
 const editingId = ref<number | null>(null)
 const form = reactive({ title: '', content: '', priority: 'normal' })
+const listCountDisplay = computed(() => list.value === null ? '-' : list.value.length)
 
 onMounted(load)
 
 async function load() {
-  try { const res = await request.get('/api/admin/announcements'); list.value = (res as any).data || [] } catch {}
+  loadingList.value = true
+  try {
+    const res = await request.get('/api/admin/announcements')
+    list.value = (res as any).data || []
+  } catch {
+    list.value = null
+  } finally {
+    loadingList.value = false
+  }
 }
 
 function editAnnouncement(a: any) {
@@ -99,7 +118,7 @@ async function handleToggle(id: number) {
 }
 
 async function handleDelete(id: number) {
-  try { await request.delete(`/api/admin/announcements/${id}`); list.value = list.value.filter(a => a.id !== id); message.success('已删除') }
+  try { await request.delete(`/api/admin/announcements/${id}`); list.value = list.value?.filter(a => a.id !== id) || []; message.success('已删除') }
   catch { message.error('删除失败') }
 }
 
@@ -117,8 +136,10 @@ function normalizeBinaryStatus(value: unknown): boolean | null {
 .subtitle { font-size: 13px; color: #9ca3af; margin: 0; }
 .glass-card { background: rgba(15,23,42,0.4) !important; backdrop-filter: blur(16px); border: 1px solid rgba(255,255,255,0.08) !important; border-radius: 16px !important; }
 .toolbar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
+.loading-box { display: flex; justify-content: center; padding: 24px 0; }
 .count { font-size: 12px; color: #9ca3af; }
 .admin-table { background: transparent !important; }
 .admin-table th { background: rgba(255,255,255,0.02) !important; color: #9ca3af !important; border-bottom: 1px solid rgba(255,255,255,0.06) !important; font-size: 12px; }
 .admin-table td { border-bottom: 1px solid rgba(255,255,255,0.04) !important; color: #e5e7eb; padding: 8px; font-size: 13px; }
+.empty-cell { text-align: center; padding: 24px !important; color: #9ca3af; }
 </style>

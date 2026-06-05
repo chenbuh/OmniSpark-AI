@@ -7,6 +7,10 @@
       <template #header>{{ announcement.title }}</template>
       {{ announcement.content }}
     </n-alert>
+    <n-alert v-else-if="announcementLoadFailed" type="warning" closable class="dashboard-announcement" style="margin-bottom:16px;">
+      <template #header>公告待确认</template>
+      当前无法确认系统公告，请稍后重试。
+    </n-alert>
 
     <div class="welcome-header">
       <div class="welcome-copy">
@@ -174,7 +178,7 @@
       <!-- 热门提示词 -->
       <n-col :span="8">
         <n-card title="热门提示词" class="glass-card panel-card templates-panel" :bordered="false">
-          <div class="templates-list">
+          <div v-if="recommendedTemplates && recommendedTemplates.length > 0" class="templates-list">
             <div
               v-for="tpl in recommendedTemplates"
               :key="tpl.id"
@@ -188,6 +192,8 @@
               <p class="tpl-content">{{ tpl.content }}</p>
             </div>
           </div>
+          <n-empty v-else-if="recommendedTemplates !== null" description="暂无热门提示词" style="padding: 20px 0;" />
+          <n-empty v-else description="热门提示词待确认，请稍后重试。" style="padding: 20px 0;" />
         </n-card>
       </n-col>
     </n-row>
@@ -226,7 +232,8 @@ const assetStore = useAssetStore()
 
 const loading = ref(true)
 const announcement = ref<any>(null)
-const recommendedTemplates = ref<PromptTemplate[]>([])
+const announcementLoadFailed = ref(false)
+const recommendedTemplates = ref<PromptTemplate[] | null>(null)
 let dashboardContext: gsap.Context | null = null
 let dashboardMatchMedia: gsap.MatchMedia | null = null
 
@@ -582,15 +589,25 @@ const setupDashboardMotion = async () => {
 
 onMounted(async () => {
   try {
-    const [tplRes, annRes] = await Promise.all([
+    const [tplResult, annResult] = await Promise.allSettled([
       templateApi.getTemplates({ projectId: projectStore.activeProjectId, sort: 'likes', page: 1, pageSize: 3 }),
       request.get('/api/announcements/active')
     ])
-    recommendedTemplates.value = tplRes.data?.records || []
-    const anns = (annRes as any).data || []
-    announcement.value = anns.length > 0 ? anns[0] : null
-  } catch (e) {
-    console.error(e)
+    if (tplResult.status === 'fulfilled') {
+      recommendedTemplates.value = tplResult.value.data?.records || []
+    } else {
+      recommendedTemplates.value = null
+      console.error(tplResult.reason)
+    }
+    if (annResult.status === 'fulfilled') {
+      const anns = (annResult.value as any).data || []
+      announcement.value = anns.length > 0 ? anns[0] : null
+      announcementLoadFailed.value = false
+    } else {
+      announcement.value = null
+      announcementLoadFailed.value = true
+      console.error(annResult.reason)
+    }
   } finally {
     loading.value = false
     void setupDashboardMotion()
@@ -602,6 +619,7 @@ watch(() => projectStore.activeProjectId, async () => {
     const res = await templateApi.getTemplates({ projectId: projectStore.activeProjectId, sort: 'likes', page: 1, pageSize: 3 })
     recommendedTemplates.value = res.data?.records || []
   } catch (e) {
+    recommendedTemplates.value = null
     console.error(e)
   }
   void animateMetricRefresh()
@@ -622,7 +640,7 @@ watch(
 )
 
 watch(
-  () => recommendedTemplates.value.map(item => item.id).join(':'),
+  () => (recommendedTemplates.value || []).map(item => item.id).join(':'),
   () => {
     void animateTemplateRefresh()
   }

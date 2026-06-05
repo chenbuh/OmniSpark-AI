@@ -44,7 +44,7 @@
             </div>
             <div class="summary-item">
               <span class="summary-label">登录记录</span>
-              <span class="summary-value">{{ loginLogs.length }} 条</span>
+              <span class="summary-value">{{ loginLogsCountLabel }}</span>
             </div>
             <div class="summary-item">
               <span class="summary-label">最近登录时间</span>
@@ -100,7 +100,7 @@
     <!-- 登录历史 -->
     <n-card title="登录历史" class="glass-card" :bordered="false" style="margin-top:20px;">
       <template #header-extra>
-        <span class="count" v-if="!loadingLogs">共 {{ loginLogs.length }} 条</span>
+        <span class="count" v-if="!loadingLogs">共 {{ loginLogsCountLabel }}</span>
       </template>
 
       <template v-if="loadingLogs">
@@ -117,10 +117,11 @@
               <td><n-ellipsis :line-clamp="1" :tooltip="true">{{ log.userAgent || '-' }}</n-ellipsis></td>
               <td>{{ formatFull(log.createdAt) }}</td>
             </tr>
-            <tr v-if="pagedLogs.length === 0"><td colspan="3" class="empty-cell">暂无登录记录</td></tr>
+            <tr v-if="loginLogs !== null && pagedLogs.length === 0"><td colspan="3" class="empty-cell">暂无登录记录</td></tr>
+            <tr v-else-if="loginLogs === null"><td colspan="3" class="empty-cell">登录记录待确认，请稍后重试。</td></tr>
           </tbody>
         </n-table>
-        <div class="pagination-wrap" v-if="loginLogs.length > logPageSize">
+        <div class="pagination-wrap" v-if="(loginLogs?.length || 0) > logPageSize">
           <n-pagination
             v-model:page="logPage"
             :page-count="logPageCount"
@@ -232,19 +233,20 @@ async function handleChangePassword() {
 
 
 // ===== 登录历史 =====
-const loginLogs = ref<any[]>([])
+const loginLogs = ref<any[] | null>(null)
 const loadingLogs = ref(true)
 const logPage = ref(1)
 const logPageSize = 8
 
-const logPageCount = computed(() => Math.max(1, Math.ceil(loginLogs.value.length / logPageSize)))
+const logPageCount = computed(() => Math.max(1, Math.ceil((loginLogs.value?.length || 0) / logPageSize)))
 const pagedLogs = computed(() => {
   const start = (logPage.value - 1) * logPageSize
-  return loginLogs.value.slice(start, start + logPageSize)
+  return (loginLogs.value || []).slice(start, start + logPageSize)
 })
-const latestLoginLog = computed(() => loginLogs.value[0] || null)
+const latestLoginLog = computed(() => loginLogs.value?.[0] || null)
+const loginLogsCountLabel = computed(() => loginLogs.value === null ? '-' : `${loginLogs.value.length} 条`)
 const latestLoginTime = computed(() => formatFull(latestLoginLog.value?.createdAt || ''))
-const latestLoginIp = computed(() => latestLoginLog.value?.ip || '-')
+const latestLoginIp = computed(() => latestLoginLog.value ? (latestLoginLog.value.ip || '-') : (loginLogs.value === null ? '待确认' : '-'))
 
 function getLogTimestamp(dateStr: string): number {
   const timestamp = Date.parse(String(dateStr || ''))
@@ -258,7 +260,9 @@ onMounted(async () => {
     const logsRes = await request.get('/api/auth/login-logs?limit=100')
     const logs = Array.isArray((logsRes as any).data) ? (logsRes as any).data : []
     loginLogs.value = [...logs].sort((a, b) => getLogTimestamp(b?.createdAt) - getLogTimestamp(a?.createdAt))
-  } catch {} finally {
+  } catch {
+    loginLogs.value = null
+  } finally {
     loadingLogs.value = false
   }
 })

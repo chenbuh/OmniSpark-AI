@@ -7,18 +7,21 @@
 
     <n-card class="glass-card" :bordered="false">
       <div class="toolbar">
-        <span class="count">共 {{ list.length }} 个 Webhook</span>
+        <span class="count">共 {{ listCountDisplay }} 个 Webhook</span>
         <n-button type="primary" @click="openCreateEditor">
           <template #icon><Plus /></template>新建
         </n-button>
       </div>
 
-      <n-table :single-line="false" class="admin-table">
+      <div v-if="loadingList && list === null" class="loading-box">
+        <n-spin size="small" />
+      </div>
+      <n-table v-else :single-line="false" class="admin-table">
         <thead>
           <tr><th style="width:60px">ID</th><th>名称</th><th>URL</th><th style="width:140px">事件</th><th style="width:80px">状态</th><th style="width:140px">操作</th></tr>
         </thead>
         <tbody>
-          <tr v-for="w in list" :key="w.id">
+          <tr v-for="w in list || []" :key="w.id">
             <td><code>#{{ w.id }}</code></td>
             <td>{{ w.name }}</td>
             <td><n-ellipsis :line-clamp="1" :tooltip="true" style="max-width:300px;">{{ w.url }}</n-ellipsis></td>
@@ -33,6 +36,12 @@
                 <n-button size="tiny" type="error" tertiary @click="handleDelete(w.id)">删除</n-button>
               </n-space>
             </td>
+          </tr>
+          <tr v-if="list !== null && list.length === 0">
+            <td colspan="6" class="empty-cell">暂无 Webhook</td>
+          </tr>
+          <tr v-else-if="list === null">
+            <td colspan="6" class="empty-cell">Webhook 数据待确认，请稍后重试。</td>
           </tr>
         </tbody>
       </n-table>
@@ -68,12 +77,14 @@ import { Plus } from 'lucide-vue-next'
 import request from '@/api/request'
 
 const message = useMessage()
-const list = ref<any[]>([])
+const loadingList = ref(true)
+const list = ref<any[] | null>(null)
 const showEditor = ref(false)
 const editingId = ref<number | null>(null)
 const eventOptions = ref<{ label: string; value: string }[]>([])
 const form = reactive({ name: '', url: '', events: [] as string[], secret: '' })
 const eventLabelMap = computed(() => Object.fromEntries(eventOptions.value.map(item => [item.value, item.label])))
+const listCountDisplay = computed(() => list.value === null ? '-' : list.value.length)
 
 onMounted(async () => {
   await loadEventOptions()
@@ -81,8 +92,17 @@ onMounted(async () => {
 })
 
 async function load() {
-  try { const res = await request.get('/api/admin/webhooks'); list.value = (res as any).data || [] }
-  catch (err: any) { message.error(err.message || '加载 Webhook 列表失败') }
+  loadingList.value = true
+  try {
+    const res = await request.get('/api/admin/webhooks')
+    list.value = (res as any).data || []
+  }
+  catch (err: any) {
+    list.value = null
+    message.error(err.message || '加载 Webhook 列表失败')
+  } finally {
+    loadingList.value = false
+  }
 }
 
 async function loadEventOptions() {
@@ -166,7 +186,7 @@ async function toggleStatus(w: any) {
 }
 
 async function handleDelete(id: number) {
-  try { await request.delete(`/api/admin/webhooks/${id}`); list.value = list.value.filter(w => w.id !== id); message.success('已删除') }
+  try { await request.delete(`/api/admin/webhooks/${id}`); list.value = list.value?.filter(w => w.id !== id) || []; message.success('已删除') }
   catch { message.error('删除失败') }
 }
 
@@ -184,8 +204,10 @@ function normalizeBinaryStatus(value: unknown): boolean | null {
 .subtitle { font-size: 13px; color: #9ca3af; margin: 0; }
 .glass-card { background: rgba(15,23,42,0.4) !important; backdrop-filter: blur(16px); border: 1px solid rgba(255,255,255,0.08) !important; border-radius: 16px !important; }
 .toolbar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
+.loading-box { display: flex; justify-content: center; padding: 24px 0; }
 .count { font-size: 12px; color: #9ca3af; }
 .admin-table { background: transparent !important; }
 .admin-table th { background: rgba(255,255,255,0.02) !important; color: #9ca3af !important; border-bottom: 1px solid rgba(255,255,255,0.06) !important; font-size: 12px; }
 .admin-table td { border-bottom: 1px solid rgba(255,255,255,0.04) !important; color: #e5e7eb; padding: 8px; font-size: 13px; }
+.empty-cell { text-align: center; padding: 24px !important; color: #9ca3af; }
 </style>
