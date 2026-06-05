@@ -74,14 +74,14 @@
           <div class="card-inner">
             <div class="text-group">
               <span class="label">任务生成成功率</span>
-              <span class="value">98.4%</span>
+              <span class="value">{{ successRateLabel }}</span>
             </div>
             <div class="icon-box green">
               <CheckCircle class="stat-icon" />
             </div>
           </div>
           <div class="asset-details-text success">
-            今日生成任务正常运行中，暂无积压
+            {{ successRateHint }}
           </div>
         </n-card>
       </n-col>
@@ -235,16 +235,53 @@ const currentAssets = computed(() => {
   return assetStore.getAssetsByProject(projectStore.activeProjectId)
 })
 
+const currentProjectTasks = computed(() => {
+  return taskStore.getTasksByProject(projectStore.activeProjectId)
+})
+
 // 获取最近的 3 个任务
 const recentTasks = computed(() => {
-  return [...taskStore.getTasksByProject(projectStore.activeProjectId)]
+  return [...currentProjectTasks.value]
     .sort((a, b) => Date.parse(String(b.createdAt || '').replace(' ', 'T')) - Date.parse(String(a.createdAt || '').replace(' ', 'T')))
     .slice(0, 3)
 })
 
 // 获取当前处于进行中（排队或运行）的任务数
 const activeTasksCount = computed(() => {
-  return taskStore.getTasksByProject(projectStore.activeProjectId).filter(t => t.status === 'pending' || t.status === 'running').length
+  return currentProjectTasks.value.filter(t => t.status === 'pending' || t.status === 'running').length
+})
+
+const completedTasks = computed(() => {
+  return currentProjectTasks.value.filter(t => t.status === 'success' || t.status === 'failed')
+})
+
+const successTasksCount = computed(() => {
+  return completedTasks.value.filter(t => t.status === 'success').length
+})
+
+const failedTasksCount = computed(() => {
+  return completedTasks.value.filter(t => t.status === 'failed').length
+})
+
+const successRateLabel = computed(() => {
+  const total = completedTasks.value.length
+  if (total === 0) {
+    return '--'
+  }
+  return `${((successTasksCount.value / total) * 100).toFixed(1)}%`
+})
+
+const successRateHint = computed(() => {
+  const total = completedTasks.value.length
+  if (total === 0) {
+    return activeTasksCount.value > 0
+      ? `当前空间已有 ${activeTasksCount.value} 个任务进行中，待完成后展示真实成功率`
+      : '当前空间还没有已完成任务，生成后会展示真实成功率'
+  }
+  if (activeTasksCount.value > 0) {
+    return `已完成 ${total} 个任务，成功 ${successTasksCount.value} 个，当前还有 ${activeTasksCount.value} 个任务进行中`
+  }
+  return `已完成 ${total} 个任务，成功 ${successTasksCount.value} 个，失败 ${failedTasksCount.value} 个`
 })
 
 const taskStatusLabel = (status: string) => {
