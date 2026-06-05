@@ -32,10 +32,10 @@
           <tr v-for="t in tasks" :key="t.id">
             <td><code>#{{ t.id }}</code></td>
             <td>{{ t.projectId }}</td>
-            <td><n-tag size="small" :type="t.taskType==='image'?'success':'warning'" round>{{ t.taskType==='image'?'生图':'视频' }}</n-tag></td>
+            <td><n-tag size="small" :type="taskTypeTagType(t.taskType)" round>{{ taskTypeLabel(t.taskType) }}</n-tag></td>
             <td><n-ellipsis :line-clamp="1" :tooltip="true">{{ t.prompt }}</n-ellipsis></td>
             <td><n-tag size="mini" type="info" :bordered="false"><code>{{ t.modelName }}</code></n-tag></td>
-            <td><n-tag size="small" :type="t.status==='success'?'success':t.status==='failed'?'error':'warning'">{{ t.status }}</n-tag></td>
+            <td><n-tag size="small" :type="statusTagType(t.status)">{{ statusLabel(t.status) }}</n-tag></td>
             <td>{{ t.progress }}%</td>
             <td>
               <n-space :size="4">
@@ -58,11 +58,11 @@
         <div v-if="detail" class="drawer-body">
           <div class="ds-card">
             <div class="ds-row"><span class="ds-lbl">状态</span>
-              <n-tag :type="detail.status==='success'?'success':detail.status==='failed'?'error':'warning'" round>{{ detail.status }}</n-tag>
+              <n-tag :type="statusTagType(detail.status)" round>{{ statusLabel(detail.status) }}</n-tag>
             </div>
             <div class="ds-row"><span class="ds-lbl">进度</span><span>{{ detail.progress }}%</span></div>
             <div class="ds-row" v-if="detail.progressText"><span class="ds-lbl">进度描述</span><span class="ds-val">{{ detail.progressText }}</span></div>
-            <div class="ds-row"><span class="ds-lbl">类型</span><span>{{ detail.taskType==='image'?'文生图/图生图':'视频' }}</span></div>
+            <div class="ds-row"><span class="ds-lbl">类型</span><span>{{ taskTypeLabel(detail.taskType) }}</span></div>
             <div class="ds-row"><span class="ds-lbl">项目</span><span>项目 #{{ detail.projectId }}</span></div>
           </div>
           <div class="ds-card">
@@ -84,7 +84,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { computed, ref, onMounted } from 'vue'
 import { useMessage } from 'naive-ui'
 import { FileText, Trash2 } from 'lucide-vue-next'
 import request from '@/api/request'
@@ -99,15 +99,39 @@ const detail = ref<any>(null)
 const page = ref(1)
 const pageSize = 10
 const total = ref(0)
+const taskStatuses = ref<string[]>([])
+const taskTypes = ref<string[]>([])
 
-const statusOptions = [
-  { label: '运行中', value: 'running' }, { label: '成功', value: 'success' }, { label: '失败', value: 'failed' }
-]
-const typeOptions = [
-  { label: '生图', value: 'image' }, { label: '视频', value: 'video' }
-]
+const statusOptions = computed(() => taskStatuses.value.map(value => ({
+  label: statusLabel(value),
+  value
+})))
+const typeOptions = computed(() => taskTypes.value.map(value => ({
+  label: taskTypeLabel(value),
+  value
+})))
 
-onMounted(loadTasks)
+onMounted(async () => {
+  await loadTaskMeta()
+  await loadTasks()
+})
+
+const statusLabel = (status: string) => status === 'pending' ? '排队中' : status === 'running' ? '运行中' : status === 'success' ? '成功' : status === 'failed' ? '失败' : (status || '未知')
+const taskTypeLabel = (taskType: string) => taskType === 'image' ? '生图' : taskType === 'video' ? '视频' : (taskType || '未知类型')
+const statusTagType = (status: string) => status === 'success' ? 'success' : status === 'failed' ? 'error' : 'warning'
+const taskTypeTagType = (taskType: string) => taskType === 'image' ? 'success' : taskType === 'video' ? 'warning' : 'default'
+
+async function loadTaskMeta() {
+  try {
+    const res = await request.get('/api/admin/tasks/meta')
+    const data = (res as any).data || {}
+    taskStatuses.value = Array.isArray(data.statuses) ? data.statuses : []
+    taskTypes.value = Array.isArray(data.taskTypes) ? data.taskTypes : []
+  } catch {
+    taskStatuses.value = ['pending', 'running', 'success', 'failed']
+    taskTypes.value = ['image', 'video']
+  }
+}
 
 // 过滤条件变化时回到第 1 页再查
 function reload() {

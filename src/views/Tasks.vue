@@ -52,9 +52,9 @@
             <td><n-checkbox :checked="selectedIds.has(task.id)" @update:checked="toggleOne(task.id)" /></td>
             <td><code>#{{ String(task.id).slice(-6) }}</code></td>
             <td>
-              <n-tag :type="task.taskType==='image'?'success':'warning'" size="tiny" round>
-                <template #icon><Image v-if="task.taskType==='image'" class="t-icon" /><Video v-else class="t-icon" /></template>
-                {{ task.taskType==='image'?'生图':'视频' }}
+              <n-tag :type="taskTypeTagType(task.taskType)" size="tiny" round>
+                <template #icon><Image v-if="task.taskType==='image'" class="t-icon" /><Video v-else-if="task.taskType==='video'" class="t-icon" /></template>
+                {{ taskTypeLabel(task.taskType) }}
               </n-tag>
             </td>
             <td>
@@ -110,7 +110,7 @@
             <h4 class="section-title">基础信息</h4>
             <div class="info-grid">
               <div class="info-item"><span class="info-label">任务 ID</span><span class="info-val"><code>#{{ selectedTask.id }}</code></span></div>
-              <div class="info-item"><span class="info-label">类型</span><n-tag :type="selectedTask.taskType==='image'?'success':'warning'" size="small" round>{{ selectedTask.taskType==='image'?'文生图/图生图':'生视频' }}</n-tag></div>
+              <div class="info-item"><span class="info-label">类型</span><n-tag :type="taskTypeTagType(selectedTask.taskType)" size="small" round>{{ taskTypeLabel(selectedTask.taskType) }}</n-tag></div>
               <div class="info-item"><span class="info-label">提供商</span><span class="info-val">{{ getProviderName(selectedTask.providerId) }}</span></div>
               <div class="info-item"><span class="info-label">模型</span><n-tag size="small" type="info"><code>{{ selectedTask.modelName }}</code></n-tag></div>
               <div class="info-item"><span class="info-label">创建</span><span class="info-val">{{ String(selectedTask.createdAt||'').replace('T',' ').substring(0,19) }}</span></div>
@@ -186,10 +186,17 @@ const selectedIds = ref(new Set<number>())
 let autoTimer: ReturnType<typeof setInterval> | null = null
 let isRefreshing = false
 
-const typeOptions = [
-  { label: '全部类型', value: '' }, { label: '生图', value: 'image' }, { label: '生视频', value: 'video' }
-]
 const allSelected = computed(() => filteredTasks.value.length > 0 && filteredTasks.value.every(t => selectedIds.value.has(t.id)))
+const typeOptions = computed(() => {
+  const values = new Set(taskStore.getTasksByProject(projectStore.activeProjectId).map(task => task.taskType).filter(Boolean))
+  return [
+    { label: '全部类型', value: '' },
+    ...Array.from(values).map(value => ({
+      label: taskTypeLabel(value),
+      value
+    }))
+  ]
+})
 
 function toggleAll(val: boolean) {
   if (val) filteredTasks.value.forEach(t => selectedIds.value.add(t.id))
@@ -201,7 +208,9 @@ function toggleOne(id: number) {
 }
 
 const getProviderName = (id: number) => providerStore.providers.find(p => p.id === id)?.name || '未知'
-const statusLabel = (s: string) => s==='pending'?'排队中':s==='running'?'渲染中':s==='success'?'成功':'失败'
+const statusLabel = (s: string) => s === 'pending' ? '排队中' : s === 'running' ? '渲染中' : s === 'success' ? '成功' : s === 'failed' ? '失败' : (s || '未知')
+const taskTypeLabel = (taskType: string) => taskType === 'image' ? '生图' : taskType === 'video' ? '视频' : (taskType || '未知类型')
+const taskTypeTagType = (taskType: string) => taskType === 'image' ? 'success' : taskType === 'video' ? 'warning' : 'default'
 
 async function refresh() {
   if (isRefreshing) return

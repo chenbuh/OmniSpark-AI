@@ -1,6 +1,7 @@
 package com.example.aihub.module.system;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import cn.dev33.satoken.annotation.SaCheckLogin;
 import cn.dev33.satoken.annotation.SaCheckRole;
@@ -15,6 +16,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
+import java.util.Map;
 import java.util.stream.Collectors;
 
 @RestController
@@ -48,9 +50,51 @@ public class AdminTasksController {
         return ApiResult.ok(new PageResult<>(p.getTotal(), p.getPages(), records));
     }
 
+    @GetMapping("/meta")
+    public ApiResult<Map<String, List<String>>> meta() {
+        List<String> statuses = taskMapper.selectObjs(new QueryWrapper<GenerationTask>()
+                        .select("DISTINCT status")
+                        .isNotNull("status"))
+                .stream()
+                .map(String::valueOf)
+                .filter(value -> !value.isBlank())
+                .sorted((left, right) -> Integer.compare(statusOrder(left), statusOrder(right)))
+                .toList();
+        List<String> taskTypes = taskMapper.selectObjs(new QueryWrapper<GenerationTask>()
+                        .select("DISTINCT task_type")
+                        .isNotNull("task_type"))
+                .stream()
+                .map(String::valueOf)
+                .filter(value -> !value.isBlank())
+                .sorted((left, right) -> Integer.compare(taskTypeOrder(left), taskTypeOrder(right)))
+                .toList();
+        return ApiResult.ok(Map.of(
+                "statuses", statuses,
+                "taskTypes", taskTypes
+        ));
+    }
+
     @DeleteMapping("/{id}")
     public ApiResult<Void> delete(@PathVariable Long id) {
         generationService.adminDelete(id);
         return ApiResult.ok();
+    }
+
+    private int statusOrder(String status) {
+        return switch (status) {
+            case "pending" -> 10;
+            case "running" -> 20;
+            case "success" -> 30;
+            case "failed" -> 40;
+            default -> 100;
+        };
+    }
+
+    private int taskTypeOrder(String taskType) {
+        return switch (taskType) {
+            case "image" -> 10;
+            case "video" -> 20;
+            default -> 100;
+        };
     }
 }
