@@ -279,13 +279,15 @@ function requireProjectShare(value: unknown) {
     throw new Error('共享结果待确认')
   }
   const id = Number((value as any).id)
+  const projectId = Number((value as any).projectId)
   const teamId = Number((value as any).teamId)
   const permission = typeof (value as any).permission === 'string' ? (value as any).permission.trim() : ''
-  if (!Number.isFinite(id) || id <= 0 || !Number.isFinite(teamId) || teamId <= 0 || !permission) {
+  if (!Number.isFinite(id) || id <= 0 || !Number.isFinite(projectId) || projectId <= 0 || !Number.isFinite(teamId) || teamId <= 0 || !permission) {
     throw new Error('共享结果待确认')
   }
   return {
     id,
+    projectId,
     teamId,
     permission
   }
@@ -525,17 +527,23 @@ const handleAddShare = async () => {
   }
   if (!newShareTeamId.value || !projectStore.activeProjectId) return
   try {
+    const activeProjectId = projectStore.activeProjectId
     const shareTeamId = newShareTeamId.value
     const sharePermission = newSharePermission.value
     const res = await projectShareApi.createShare({
-      projectId: projectStore.activeProjectId,
+      projectId: activeProjectId,
       teamId: shareTeamId,
       permission: sharePermission
     })
-    requireProjectShare((res as any).data)
+    const created = requireProjectShare((res as any).data)
     await loadShares()
-    const createdShare = shares.value?.find(share => Number(share.teamId) === shareTeamId && String(share.permission) === sharePermission)
-    if (!createdShare) {
+    const createdShare = shares.value?.find(share => Number(share.id) === created.id)
+      || shares.value?.find(share =>
+        Number(share.projectId) === activeProjectId
+        && Number(share.teamId) === shareTeamId
+        && String(share.permission) === sharePermission
+      )
+    if (!createdShare || Number(createdShare.projectId) !== activeProjectId || Number(createdShare.teamId) !== shareTeamId || String(createdShare.permission) !== sharePermission) {
       throw new Error('共享结果待确认')
     }
     message.success('共享成功')
@@ -547,11 +555,14 @@ const handleAddShare = async () => {
 
 const handleUpdateShare = async (shareId: number, permission: string) => {
   try {
+    const currentShare = shares.value?.find(share => Number(share.id) === shareId)
+    const expectedProjectId = Number(currentShare?.projectId || projectStore.activeProjectId)
+    const expectedTeamId = Number(currentShare?.teamId)
     const res = await projectShareApi.updatePermission(shareId, permission)
     requireProjectShare((res as any).data)
     await loadShares()
     const updatedShare = shares.value?.find(share => Number(share.id) === shareId)
-    if (!updatedShare || String(updatedShare.permission) !== permission) {
+    if (!updatedShare || Number(updatedShare.projectId) !== expectedProjectId || Number(updatedShare.teamId) !== expectedTeamId || String(updatedShare.permission) !== permission) {
       throw new Error('共享权限待确认')
     }
     message.success('权限已更新')
