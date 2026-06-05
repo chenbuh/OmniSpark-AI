@@ -482,6 +482,34 @@ function requireAssetResult(value: unknown, action: 'upload' | 'favorite') {
   return normalized
 }
 
+function normalizeFileName(value: string) {
+  return value.trim()
+}
+
+function assertUploadedAssetMatches(
+  asset: Asset,
+  expected: { projectId: number; fileName: string; fileType: string }
+) {
+  if (asset.projectId !== expected.projectId) {
+    throw new Error('资产上传结果待确认')
+  }
+  if (normalizeFileName(asset.fileName) !== normalizeFileName(expected.fileName)) {
+    throw new Error('资产上传结果待确认')
+  }
+  if (expected.fileType.startsWith('video/')) {
+    if (asset.assetType !== 'video') {
+      throw new Error('资产上传结果待确认')
+    }
+  } else if (expected.fileType.startsWith('image/')) {
+    if (asset.assetType !== 'image' && asset.assetType !== 'reference') {
+      throw new Error('资产上传结果待确认')
+    }
+  }
+  if (!asset.fileUrl || !asset.thumbUrl) {
+    throw new Error('资产上传结果待确认')
+  }
+}
+
 function requireSubtitleResult(value: unknown, action: 'generate' | 'update' | 'voice') {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
     if (action === 'generate') throw new Error('字幕识别结果待确认')
@@ -664,7 +692,8 @@ async function handleUploadChange(event: Event) {
   const target = event.target as HTMLInputElement
   const file = target.files?.[0]
   if (!file) return
-  if (!projectStore.activeProjectId) {
+  const activeProjectId = projectStore.activeProjectId
+  if (!activeProjectId) {
     message.error('请先选择项目空间')
     target.value = ''
     return
@@ -673,19 +702,29 @@ async function handleUploadChange(event: Event) {
   uploading.value = true
   try {
     const formData = new FormData()
-    formData.append('projectId', String(projectStore.activeProjectId))
+    formData.append('projectId', String(activeProjectId))
     formData.append('file', file)
     const res = await assetApi.uploadAsset(formData)
     const uploaded = requireAssetResult((res as any).data, 'upload')
-    await assetStore.refresh({ projectId: projectStore.activeProjectId, limit: 100 })
+    assertUploadedAssetMatches(uploaded, {
+      projectId: activeProjectId,
+      fileName: file.name,
+      fileType: file.type
+    })
+    await assetStore.refresh({ projectId: activeProjectId, limit: 100 })
     assetTab.value = 'own'
-    activeTab.value = 'reference'
+    activeTab.value = uploaded.assetType
     page.value = 1
     await loadAssets()
     const refreshedAsset = assetRecords.value?.find(item => item.id === uploaded.id)
     if (!refreshedAsset) {
       throw new Error('资产上传结果待确认')
     }
+    assertUploadedAssetMatches(refreshedAsset, {
+      projectId: activeProjectId,
+      fileName: file.name,
+      fileType: file.type
+    })
     handleOpenDetail(refreshedAsset)
     message.success(`素材已上传到共享资产库: ${file.name}`)
   } catch (err: any) {

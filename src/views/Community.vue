@@ -504,11 +504,31 @@ function normalizeOptionalText(value: unknown) {
   return typeof value === 'string' ? value.trim() : ''
 }
 
+function normalizeFileName(value: string) {
+  return value.trim()
+}
+
+function assertUploadedImageAsset(asset: Asset, expected: { projectId: number; fileName: string }) {
+  if (asset.projectId !== expected.projectId) {
+    throw new Error('效果图上传结果待确认')
+  }
+  if (normalizeFileName(asset.fileName) !== normalizeFileName(expected.fileName)) {
+    throw new Error('效果图上传结果待确认')
+  }
+  if (asset.assetType !== 'image' && asset.assetType !== 'reference') {
+    throw new Error('效果图上传结果待确认')
+  }
+  if (!asset.fileUrl && !asset.thumbUrl) {
+    throw new Error('效果图地址待确认')
+  }
+}
+
 async function handleImageUpload(event: Event) {
   const target = event.target as HTMLInputElement
   const file = target.files?.[0]
   if (!file) return
-  if (!projectStore.activeProjectId) {
+  const activeProjectId = projectStore.activeProjectId
+  if (!activeProjectId) {
     message.error('请先选择一个项目空间')
     target.value = ''
     return
@@ -517,16 +537,23 @@ async function handleImageUpload(event: Event) {
   uploadingImage.value = true
   try {
     const formData = new FormData()
-    formData.append('projectId', String(projectStore.activeProjectId))
+    formData.append('projectId', String(activeProjectId))
     formData.append('file', file)
     const res = await assetApi.uploadAsset(formData)
     const uploaded = assetStore.normalizeAsset((res as any).data)
-    await assetStore.refresh({ projectId: projectStore.activeProjectId, limit: 100 })
-    const confirmedAsset = assetStore.assets.find(asset => asset.id === uploaded.id)
-    if (!confirmedAsset || !(confirmedAsset.fileUrl || confirmedAsset.thumbUrl)) {
+    assertUploadedImageAsset(uploaded, { projectId: activeProjectId, fileName: file.name })
+    await assetStore.refresh({ projectId: activeProjectId, limit: 100 })
+    const confirmedAsset = assetStore
+      .getAssetsByProject(activeProjectId)
+      .find(asset => asset.id === uploaded.id)
+    if (!confirmedAsset) {
+      throw new Error('效果图上传结果待确认')
+    }
+    assertUploadedImageAsset(confirmedAsset, { projectId: activeProjectId, fileName: file.name })
+    form.imageUrl = toRelativeUrl(confirmedAsset.fileUrl || confirmedAsset.thumbUrl)
+    if (!form.imageUrl) {
       throw new Error('效果图地址待确认')
     }
-    form.imageUrl = toRelativeUrl(confirmedAsset.fileUrl || confirmedAsset.thumbUrl)
     message.success('效果图上传成功')
   } catch (err: any) {
     message.error(err.message || '图片上传失败')

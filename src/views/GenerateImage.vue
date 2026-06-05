@@ -1365,17 +1365,23 @@ const uploadInpaintMask = async (): Promise<number | null> => {
         return
       }
       try {
-        const formData = new FormData()
-        formData.append('projectId', String(projectStore.activeProjectId))
-        formData.append('file', blob, 'mask_' + Date.now() + '.png')
-        const res = await assetApi.uploadAsset(formData)
-        const assetId = Number(res.data?.id)
-        if (assetId) {
-          inpaintMaskAssetId.value = assetId
-          resolve(assetId)
-        } else {
+        const activeProjectId = projectStore.activeProjectId
+        if (!activeProjectId) {
           resolve(null)
+          return
         }
+        const maskFileName = 'mask_' + Date.now() + '.png'
+        const formData = new FormData()
+        formData.append('projectId', String(activeProjectId))
+        formData.append('file', blob, maskFileName)
+        const res = await assetApi.uploadAsset(formData)
+        const uploaded = assetStore.normalizeAsset((res as any).data)
+        const confirmed = await confirmUploadedImageAsset(uploaded, {
+          projectId: activeProjectId,
+          fileName: maskFileName
+        })
+        inpaintMaskAssetId.value = confirmed.id
+        resolve(confirmed.id)
       } catch {
         resolve(null)
       }
@@ -1711,6 +1717,41 @@ function assetId(item: Asset | string | undefined): number | undefined {
   return item && typeof item !== 'string' ? item.id : undefined
 }
 
+function normalizeFileName(value: string) {
+  return value.trim()
+}
+
+function assertUploadedImageAsset(asset: Asset, expected: { projectId: number; fileName?: string }) {
+  if (asset.projectId !== expected.projectId) {
+    throw new Error('参考图上传结果待确认')
+  }
+  if (expected.fileName && normalizeFileName(asset.fileName) !== normalizeFileName(expected.fileName)) {
+    throw new Error('参考图上传结果待确认')
+  }
+  if (asset.assetType !== 'image' && asset.assetType !== 'reference') {
+    throw new Error('参考图上传结果待确认')
+  }
+  if (!asset.thumbUrl && !asset.fileUrl) {
+    throw new Error('参考图上传结果待确认')
+  }
+}
+
+async function confirmUploadedImageAsset(
+  uploaded: Asset,
+  expected: { projectId: number; fileName?: string }
+) {
+  assertUploadedImageAsset(uploaded, expected)
+  await assetStore.refresh({ projectId: expected.projectId, limit: 100 })
+  const confirmed = assetStore
+    .getAssetsByProject(expected.projectId)
+    .find(asset => asset.id === uploaded.id)
+  if (!confirmed) {
+    throw new Error('参考图上传结果待确认')
+  }
+  assertUploadedImageAsset(confirmed, expected)
+  return confirmed
+}
+
 // 添加参考图
 function addRefAsset(assetOrUrl: Asset | string) {
   if (selectedRefAssets.value.filter(Boolean).length >= 16) {
@@ -1755,17 +1796,21 @@ function handleDrop(e: DragEvent) {
 
 async function uploadRefFile(file: File, placeholderUrl: string) {
   try {
+    const activeProjectId = projectStore.activeProjectId
+    if (!activeProjectId) {
+      throw new Error('请先选择一个项目空间')
+    }
     const formData = new FormData()
-    formData.append('projectId', String(projectStore.activeProjectId))
+    formData.append('projectId', String(activeProjectId))
     formData.append('file', file)
     const res = await assetApi.uploadAsset(formData)
     if (!(res as any).data || typeof (res as any).data !== 'object' || Array.isArray((res as any).data)) {
       throw new Error('参考图上传结果待确认')
     }
-    const asset = assetStore.normalizeAsset((res as any).data)
-    if (!asset.id || !(asset.thumbUrl || asset.fileUrl)) {
-      throw new Error('参考图上传结果待确认')
-    }
+    const asset = await confirmUploadedImageAsset(assetStore.normalizeAsset((res as any).data), {
+      projectId: activeProjectId,
+      fileName: file.name
+    })
     // 替换对应占位的 blob URL 为真实的 asset
     const idx = selectedRefAssets.value.findIndex(a => a === placeholderUrl)
     if (idx >= 0) {

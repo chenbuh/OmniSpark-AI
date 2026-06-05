@@ -568,6 +568,25 @@ function toRelativeUrl(url: string): string {
   }
 }
 
+function normalizeFileName(value: string) {
+  return value.trim()
+}
+
+function assertPreviewAssetMatches(asset: Asset, expected: { projectId: number; fileName: string }) {
+  if (asset.projectId !== expected.projectId) {
+    throw new Error('预览图上传结果待确认')
+  }
+  if (normalizeFileName(asset.fileName) !== normalizeFileName(expected.fileName)) {
+    throw new Error('预览图上传结果待确认')
+  }
+  if (asset.assetType !== 'image' && asset.assetType !== 'reference') {
+    throw new Error('预览图上传结果待确认')
+  }
+  if (!asset.fileUrl && !asset.thumbUrl) {
+    throw new Error('预览图地址待确认')
+  }
+}
+
 function triggerUpload() {
   uploadInput.value?.click()
 }
@@ -576,6 +595,12 @@ async function handleUploadFile(e: Event) {
   const input = e.target as HTMLInputElement
   const file = input.files?.[0]
   if (!file) return
+  const activeProjectId = projectStore.activeProjectId
+  if (!activeProjectId) {
+    message.error('请先选择一个项目空间')
+    input.value = ''
+    return
+  }
   if (!file.type.startsWith('image/')) {
     message.error('请选择图片文件')
     input.value = ''
@@ -584,17 +609,20 @@ async function handleUploadFile(e: Event) {
   uploading.value = true
   try {
     const formData = new FormData()
-    formData.append('projectId', String(projectStore.activeProjectId))
+    formData.append('projectId', String(activeProjectId))
     formData.append('file', file)
     const res = await assetApi.uploadAsset(formData)
-    const fileUrl = typeof res.data?.fileUrl === 'string' ? res.data.fileUrl : ''
-    if (!fileUrl) {
-      throw new Error('预览图地址待确认')
-    }
-    form.previewUrl = toRelativeUrl(fileUrl)
-    await assetStore.refresh({ projectId: projectStore.activeProjectId })
-    if (!imageAssets.value.some(asset => asset.fileUrl.includes(form.previewUrl))) {
+    const uploaded = assetStore.normalizeAsset((res as any).data)
+    assertPreviewAssetMatches(uploaded, { projectId: activeProjectId, fileName: file.name })
+    await assetStore.refresh({ projectId: activeProjectId })
+    const confirmedAsset = imageAssets.value.find(asset => asset.id === uploaded.id)
+    if (!confirmedAsset) {
       throw new Error('预览图上传结果待确认')
+    }
+    assertPreviewAssetMatches(confirmedAsset, { projectId: activeProjectId, fileName: file.name })
+    form.previewUrl = toRelativeUrl(confirmedAsset.fileUrl || confirmedAsset.thumbUrl)
+    if (!form.previewUrl) {
+      throw new Error('预览图地址待确认')
     }
     message.success('预览图已上传')
   } catch (err: any) {
