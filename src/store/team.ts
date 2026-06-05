@@ -26,7 +26,7 @@ export const useTeamStore = defineStore('team', {
         teamId: Number(m.teamId),
         userId: Number(m.userId),
         username: m.username || '',
-        nickname: m.nickname || m.username || '',
+        nickname: m.nickname || undefined,
         avatar: m.avatar || undefined,
         role: typeof m.role === 'string' ? m.role.trim() : '',
         status: parseOptionalNumber(m.status),

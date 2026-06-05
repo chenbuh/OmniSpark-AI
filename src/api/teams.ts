@@ -17,7 +17,7 @@ export interface TeamMember {
   teamId: number
   userId: number
   username: string
-  nickname: string
+  nickname?: string
   avatar?: string
   role: string
   status: number | null

@@ -70,10 +70,10 @@
           <div class="member-list">
             <div v-for="member in filteredMembers" :key="member.id" class="member-row">
               <n-avatar round :size="36" :src="member.avatar" color="#3b82f6">
-                {{ member.nickname?.charAt(0) || '?' }}
+                {{ memberInitial(member) }}
               </n-avatar>
               <div class="member-info">
-                <span class="member-name">{{ member.nickname }}</span>
+                <span class="member-name">{{ memberDisplayName(member) }}</span>
                 <span class="member-username">@{{ member.username }}</span>
               </div>
               <n-tag :type="roleType(member.role)" size="small">{{ roleLabel(member.role) }}</n-tag>
@@ -181,11 +181,21 @@ const teamActions = [
 const filteredMembers = computed(() => {
   if (!memberSearch.value) return teamStore.currentMembers
   const q = memberSearch.value.toLowerCase()
-  return teamStore.currentMembers.filter(m => m.nickname?.toLowerCase().includes(q) || m.username?.toLowerCase().includes(q))
+  return teamStore.currentMembers.filter(m =>
+    memberDisplayName(m).toLowerCase().includes(q) || m.username?.toLowerCase().includes(q)
+  )
 })
 
 function formatMemberCount(memberCount?: number) {
   return typeof memberCount === 'number' ? `${memberCount} 成员` : '成员数待确认'
+}
+
+function memberDisplayName(member: { nickname?: string; username?: string }) {
+  return member.nickname?.trim() || member.username?.trim() || '未知成员'
+}
+
+function memberInitial(member: { nickname?: string; username?: string }) {
+  return memberDisplayName(member).charAt(0) || '?'
 }
 
 function roleType(role: string) {
@@ -268,13 +278,13 @@ const handleRemoveMember = async (member: any) => {
   if (!selectedTeam.value) return
   dialog.warning({
     title: '移除成员',
-    content: `确定将 ${member.nickname} 移出团队？`,
+    content: `确定将 ${memberDisplayName(member)} 移出团队？`,
     positiveText: '移除',
     negativeText: '取消',
     onPositiveClick: async () => {
       await teamApi.removeMember(selectedTeam.value!.id, member.userId)
       await teamStore.refreshMembers(selectedTeam.value!.id)
-      message.success(`已移除 ${member.nickname}`)
+      message.success(`已移除 ${memberDisplayName(member)}`)
     }
   })
 }
