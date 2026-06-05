@@ -171,9 +171,9 @@
         </n-card>
       </n-col>
 
-      <!-- 推荐提示词 -->
+      <!-- 热门提示词 -->
       <n-col :span="8">
-        <n-card title="灵感提示词推荐" class="glass-card panel-card templates-panel" :bordered="false">
+        <n-card title="热门提示词" class="glass-card panel-card templates-panel" :bordered="false">
           <div class="templates-list">
             <div
               v-for="tpl in recommendedTemplates"
@@ -529,7 +529,7 @@ const setupDashboardMotion = async () => {
 onMounted(async () => {
   try {
     const [tplRes, annRes] = await Promise.all([
-      templateApi.getTemplates({ projectId: projectStore.activeProjectId, page: 1, pageSize: 3 }),
+      templateApi.getTemplates({ projectId: projectStore.activeProjectId, sort: 'likes', page: 1, pageSize: 3 }),
       request.get('/api/announcements/active')
     ])
     recommendedTemplates.value = tplRes.data?.records || []
@@ -545,7 +545,7 @@ onMounted(async () => {
 
 watch(() => projectStore.activeProjectId, async () => {
   try {
-    const res = await templateApi.getTemplates({ projectId: projectStore.activeProjectId, page: 1, pageSize: 3 })
+    const res = await templateApi.getTemplates({ projectId: projectStore.activeProjectId, sort: 'likes', page: 1, pageSize: 3 })
     recommendedTemplates.value = res.data?.records || []
   } catch (e) {
     console.error(e)
