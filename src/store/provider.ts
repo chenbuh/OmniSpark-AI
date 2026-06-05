@@ -5,7 +5,7 @@ export interface ModelProvider {
   id: number
   projectId: number
   name: string
-  type: 'openai' | 'image' | 'video' | 'audio' | 'custom'
+  type: string
   baseUrl: string
   apiKey: string
   modelName: string

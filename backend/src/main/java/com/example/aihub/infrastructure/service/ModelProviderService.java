@@ -22,16 +22,50 @@ import java.net.http.HttpResponse;
 import java.time.Duration;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
+import java.util.Set;
 
 @Service
 @RequiredArgsConstructor
 public class ModelProviderService {
+    private static final String DEFAULT_PROVIDER_TYPE = "image";
+    private static final String DEFAULT_AUDIO_RESPONSE_FORMAT = "mp3";
+    private static final Set<String> SUPPORTED_PROVIDER_TYPES = Set.of("image", "video", "audio", "openai", "custom");
+    private static final Set<String> SUPPORTED_AUDIO_RESPONSE_FORMATS = Set.of("mp3", "wav", "ogg", "flac", "aac", "pcm", "opus");
+    private static final List<Map<String, String>> PROVIDER_TYPE_OPTIONS = List.of(
+            providerTypeOption("图像生成模型 (Image)", "image", "生图", "success"),
+            providerTypeOption("视频生成模型 (Video)", "video", "生视频", "warning"),
+            providerTypeOption("语音配音模型 (Audio / TTS)", "audio", "配音", "info"),
+            providerTypeOption("OpenAI 兼容接口 (OpenAI)", "openai", "OpenAI", "info"),
+            providerTypeOption("自定义复杂接口 (Custom)", "custom", "自定义", "default")
+    );
+    private static final List<Map<String, String>> AUDIO_RESPONSE_FORMAT_OPTIONS = List.of(
+            option("MP3", "mp3"),
+            option("WAV", "wav"),
+            option("OGG", "ogg"),
+            option("FLAC", "flac"),
+            option("AAC", "aac"),
+            option("PCM", "pcm"),
+            option("Opus", "opus")
+    );
+
     private final ModelProviderMapper providerMapper;
     private final ObjectMapper objectMapper;
     private final com.example.aihub.common.security.ProjectAccessGuard projectAccessGuard;
     private final HttpClient httpClient = HttpClient.newBuilder()
             .connectTimeout(Duration.ofSeconds(20))
             .build();
+
+    public Map<String, Object> meta() {
+        return Map.of(
+                "providerTypes", PROVIDER_TYPE_OPTIONS,
+                "audioResponseFormats", AUDIO_RESPONSE_FORMAT_OPTIONS,
+                "defaults", Map.of(
+                        "providerType", DEFAULT_PROVIDER_TYPE,
+                        "audioResponseFormat", DEFAULT_AUDIO_RESPONSE_FORMAT
+                )
+        );
+    }
 
     public List<ModelProviderVO> list(Long projectId, int limit) {
         LambdaQueryWrapper<ModelProvider> wrapper = new LambdaQueryWrapper<>();
@@ -191,13 +225,17 @@ public class ModelProviderService {
 
     private void validateProviderBeforeSave(ModelProvider provider) {
         provider.setName(normalizeText(provider.getName()));
-        provider.setType(normalizeText(provider.getType()));
+        provider.setType(normalizeProviderType(provider.getType()));
         provider.setBaseUrl(normalizeBaseUrl(provider.getBaseUrl()));
         provider.setApiKey(normalizeText(provider.getApiKey()));
         provider.setModelName(normalizeText(provider.getModelName()));
+        if (!SUPPORTED_PROVIDER_TYPES.contains(provider.getType())) {
+            throw new BusinessException("不支持的模型提供商类型: " + provider.getType());
+        }
         if (isBlank(provider.getBaseUrl()) || isBlank(provider.getApiKey()) || isBlank(provider.getModelName())) {
             throw new BusinessException("API Base URL、API Key 和模型名称不能为空");
         }
+        validateProviderConfig(provider);
         validateNoHtmlEndpoint(provider);
     }
 
@@ -220,6 +258,11 @@ public class ModelProviderService {
         return value == null ? null : value.trim();
     }
 
+    private String normalizeProviderType(String value) {
+        String normalized = normalizeText(value);
+        return normalized == null ? null : normalized.toLowerCase(Locale.ROOT);
+    }
+
     private String normalizeBaseUrl(String value) {
         String normalized = normalizeText(value);
         if (normalized == null || normalized.isBlank()) {
@@ -229,6 +272,28 @@ public class ModelProviderService {
             normalized = normalized.substring(0, normalized.length() - 1);
         }
         return normalized;
+    }
+
+    private void validateProviderConfig(ModelProvider provider) {
+        if (provider.getConfigJson() == null || provider.getConfigJson().isBlank()) {
+            return;
+        }
+        try {
+            JsonNode node = objectMapper.readTree(provider.getConfigJson());
+            if (!node.isObject()) {
+                throw new BusinessException("模型提供商配置必须是 JSON 对象");
+            }
+            if ("audio".equals(provider.getType())) {
+                String responseFormat = textOrNull(node, "responseFormat");
+                if (responseFormat != null && !SUPPORTED_AUDIO_RESPONSE_FORMATS.contains(responseFormat.toLowerCase(Locale.ROOT))) {
+                    throw new BusinessException("不支持的语音输出格式: " + responseFormat);
+                }
+            }
+        } catch (BusinessException ex) {
+            throw ex;
+        } catch (Exception ex) {
+            throw new BusinessException("模型提供商配置 JSON 非法");
+        }
     }
 
     private void validateNoHtmlEndpoint(ModelProvider provider) {
@@ -303,5 +368,26 @@ public class ModelProviderService {
             return "连接测试命中了 nl-api 管理页 HTML（HTTP " + statusCode + "），当前 Base URL 很可能填成了站点地址而不是 OpenAI 接口地址: " + url;
         }
         return "连接测试返回了 HTML 页面（HTTP " + statusCode + "），请确认 Base URL 指向接口而不是网站首页: " + url;
+    }
+
+    private String textOrNull(JsonNode node, String fieldName) {
+        if (node == null || !node.hasNonNull(fieldName)) {
+            return null;
+        }
+        String value = node.get(fieldName).asText();
+        return value == null || value.isBlank() ? null : value.trim();
+    }
+
+    private static Map<String, String> option(String label, String value) {
+        return Map.of("label", label, "value", value);
+    }
+
+    private static Map<String, String> providerTypeOption(String label, String value, String shortLabel, String tagType) {
+        return Map.of(
+                "label", label,
+                "value", value,
+                "shortLabel", shortLabel,
+                "tagType", tagType
+        );
     }
 }

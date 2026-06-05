@@ -1,7 +1,27 @@
 import request from './request'
 import type { ModelProvider } from '@/store/provider'
 
+export interface ProviderMetaOption {
+  label: string
+  value: string
+  shortLabel?: string
+  tagType?: string
+}
+
+export interface ProviderMetaVO {
+  providerTypes: ProviderMetaOption[]
+  audioResponseFormats: ProviderMetaOption[]
+  defaults?: {
+    providerType?: string
+    audioResponseFormat?: string
+  }
+}
+
 export const providerApi = {
+  async getMeta() {
+    return request.get('/api/model-providers/meta')
+  },
+
   // 获取模型提供商列表
   async getProviders(projectId?: number) {
     return request.get('/api/model-providers', { params: { projectId } })

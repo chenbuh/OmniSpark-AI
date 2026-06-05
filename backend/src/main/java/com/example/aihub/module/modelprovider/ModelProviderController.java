@@ -29,6 +29,11 @@ import java.util.List;
 public class ModelProviderController {
     private final ModelProviderService providerService;
 
+    @GetMapping("/meta")
+    public ApiResult<java.util.Map<String, Object>> meta() {
+        return ApiResult.ok(providerService.meta());
+    }
+
     @GetMapping
     public ApiResult<List<ModelProviderVO>> list(@RequestParam(name = "projectId", required = false) Long projectId,
                                                  @RequestParam(defaultValue = "100") int limit) {

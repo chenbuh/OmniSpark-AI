@@ -199,11 +199,11 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, computed, watch } from 'vue'
+import { ref, reactive, computed, watch, onMounted } from 'vue'
 import { useMessage } from 'naive-ui'
 import { useProjectStore } from '@/store/project'
 import { useModelProviderStore, type ModelProvider } from '@/store/provider'
-import { providerApi } from '@/api/providers'
+import { providerApi, type ProviderMetaOption, type ProviderMetaVO } from '@/api/providers'
 import { Plus, Layers } from 'lucide-vue-next'
 
 const message = useMessage()
@@ -215,10 +215,11 @@ const showModal = ref(false)
 const isEditMode = ref(false)
 const editingId = ref<number | null>(null)
 const testingId = ref<number | null>(null)
+const providerMeta = ref<ProviderMetaVO>(emptyProviderMeta())
 
 const form = reactive({
   name: '',
-  type: 'image' as 'image' | 'video' | 'audio' | 'openai' | 'custom',
+  type: 'image' as string,
   baseUrl: '',
   apiKey: '',
   modelName: '',
@@ -232,20 +233,10 @@ const form = reactive({
   instructions: ''
 })
 
-const typeOptions = [
-  { label: '图像生成模型 (Image)', value: 'image' },
-  { label: '视频生成模型 (Video)', value: 'video' },
-  { label: '语音配音模型 (Audio / TTS)', value: 'audio' },
-  { label: 'OpenAI 兼容接口 (OpenAI)', value: 'openai' },
-  { label: '自定义复杂接口 (Custom)', value: 'custom' }
-]
-
-const responseFormatOptions = [
-  { label: 'MP3', value: 'mp3' },
-  { label: 'WAV', value: 'wav' },
-  { label: 'OGG', value: 'ogg' },
-  { label: 'FLAC', value: 'flac' }
-]
+const typeOptions = computed(() => providerMeta.value.providerTypes || [])
+const responseFormatOptions = computed(() => providerMeta.value.audioResponseFormats || [])
+const defaultProviderType = computed(() => providerMeta.value.defaults?.providerType || typeOptions.value[0]?.value || 'image')
+const defaultResponseFormat = computed(() => providerMeta.value.defaults?.audioResponseFormat || responseFormatOptions.value[0]?.value || 'mp3')
 
 const currentProviders = computed(() => {
   return providerStore.getProvidersByProject(projectStore.activeProjectId)
@@ -260,20 +251,48 @@ const pagedProviders = computed(() => {
 })
 watch(() => projectStore.activeProjectId, () => { page.value = 1 })
 
+function emptyProviderMeta(): ProviderMetaVO {
+  return {
+    providerTypes: [],
+    audioResponseFormats: [],
+    defaults: {}
+  }
+}
+
+function getTypeMeta(type: string) {
+  return typeOptions.value.find(option => option.value === type)
+}
+
 const getTypeTag = (type: string) => {
-  if (type === 'image') return 'success'
-  if (type === 'video') return 'warning'
-  if (type === 'audio') return 'info'
-  if (type === 'openai') return 'info'
-  return 'default'
+  return getTypeMeta(type)?.tagType || 'default'
 }
 
 const getTypeLabel = (type: string) => {
-  if (type === 'image') return '生图'
-  if (type === 'video') return '生视频'
-  if (type === 'audio') return '配音'
-  if (type === 'openai') return 'OpenAI'
-  return '自定义'
+  return getTypeMeta(type)?.shortLabel || type || '未知'
+}
+
+function resolveOptionValue(options: ProviderMetaOption[], preferredValue?: string, fallbackValue = '') {
+  if (preferredValue && options.length === 0) {
+    return preferredValue
+  }
+  if (preferredValue && options.some(option => option.value === preferredValue)) {
+    return preferredValue
+  }
+  return options[0]?.value || fallbackValue
+}
+
+async function loadProviderMeta() {
+  try {
+    const res = await providerApi.getMeta()
+    const data = (res as any).data || {}
+    providerMeta.value = {
+      providerTypes: Array.isArray(data.providerTypes) ? data.providerTypes : [],
+      audioResponseFormats: Array.isArray(data.audioResponseFormats) ? data.audioResponseFormats : [],
+      defaults: data.defaults && typeof data.defaults === 'object' ? data.defaults : {}
+    }
+  } catch {
+    providerMeta.value = emptyProviderMeta()
+  }
 }
 
 const handleToggleEnable = async (provider: ModelProvider) => {
@@ -303,7 +322,7 @@ const handleOpenAddModal = () => {
   isEditMode.value = false
   editingId.value = null
   form.name = ''
-  form.type = 'image'
+  form.type = defaultProviderType.value
   form.baseUrl = ''
   form.apiKey = ''
   form.modelName = ''
@@ -312,7 +331,7 @@ const handleOpenAddModal = () => {
   form.configJson = ''
   form.transcriptionModel = ''
   form.voice = ''
-  form.responseFormat = 'mp3'
+  form.responseFormat = defaultResponseFormat.value
   form.speed = ''
   form.instructions = ''
   showModal.value = true
@@ -332,7 +351,7 @@ const handleOpenEditModal = (provider: ModelProvider) => {
   form.configJson = provider.configJson || ''
   form.transcriptionModel = config.transcriptionModel || ''
   form.voice = config.voice || ''
-  form.responseFormat = config.responseFormat || 'mp3'
+  form.responseFormat = resolveOptionValue(responseFormatOptions.value, config.responseFormat, defaultResponseFormat.value)
   form.speed = config.speed ? String(config.speed) : ''
   form.instructions = config.instructions || ''
   showModal.value = true
@@ -398,7 +417,7 @@ const buildConfigJson = () => {
   const payload: Record<string, any> = {}
   if (form.transcriptionModel.trim()) payload.transcriptionModel = form.transcriptionModel.trim()
   if (form.voice.trim()) payload.voice = form.voice.trim()
-  if (form.responseFormat.trim()) payload.responseFormat = form.responseFormat.trim()
+  if (form.responseFormat.trim()) payload.responseFormat = form.responseFormat.trim().toLowerCase()
   if (form.speed.trim()) {
     const speedValue = Number(form.speed)
     if (!Number.isNaN(speedValue) && speedValue > 0) {
@@ -408,6 +427,8 @@ const buildConfigJson = () => {
   if (form.instructions.trim()) payload.instructions = form.instructions.trim()
   return Object.keys(payload).length ? JSON.stringify(payload) : ''
 }
+
+onMounted(loadProviderMeta)
 </script>
 
 <style scoped>
