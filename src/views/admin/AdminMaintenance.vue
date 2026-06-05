@@ -90,10 +90,17 @@ async function handleToggle() {
     return
   }
   try {
-    await request.post(`/api/admin/maintenance?enabled=${!status.enabled}&message=${encodeURIComponent(status.message)}`)
-    status.enabled = !status.enabled
+    const nextEnabled = !status.enabled
+    const nextMessage = status.message
+    await request.post(`/api/admin/maintenance?enabled=${nextEnabled}&message=${encodeURIComponent(nextMessage)}`)
+    await load()
+    if (status.enabled !== nextEnabled || status.message !== nextMessage) {
+      throw new Error('维护模式更新结果待确认')
+    }
     message.success(status.enabled ? '维护模式已开启' : '维护模式已关闭')
-  } catch { message.error('操作失败') }
+  } catch (err: any) {
+    message.error(err.message || '操作失败')
+  }
 }
 
 async function handleSaveMessage() {
@@ -102,9 +109,17 @@ async function handleSaveMessage() {
     return
   }
   try {
-    await request.post(`/api/admin/maintenance?enabled=${status.enabled}&message=${encodeURIComponent(status.message)}`)
+    const nextEnabled = status.enabled
+    const nextMessage = status.message
+    await request.post(`/api/admin/maintenance?enabled=${nextEnabled}&message=${encodeURIComponent(nextMessage)}`)
+    await load()
+    if (status.enabled !== nextEnabled || status.message !== nextMessage) {
+      throw new Error('维护消息保存结果待确认')
+    }
     message.success('消息已保存')
-  } catch { message.error('保存失败') }
+  } catch (err: any) {
+    message.error(err.message || '保存失败')
+  }
 }
 </script>
 

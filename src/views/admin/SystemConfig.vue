@@ -150,11 +150,18 @@ function startEdit(cfg: any) {
 
 async function handleSave(id: number) {
   try {
+    const nextValue = editValue.value
     await request.put(`/api/admin/config/${id}?value=${encodeURIComponent(editValue.value)}`)
-    message.success('配置已更新')
-    editingId.value = null
     await loadConfigs()
-  } catch { message.error('更新失败') }
+    const confirmed = configs.value?.find(item => item.id === id)
+    if (!confirmed || confirmed.configValue !== nextValue) {
+      throw new Error('配置更新结果待确认')
+    }
+    editingId.value = null
+    message.success('配置已更新')
+  } catch (err: any) {
+    message.error(err.message || '更新失败')
+  }
 }
 </script>
 

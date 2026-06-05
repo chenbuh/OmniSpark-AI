@@ -1551,31 +1551,49 @@ const restoreActiveTaskPolling = () => {
 }
 
 // 关联获取该批生成的所有资产
-let pendingFetchAsset: Promise<any> | null = null
+let pendingFetchAsset: Promise<void> | null = null
 const fetchedAsset = ref<any>(null)
 
 // 确保某个任务的结果资产已加载进 store（轮询成功后调用）
 const ensureTaskAssetsLoaded = async (task: { id: number; resultAssetId?: number }) => {
-  const hasResult = task.resultAssetId
-    ? assetStore.assets.some(a => a.id === task.resultAssetId)
-    : assetStore.assets.some(a => a.taskId === task.id)
-  if (hasResult || pendingFetchAsset) return
-  pendingFetchAsset = (async () => {
-    try {
-      const res = await assetApi.getAssets({ taskId: task.id })
-      const assets = res?.data
-      if (assets && assets.length > 0) {
-        assets.forEach((a: any) => {
-          if (!assetStore.assets.find((x: any) => x.id === a.id)) {
-            assetStore.assets.push(assetStore.normalizeAsset(a))
-          }
-        })
+  if (hasTaskAssetsLoaded(task)) {
+    return
+  }
+  if (!pendingFetchAsset) {
+    pendingFetchAsset = (async () => {
+      const res = await assetApi.getAssets({ taskId: task.id, projectId: projectStore.activeProjectId })
+      const assets = (res as any)?.data
+      if (!Array.isArray(assets)) {
+        throw new Error('图片结果待确认')
       }
-    } catch { /* ignore */ }
-    pendingFetchAsset = null
-    fetchedAsset.value = Date.now()
-  })()
+      assets.forEach((item: any) => {
+        upsertAsset(assetStore.normalizeAsset(item))
+      })
+      if (!hasTaskAssetsLoaded(task)) {
+        throw new Error('图片结果待确认')
+      }
+      fetchedAsset.value = Date.now()
+    })().finally(() => {
+      pendingFetchAsset = null
+    })
+  }
   await pendingFetchAsset
+}
+
+const hasTaskAssetsLoaded = (task: { id: number; resultAssetId?: number }) => {
+  if (task.resultAssetId) {
+    return assetStore.assets.some(asset => asset.id === task.resultAssetId)
+  }
+  return assetStore.assets.some(asset => asset.taskId === task.id)
+}
+
+const upsertAsset = (asset: Asset) => {
+  const index = assetStore.assets.findIndex(item => item.id === asset.id)
+  if (index === -1) {
+    assetStore.assets.unshift(asset)
+  } else {
+    assetStore.assets[index] = asset
+  }
 }
 
 // 当前选中的单张资产 — 纯计算，无副作用
@@ -1882,10 +1900,9 @@ const handleStartGenerate = async () => {
 
     if (task.status === 'success') {
       // 同步轮询:优先精准加载本任务资产,全量刷新放后台,避免 4k 大图时阻塞出图
-      stopElapsedTimer()
       await ensureTaskAssetsLoaded(task)
       resultVersion.value++
-      taskCompleted.value = true
+      finishGeneratingState()
       message.success('图片生成完成')
       assetStore.refresh({ projectId: projectStore.activeProjectId }).catch(() => {})
     } else if (task.status === 'failed') {
@@ -1897,7 +1914,7 @@ const handleStartGenerate = async () => {
     }
   } catch (err: any) {
     taskCompleted.value = true
-  message.error(err.message || '生成触发失败')
+    message.error(err.message || '生成触发失败')
   } finally {
     generating.value = false
     submitting.value = false
@@ -1914,8 +1931,8 @@ const handleDeleteTask = async (taskId: number) => {
       taskCompleted.value = true
     }
     message.success('已删除')
-  } catch {
-    message.error('删除失败')
+  } catch (err: any) {
+    message.error(err.message || '删除失败')
   }
 }
 
@@ -1924,14 +1941,20 @@ const handleBatchClear = async () => {
   const ids = taskHistory.value
     .filter(t => t.status === 'success' || t.status === 'failed')
     .map(t => t.id)
+  if (ids.length === 0) {
+    message.info('当前没有可清空的历史记录')
+    return
+  }
   try {
-    await Promise.all(ids.map(id => taskStore.deleteTask(id)))
+    for (const id of ids) {
+      await taskStore.deleteTask(id)
+    }
     activeTaskId.value = null
     selectedBatchIndex.value = 0
     taskCompleted.value = true
     message.success('历史记录已清空')
-  } catch {
-    message.error('清空失败')
+  } catch (err: any) {
+    message.error(err.message || '清空失败')
   }
 }
 
@@ -1944,19 +1967,33 @@ const handleSelectHistory = (task: any) => {
   }
 }
 
-const handleInspectHistoryTask = (task: any) => {
-  if (task.status !== 'success' || !task.resultAssetId) {
+const handleInspectHistoryTask = async (task: any) => {
+  if (task.status !== 'success') {
     message.error(task.errorMessage || '该任务生成失败，没有可查看的图片结果')
     return
   }
-  handleSelectHistory(task)
+  try {
+    await ensureTaskAssetsLoaded(task)
+    handleSelectHistory(task)
+  } catch (err: any) {
+    message.error(err.message || '该任务的图片结果待确认')
+  }
 }
 
 // 切换收藏
 const handleToggleFavorite = async () => {
   if (currentAsset.value) {
-    const updated = await assetStore.toggleFavorite(currentAsset.value.id)
-    message.success(updated.favorite ? '资产收藏成功！' : '已取消收藏')
+    try {
+      const updated = await assetStore.toggleFavorite(currentAsset.value.id)
+      await assetStore.refresh({ projectId: projectStore.activeProjectId })
+      const confirmed = assetStore.assets.find(asset => asset.id === updated.id)
+      if (!confirmed || confirmed.favorite !== updated.favorite) {
+        throw new Error('收藏状态待确认')
+      }
+      message.success(confirmed.favorite ? '资产收藏成功！' : '已取消收藏')
+    } catch (err: any) {
+      message.error(err.message || '收藏状态更新失败')
+    }
   }
 }
 
