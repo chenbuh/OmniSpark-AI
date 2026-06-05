@@ -55,14 +55,18 @@ export const useTaskStore = defineStore('task', {
       return this.tasks.filter(t => t.projectId === projectId)
     },
     async retryTask(id: number) {
+      const sourceTask = this.tasks.find(task => task.id === id)
+        ?? this.normalizeTask((await taskApi.getTask(id)).data)
       const res = await taskApi.retryTask(id)
-      const retried = this.upsertTask((res as any).data)
-      await this.refresh({ projectId: retried.projectId })
-      await useAssetStore().refresh({ projectId: retried.projectId })
-      const confirmed = this.tasks.find(task => task.id === retried.id)
-      if (!confirmed) {
-        throw new Error('重试结果待确认')
-      }
+      const retried = this.normalizeTask((res as any).data)
+      assertRetriedTaskMatchesSource(sourceTask, retried)
+      this.upsertTask(retried)
+      await this.refresh({ projectId: sourceTask.projectId })
+      await useAssetStore().refresh({ projectId: sourceTask.projectId })
+      const confirmedFromList = this.tasks.find(task => task.id === retried.id)
+      const confirmed = confirmedFromList ?? this.normalizeTask((await taskApi.getTask(retried.id)).data)
+      assertRetriedTaskMatchesSource(sourceTask, confirmed)
+      assertTaskMatchesExpected(retried, confirmed)
       return confirmed
     },
     async deleteTask(id: number) {
@@ -140,4 +144,52 @@ function parseRequiredNumber(value: unknown): number {
 
 function isPlainObject(value: unknown): value is Record<string, any> {
   return !!value && typeof value === 'object' && !Array.isArray(value)
+}
+
+function assertRetriedTaskMatchesSource(source: GenerationTask, retried: GenerationTask) {
+  if (retried.id === source.id) {
+    throw new Error('任务重试结果待确认')
+  }
+  if (retried.projectId !== source.projectId) {
+    throw new Error('任务重试结果待确认')
+  }
+  if (retried.providerId !== source.providerId) {
+    throw new Error('任务重试结果待确认')
+  }
+  if (retried.taskType !== source.taskType) {
+    throw new Error('任务重试结果待确认')
+  }
+  if (retried.prompt !== source.prompt) {
+    throw new Error('任务重试结果待确认')
+  }
+  if ((retried.negativePrompt ?? '') !== (source.negativePrompt ?? '')) {
+    throw new Error('任务重试结果待确认')
+  }
+  if (retried.modelName !== source.modelName) {
+    throw new Error('任务重试结果待确认')
+  }
+}
+
+function assertTaskMatchesExpected(expected: GenerationTask, actual: GenerationTask) {
+  if (actual.id !== expected.id) {
+    throw new Error('任务重试结果待确认')
+  }
+  if (actual.projectId !== expected.projectId) {
+    throw new Error('任务重试结果待确认')
+  }
+  if (actual.providerId !== expected.providerId) {
+    throw new Error('任务重试结果待确认')
+  }
+  if (actual.taskType !== expected.taskType) {
+    throw new Error('任务重试结果待确认')
+  }
+  if (actual.prompt !== expected.prompt) {
+    throw new Error('任务重试结果待确认')
+  }
+  if ((actual.negativePrompt ?? '') !== (expected.negativePrompt ?? '')) {
+    throw new Error('任务重试结果待确认')
+  }
+  if (actual.modelName !== expected.modelName) {
+    throw new Error('任务重试结果待确认')
+  }
 }
