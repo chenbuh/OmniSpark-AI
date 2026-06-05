@@ -139,14 +139,75 @@ const totalSizeDisplay = computed(() => {
   return stats.value.totalSizeReadable ?? '-'
 })
 
+function isPlainObject(value: unknown): value is Record<string, any> {
+  return !!value && typeof value === 'object' && !Array.isArray(value)
+}
+
+function normalizeFileItem(value: unknown) {
+  if (!isPlainObject(value)) {
+    throw new Error('目录内容待确认')
+  }
+  if (typeof value.name !== 'string' || typeof value.relativePath !== 'string' || typeof value.isDir !== 'boolean') {
+    throw new Error('目录内容待确认')
+  }
+  const size = Number(value.size ?? 0)
+  const lastModified = Number(value.lastModified ?? 0)
+  if (!Number.isFinite(size) || size < 0 || !Number.isFinite(lastModified) || lastModified < 0) {
+    throw new Error('目录内容待确认')
+  }
+  return {
+    ...value,
+    size,
+    lastModified,
+    mimeType: typeof value.mimeType === 'string' ? value.mimeType : '',
+    name: value.name,
+    relativePath: value.relativePath,
+    isDir: value.isDir
+  }
+}
+
 function requireFileList(value: unknown) {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+  if (!isPlainObject(value)) {
     throw new Error('目录内容待确认')
   }
   if (!Array.isArray((value as any).items)) {
     throw new Error('目录内容待确认')
   }
-  return value as { items: any[] }
+  const currentPathValue = typeof (value as any).currentPath === 'string' ? (value as any).currentPath : ''
+  const parentPathValue = typeof (value as any).parentPath === 'string' ? (value as any).parentPath : ''
+  const itemsValue = (value as any).items.map((item: unknown) => normalizeFileItem(item))
+  const totalValue = Number((value as any).total ?? itemsValue.length)
+  if (!Number.isFinite(totalValue) || totalValue < 0) {
+    throw new Error('目录内容待确认')
+  }
+  if (totalValue < itemsValue.length) {
+    throw new Error('目录内容待确认')
+  }
+  return {
+    items: itemsValue,
+    currentPath: currentPathValue,
+    parentPath: parentPathValue,
+    total: totalValue
+  }
+}
+
+function requireFileStats(value: unknown) {
+  if (!isPlainObject(value)) {
+    throw new Error('文件统计待确认')
+  }
+  const totalSize = Number((value as any).totalSize)
+  const fileCount = Number((value as any).fileCount)
+  const uploadDir = typeof (value as any).uploadDir === 'string' ? (value as any).uploadDir : ''
+  const totalSizeReadable = typeof (value as any).totalSizeReadable === 'string' ? (value as any).totalSizeReadable : ''
+  if (!Number.isFinite(totalSize) || totalSize < 0 || !Number.isFinite(fileCount) || fileCount < 0 || !uploadDir || !totalSizeReadable) {
+    throw new Error('文件统计待确认')
+  }
+  return {
+    totalSize,
+    fileCount,
+    uploadDir,
+    totalSizeReadable
+  }
 }
 
 onMounted(() => { loadStats(); loadFiles() })
@@ -159,6 +220,7 @@ async function loadFiles(path?: string) {
     const res = await request.get('/api/admin/files', { params: { path: currentPath.value } })
     const data = requireFileList((res as any).data)
     items.value = data.items
+    currentPath.value = data.currentPath
     fileListLoadState.value = 'ready'
   } catch {
     items.value = null
@@ -172,11 +234,7 @@ async function loadStats() {
   statsLoadState.value = 'loading'
   try {
     const res = await request.get('/api/admin/files/stats')
-    const data = (res as any).data
-    if (!data || typeof data !== 'object' || Array.isArray(data)) {
-      throw new Error('文件统计待确认')
-    }
-    stats.value = data
+    stats.value = requireFileStats((res as any).data)
     statsLoadState.value = 'ready'
   } catch {
     stats.value = {}

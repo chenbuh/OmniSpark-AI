@@ -104,7 +104,10 @@ public class FileManagerController {
             if (!target.startsWith(baseDir)) {
                 return ApiResult.fail("路径不合法");
             }
-            Files.deleteIfExists(target);
+            if (!Files.exists(target)) {
+                return ApiResult.fail("文件或目录不存在");
+            }
+            Files.delete(target);
             cachedStats = null;
             cachedStatsAt = 0;
             return ApiResult.ok();
@@ -161,7 +164,7 @@ public class FileManagerController {
             stats.put("uploadDir", baseDir.toString());
             stats.put("totalSizeReadable", formatSize(totalSize));
         } catch (Exception e) {
-            stats.put("error", e.getMessage());
+            return ApiResult.fail("读取文件统计失败: " + e.getMessage());
         }
         cachedStats = stats;
         cachedStatsAt = now;

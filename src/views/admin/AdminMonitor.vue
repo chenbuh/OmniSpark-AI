@@ -133,6 +133,55 @@ onMounted(() => {
 
 onUnmounted(() => { if (autoTimer) clearInterval(autoTimer) })
 
+function isPlainObject(value: unknown): value is Record<string, any> {
+  return !!value && typeof value === 'object' && !Array.isArray(value)
+}
+
+function requireDiskItem(value: unknown) {
+  if (!isPlainObject(value) || typeof value.path !== 'string') {
+    throw new Error('监控数据待确认')
+  }
+  const total = toOptionalNumber(value.total)
+  const free = toOptionalNumber(value.free)
+  const used = toOptionalNumber(value.used)
+  const usagePercent = toOptionalNumber(value.usagePercent)
+  if (total == null || free == null || used == null || usagePercent == null) {
+    throw new Error('监控数据待确认')
+  }
+  return {
+    path: value.path,
+    total,
+    free,
+    used,
+    usagePercent,
+    totalReadable: typeof value.totalReadable === 'string' ? value.totalReadable : formatBytes(total),
+    freeReadable: typeof value.freeReadable === 'string' ? value.freeReadable : formatBytes(free),
+    usedReadable: typeof value.usedReadable === 'string' ? value.usedReadable : formatBytes(used)
+  }
+}
+
+function requireMonitorData(value: unknown) {
+  if (!isPlainObject(value) || !isPlainObject(value.cpu) || !isPlainObject(value.memory) || !isPlainObject(value.jvm) || !Array.isArray(value.disks)) {
+    throw new Error('监控数据待确认')
+  }
+  const cpu = value.cpu
+  const memory = value.memory
+  const jvm = value.jvm
+  if (toOptionalNumber(cpu.availableProcessors) == null || typeof cpu.osName !== 'string' || typeof cpu.osArch !== 'string') {
+    throw new Error('监控数据待确认')
+  }
+  if (toOptionalNumber(memory.heapUsed) == null || toOptionalNumber(memory.heapMax) == null || typeof memory.heapUsedReadable !== 'string' || typeof memory.heapMaxReadable !== 'string') {
+    throw new Error('监控数据待确认')
+  }
+  if (typeof jvm.uptimeReadable !== 'string' || typeof jvm.vmName !== 'string' || typeof jvm.vmVersion !== 'string') {
+    throw new Error('监控数据待确认')
+  }
+  return {
+    ...value,
+    disks: value.disks.map((disk: unknown) => requireDiskItem(disk))
+  }
+}
+
 async function loadData() {
   if (inFlight) return
   inFlight = true
@@ -142,14 +191,7 @@ async function loadData() {
   }
   try {
     const res = await request.get('/api/admin/monitor')
-    const nextData = (res as any).data
-    if (!nextData || typeof nextData !== 'object' || Array.isArray(nextData)) {
-      throw new Error('监控数据待确认')
-    }
-    if (!Array.isArray(nextData.disks)) {
-      throw new Error('监控数据待确认')
-    }
-    data.value = nextData
+    data.value = requireMonitorData((res as any).data)
     monitorLoadState.value = 'ready'
     errorNotified = false
   } catch (err: any) {
