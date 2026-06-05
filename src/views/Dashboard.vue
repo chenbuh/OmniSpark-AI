@@ -150,10 +150,10 @@
                 </td>
                 <td>
                   <n-tag
-                    :type="task.status === 'success' ? 'success' : task.status === 'running' ? 'warning' : 'default'"
+                    :type="taskStatusTagType(task.status)"
                     size="small"
                   >
-                    {{ task.status === 'success' ? '生成成功' : task.status === 'running' ? '进行中' : '队列排队' }}
+                    {{ taskStatusLabel(task.status) }}
                   </n-tag>
                 </td>
                 <td>
@@ -237,13 +237,30 @@ const currentAssets = computed(() => {
 
 // 获取最近的 3 个任务
 const recentTasks = computed(() => {
-  return taskStore.getTasksByProject(projectStore.activeProjectId).slice(0, 3)
+  return [...taskStore.getTasksByProject(projectStore.activeProjectId)]
+    .sort((a, b) => Date.parse(String(b.createdAt || '').replace(' ', 'T')) - Date.parse(String(a.createdAt || '').replace(' ', 'T')))
+    .slice(0, 3)
 })
 
 // 获取当前处于进行中（排队或运行）的任务数
 const activeTasksCount = computed(() => {
   return taskStore.getTasksByProject(projectStore.activeProjectId).filter(t => t.status === 'pending' || t.status === 'running').length
 })
+
+const taskStatusLabel = (status: string) => {
+  if (status === 'success') return '生成成功'
+  if (status === 'running') return '进行中'
+  if (status === 'pending') return '排队中'
+  if (status === 'failed') return '失败'
+  return status || '未知'
+}
+
+const taskStatusTagType = (status: string) => {
+  if (status === 'success') return 'success'
+  if (status === 'running') return 'warning'
+  if (status === 'failed') return 'error'
+  return 'default'
+}
 
 const shouldReduceMotion = () => window.matchMedia('(prefers-reduced-motion: reduce)').matches
 
