@@ -55,11 +55,21 @@ export const useModelProviderStore = defineStore('modelProvider', {
           .filter(id => Number.isFinite(id) && id > 0)
       )
       await this.refresh(provider.projectId)
+      const expected = {
+        projectId: provider.projectId,
+        name: provider.name,
+        type: provider.type,
+        baseUrl: provider.baseUrl,
+        modelName: provider.modelName,
+        configJson: provider.configJson,
+        enabled: provider.enabled,
+        isDefault: provider.isDefault
+      }
       const responseId = parseRequiredProviderId((res as any).data?.id)
       if (responseId !== null) {
         const createdById = this.providers.find(item => item.id === responseId)
         if (createdById) {
-          return createdById
+          return assertProviderMatchesExpected(createdById, expected, 'create')
         }
       }
       const createdByDiff = this.getProvidersByProject(provider.projectId).find(item =>
@@ -70,7 +80,7 @@ export const useModelProviderStore = defineStore('modelProvider', {
         && item.modelName === provider.modelName
       )
       if (createdByDiff) {
-        return createdByDiff
+        return assertProviderMatchesExpected(createdByDiff, expected, 'create')
       }
       throw new Error('模型提供商创建结果待确认')
     },
@@ -85,7 +95,16 @@ export const useModelProviderStore = defineStore('modelProvider', {
       if (!refreshed) {
         throw new Error('模型提供商更新结果待确认')
       }
-      return refreshed
+      return assertProviderMatchesExpected(refreshed, {
+        projectId: projectId ?? refreshed.projectId,
+        name: updated.name ?? current?.name ?? refreshed.name,
+        type: updated.type ?? current?.type ?? refreshed.type,
+        baseUrl: updated.baseUrl ?? current?.baseUrl ?? refreshed.baseUrl,
+        modelName: updated.modelName ?? current?.modelName ?? refreshed.modelName,
+        configJson: updated.configJson ?? current?.configJson ?? refreshed.configJson,
+        enabled: updated.enabled,
+        isDefault: updated.isDefault
+      }, 'update')
     },
     async deleteProvider(id: number) {
       const current = this.providers.find(p => p.id === id)
@@ -108,6 +127,15 @@ export const useModelProviderStore = defineStore('modelProvider', {
       if (!refreshed || refreshed.isDefault !== true) {
         throw new Error('默认提供商状态待确认')
       }
+      const conflict = this.providers.find(item =>
+        item.id !== id
+        && item.projectId === provider.projectId
+        && item.type === provider.type
+        && item.isDefault === true
+      )
+      if (conflict) {
+        throw new Error('默认提供商状态待确认')
+      }
     },
     clear() {
       this.providers = []
@@ -115,13 +143,55 @@ export const useModelProviderStore = defineStore('modelProvider', {
     async testConnection(id: number): Promise<boolean> {
       const res = await providerApi.testConnection(id)
       const result = (res as any).data
-      if (typeof result !== 'string' || !result.trim()) {
+      if (typeof result !== 'string' || result.trim() !== '连接成功') {
         throw new Error('连接测试结果待确认')
       }
       return true
     }
   }
 })
+
+function assertProviderMatchesExpected(
+  provider: ModelProvider,
+  expected: {
+    projectId?: number
+    name?: string
+    type?: string
+    baseUrl?: string
+    modelName?: string
+    configJson?: string
+    enabled?: boolean | null
+    isDefault?: boolean | null
+  },
+  action: 'create' | 'update'
+) {
+  const errorMessage = action === 'create' ? '模型提供商创建结果待确认' : '模型提供商更新结果待确认'
+  if (typeof expected.projectId === 'number' && provider.projectId !== expected.projectId) {
+    throw new Error(errorMessage)
+  }
+  if (typeof expected.name === 'string' && normalizeOptionalText(provider.name) !== normalizeOptionalText(expected.name)) {
+    throw new Error(errorMessage)
+  }
+  if (typeof expected.type === 'string' && normalizeOptionalText(provider.type) !== normalizeOptionalText(expected.type)) {
+    throw new Error(errorMessage)
+  }
+  if (typeof expected.baseUrl === 'string' && normalizeOptionalText(provider.baseUrl) !== normalizeOptionalText(expected.baseUrl)) {
+    throw new Error(errorMessage)
+  }
+  if (typeof expected.modelName === 'string' && normalizeOptionalText(provider.modelName) !== normalizeOptionalText(expected.modelName)) {
+    throw new Error(errorMessage)
+  }
+  if (typeof expected.configJson === 'string' && normalizeOptionalText(provider.configJson) !== normalizeOptionalText(expected.configJson)) {
+    throw new Error(errorMessage)
+  }
+  if (typeof expected.enabled === 'boolean' && provider.enabled !== expected.enabled) {
+    throw new Error(errorMessage)
+  }
+  if (typeof expected.isDefault === 'boolean' && provider.isDefault !== expected.isDefault) {
+    throw new Error(errorMessage)
+  }
+  return provider
+}
 
 function parseRequiredProviderId(value: unknown): number | null {
   const parsed = Number(value)
@@ -152,4 +222,8 @@ function parseOptionalBoolean(value: unknown): boolean | null {
     return true
   }
   return null
+}
+
+function normalizeOptionalText(value: unknown): string {
+  return typeof value === 'string' ? value.trim() : ''
 }
