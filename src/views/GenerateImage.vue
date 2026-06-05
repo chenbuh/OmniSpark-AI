@@ -531,10 +531,10 @@ const form = reactive({
   aspectRatio: '1-1',
   ratioWidth: 1,
   ratioHeight: 1,
-  resolution: '1k',
+  resolution: '',
   customWidth: 1024,
   customHeight: 1024,
-  quality: 'standard',
+  quality: '',
   count: 1,
   cfg: 7.5,
   steps: 25,
@@ -565,8 +565,8 @@ const aspectRatios = [
 
 const resolutionOptions = computed(() => generationMeta.value.image?.resolutionOptions || [])
 const qualityOptions = computed(() => generationMeta.value.image?.qualityOptions || [])
-const defaultImageResolution = computed(() => generationMeta.value.image?.defaults?.resolution || resolutionOptions.value[0]?.value || '1k')
-const defaultImageQuality = computed(() => generationMeta.value.image?.defaults?.quality || qualityOptions.value[0]?.value || 'standard')
+const defaultImageResolution = computed(() => generationMeta.value.image?.defaults?.resolution || resolutionOptions.value[0]?.value || '')
+const defaultImageQuality = computed(() => generationMeta.value.image?.defaults?.quality || qualityOptions.value[0]?.value || '')
 
 const allowedImageProviderTypes = computed(() => generationMeta.value.image?.allowedProviderTypes || [])
 
@@ -577,7 +577,6 @@ const resolutionBaseMap: Record<'1k' | '2k' | '4k', number> = {
 }
 
 function resolveOptionValue(options: GenerationMetaOption[], preferredValue?: string, fallbackValue = '') {
-  if (preferredValue && options.length === 0) return preferredValue
   if (preferredValue && options.some(option => option.value === preferredValue)) return preferredValue
   return options[0]?.value || fallbackValue
 }
@@ -1644,6 +1643,14 @@ const handleStartGenerate = async () => {
   }
   if (!form.prompt) {
     message.error('请输入提示词指令描述您的艺术画面！')
+    return
+  }
+  if (!form.resolution) {
+    message.error('未加载到真实分辨率配置，请稍后重试')
+    return
+  }
+  if (!form.quality) {
+    message.error('未加载到真实质量配置，请稍后重试')
     return
   }
 

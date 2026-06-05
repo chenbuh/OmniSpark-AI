@@ -306,8 +306,8 @@ const form = reactive({
   providerId: null as number | null,
   modelName: '',
   prompt: '',
-  duration: '5s',
-  cameraMotion: 'zoom_in',
+  duration: '',
+  cameraMotion: '',
   motionSpeed: 5
 })
 
@@ -321,8 +321,8 @@ const durations = computed(() => {
 })
 
 const cameraMotionOptions = computed(() => generationMeta.value.video?.cameraMotionOptions || [])
-const defaultVideoDuration = computed(() => generationMeta.value.video?.defaults?.duration || durations.value[0]?.value || '5s')
-const defaultCameraMotion = computed(() => generationMeta.value.video?.defaults?.cameraMotion || cameraMotionOptions.value[0]?.value || 'zoom_in')
+const defaultVideoDuration = computed(() => generationMeta.value.video?.defaults?.duration || durations.value[0]?.value || '')
+const defaultCameraMotion = computed(() => generationMeta.value.video?.defaults?.cameraMotion || cameraMotionOptions.value[0]?.value || '')
 
 // 空间下的资产库中的所有图片资产（供参考图挑选）
 const imageAssets = computed(() => {
@@ -334,7 +334,6 @@ const imageAssets = computed(() => {
 const allowedVideoProviderTypes = computed(() => generationMeta.value.video?.allowedProviderTypes || [])
 
 function resolveOptionValue(options: GenerationMetaOption[], preferredValue?: string, fallbackValue = '') {
-  if (preferredValue && options.length === 0) return preferredValue
   if (preferredValue && options.some(option => option.value === preferredValue)) return preferredValue
   return options[0]?.value || fallbackValue
 }
@@ -550,6 +549,14 @@ const handleStartGenerate = async () => {
   }
   if (!form.prompt) {
     message.error('请输入视频运动提示词描述！')
+    return
+  }
+  if (!form.duration) {
+    message.error('未加载到真实视频时长配置，请稍后重试')
+    return
+  }
+  if (!form.cameraMotion) {
+    message.error('未加载到真实镜头运动配置，请稍后重试')
     return
   }
   if (videoMode.value === 'img2vid' && !selectedImageAsset.value) {
