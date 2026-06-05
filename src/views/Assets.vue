@@ -55,6 +55,8 @@
         <n-tab name="favorite">我的收藏</n-tab>
       </n-tabs>
       <div v-if="assetTypeItemsLoadState === 'error'" class="filter-status">资产分类待确认，请稍后重试。</div>
+      <div v-if="assetStatsLoadState === 'error'" class="filter-status">资产汇总待确认，请稍后重试。</div>
+      <div v-else-if="assetRecords !== null && filteredTotal === null" class="filter-status">资产总数待确认，请稍后重试。</div>
     </n-card>
 
     <div v-if="loading && assetRecords === null" class="loading-box">
@@ -391,6 +393,7 @@ const filteredTotal = ref<number | null>(null)
 const versionHistory = ref<Asset[] | null>(null)
 const assetTypeItems = ref<DataDictItem[]>([])
 const assetTypeItemsLoadState = ref<'loading' | 'ready' | 'error'>('loading')
+const assetStatsLoadState = ref<'loading' | 'ready' | 'error'>('loading')
 
 const subtitles = ref<SubtitleVO[] | null>(null)
 const subGenerating = ref(false)
@@ -416,10 +419,28 @@ const currentProjectName = computed(() => {
 
 const summaryCards = computed(() => {
   return [
-    { label: '总资产数', value: formatSummaryValue(assetStats.value.total), hint: '当前空间的全部素材沉淀' },
-    { label: `${assetTypeLabel('image')}成果`, value: formatSummaryValue(assetStats.value.imageCount), hint: `已沉淀 ${assetTypeLabel('image')}类资产` },
-    { label: `${assetTypeLabel('video')}成果`, value: formatSummaryValue(assetStats.value.videoCount), hint: `可复用的${assetTypeLabel('video')}内容` },
-    { label: assetTypeLabel('reference'), value: formatSummaryValue(assetStats.value.referenceCount), hint: `其中收藏 ${formatSummaryValue(assetStats.value.favoriteCount)} 项` }
+    {
+      label: '总资产数',
+      value: formatSummaryValue(assetStats.value.total),
+      hint: assetStats.value.total === null ? '资产汇总待确认' : '当前空间的全部素材沉淀'
+    },
+    {
+      label: `${assetTypeLabel('image')}成果`,
+      value: formatSummaryValue(assetStats.value.imageCount),
+      hint: assetStats.value.imageCount === null ? `${assetTypeLabel('image')}数量待确认` : `已沉淀 ${assetTypeLabel('image')}类资产`
+    },
+    {
+      label: `${assetTypeLabel('video')}成果`,
+      value: formatSummaryValue(assetStats.value.videoCount),
+      hint: assetStats.value.videoCount === null ? `${assetTypeLabel('video')}数量待确认` : `可复用的${assetTypeLabel('video')}内容`
+    },
+    {
+      label: assetTypeLabel('reference'),
+      value: formatSummaryValue(assetStats.value.referenceCount),
+      hint: assetStats.value.referenceCount === null || assetStats.value.favoriteCount === null
+        ? `${assetTypeLabel('reference')}统计待确认`
+        : `其中收藏 ${formatSummaryValue(assetStats.value.favoriteCount)} 项`
+    }
   ]
 })
 
@@ -503,7 +524,8 @@ async function loadAssets() {
   loading.value = true
   const loadToken = ++latestLoadToken
   try {
-    const [pageRes, statsRes] = await Promise.all([
+    assetStatsLoadState.value = 'loading'
+    const [pageResult, statsResult] = await Promise.allSettled([
       assetApi.pageAssets({
         scope: assetTab.value,
         projectId: currentProjectId.value,
@@ -522,17 +544,30 @@ async function loadAssets() {
     if (loadToken !== latestLoadToken) {
       return
     }
-    if (!Array.isArray(pageRes.data?.records)) {
+    if (pageResult.status !== 'fulfilled' || !Array.isArray(pageResult.value.data?.records)) {
       throw new Error('资产列表数据待确认')
     }
-    assetRecords.value = pageRes.data.records.map(item => assetStore.normalizeAsset(item))
-    filteredTotal.value = typeof pageRes.data?.total === 'number' ? pageRes.data.total : 0
-    assetStats.value = {
-      total: typeof statsRes.data?.total === 'number' ? statsRes.data.total : 0,
-      imageCount: typeof statsRes.data?.imageCount === 'number' ? statsRes.data.imageCount : 0,
-      videoCount: typeof statsRes.data?.videoCount === 'number' ? statsRes.data.videoCount : 0,
-      referenceCount: typeof statsRes.data?.referenceCount === 'number' ? statsRes.data.referenceCount : 0,
-      favoriteCount: typeof statsRes.data?.favoriteCount === 'number' ? statsRes.data.favoriteCount : 0
+    assetRecords.value = pageResult.value.data.records.map(item => assetStore.normalizeAsset(item))
+    filteredTotal.value = typeof pageResult.value.data?.total === 'number' ? pageResult.value.data.total : null
+    if (statsResult.status === 'fulfilled' && statsResult.value.data && typeof statsResult.value.data === 'object' && !Array.isArray(statsResult.value.data)) {
+      const statsData = statsResult.value.data
+      assetStats.value = {
+        total: typeof statsData.total === 'number' ? statsData.total : null,
+        imageCount: typeof statsData.imageCount === 'number' ? statsData.imageCount : null,
+        videoCount: typeof statsData.videoCount === 'number' ? statsData.videoCount : null,
+        referenceCount: typeof statsData.referenceCount === 'number' ? statsData.referenceCount : null,
+        favoriteCount: typeof statsData.favoriteCount === 'number' ? statsData.favoriteCount : null
+      }
+      assetStatsLoadState.value = 'ready'
+    } else {
+      assetStats.value = {
+        total: null,
+        imageCount: null,
+        videoCount: null,
+        referenceCount: null,
+        favoriteCount: null
+      }
+      assetStatsLoadState.value = 'error'
     }
     openAssetFromRoute()
   } catch (err: any) {
@@ -545,6 +580,7 @@ async function loadAssets() {
       referenceCount: null,
       favoriteCount: null
     }
+    assetStatsLoadState.value = 'error'
     message.error(err.message || '资产加载失败')
   } finally {
     if (loadToken === latestLoadToken) {
@@ -856,6 +892,7 @@ watch(() => projectStore.activeProjectId, () => {
   showDetailDrawer.value = false
   subtitles.value = []
   versionHistory.value = []
+  assetStatsLoadState.value = 'loading'
   if (page.value !== 1) {
     page.value = 1
     return

@@ -174,7 +174,7 @@ async function loadTasks() {
       return
     }
     tasks.value = data.records
-    total.value = typeof data.total === 'number' ? data.total : 0
+    total.value = typeof data.total === 'number' ? data.total : null
     mergeTaskMetaFromRecords(data.records)
   } catch (err: any) {
     tasks.value = null

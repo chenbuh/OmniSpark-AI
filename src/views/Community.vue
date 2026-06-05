@@ -366,7 +366,7 @@ async function loadPosts() {
       ...post,
       imageUrl: resolveAssetUrl(post.imageUrl)
     }))
-    total.value = typeof data.total === 'number' ? data.total : 0
+    total.value = typeof data.total === 'number' ? data.total : null
   } catch (err: any) {
     posts.value = null
     total.value = null

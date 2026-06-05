@@ -151,7 +151,7 @@ async function loadAssets() {
       throw new Error('资产数据待确认')
     }
     assets.value = data.records
-    total.value = typeof data.total === 'number' ? data.total : 0
+    total.value = typeof data.total === 'number' ? data.total : null
   } catch (err: any) {
     assets.value = null
     total.value = null

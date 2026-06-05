@@ -232,7 +232,7 @@ async function loadTemplates() {
       return
     }
     templates.value = records
-    totalTemplates.value = typeof res.data?.total === 'number' ? res.data.total : 0
+    totalTemplates.value = typeof res.data?.total === 'number' ? res.data.total : null
   } catch {
     templates.value = null
     totalTemplates.value = null

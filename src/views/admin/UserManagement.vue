@@ -253,7 +253,7 @@ async function loadUsers() {
       throw new Error('用户数据待确认')
     }
     users.value = data.records
-    total.value = typeof data.total === 'number' ? data.total : 0
+    total.value = typeof data.total === 'number' ? data.total : null
   } catch (err: any) {
     users.value = null
     total.value = null

@@ -49,7 +49,7 @@ async function loadLogs() {
       throw new Error('登录日志数据待确认')
     }
     logs.value = data.records
-    total.value = typeof data.total === 'number' ? data.total : 0
+    total.value = typeof data.total === 'number' ? data.total : null
   } catch (err: any) {
     logs.value = null
     total.value = null

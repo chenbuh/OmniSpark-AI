@@ -349,7 +349,7 @@ async function loadCards() {
       return
     }
     cards.value = records
-    totalCards.value = typeof res.data?.total === 'number' ? res.data.total : 0
+    totalCards.value = typeof res.data?.total === 'number' ? res.data.total : null
   } catch {
     cards.value = null
     totalCards.value = null
