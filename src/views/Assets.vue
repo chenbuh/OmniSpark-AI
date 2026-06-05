@@ -748,11 +748,18 @@ async function handleToggleFavorite(asset: Asset) {
       selectedAsset.value = updated
     }
     await loadAssets()
-    const refreshedAsset = assetRecords.value?.find(item => item.id === asset.id)
-    if (!refreshedAsset || refreshedAsset.favorite !== updated.favorite) {
+    const listedAsset = assetRecords.value?.find(item => item.id === asset.id) || null
+    const confirmedAsset = listedAsset || assetStore.normalizeAsset((await assetApi.getAsset(asset.id) as any).data)
+    if (confirmedAsset.favorite !== updated.favorite) {
       throw new Error('资产状态待确认')
     }
-    message.success(updated.favorite ? '资产已加入收藏' : '已取消收藏')
+    if (currentFavorite.value === true && confirmedAsset.favorite === false && listedAsset) {
+      throw new Error('资产状态待确认')
+    }
+    if (selectedAsset.value?.id === asset.id) {
+      selectedAsset.value = confirmedAsset
+    }
+    message.success(confirmedAsset.favorite ? '资产已加入收藏' : '已取消收藏')
   } catch (err: any) {
     message.error(err.message || '收藏操作失败')
   }
@@ -935,19 +942,23 @@ async function handleDeleteAsset() {
   if (!selectedAsset.value) return
   try {
     const id = selectedAsset.value.id
+    const deletingProjectId = selectedAsset.value.projectId
+    const previousTotal = filteredTotal.value
     await assetStore.deleteAsset(id)
     const shouldFallbackToPrevPage = page.value > 1 && (assetRecords.value?.length || 0) === 1
-    assetRecords.value = assetRecords.value?.filter(item => item.id !== id) || []
     subtitles.value = []
     versionHistory.value = []
     showDetailDrawer.value = false
     selectedAsset.value = null
     if (shouldFallbackToPrevPage) {
       page.value -= 1
-    } else {
-      await loadAssets()
     }
-    if (assetRecords.value?.some(item => item.id === id)) {
+    await loadAssets()
+    await assetStore.refresh({ projectId: deletingProjectId, limit: 100 })
+    if (assetRecords.value?.some(item => item.id === id) || assetStore.assets.some(item => item.id === id)) {
+      throw new Error('资产删除结果待确认')
+    }
+    if (typeof previousTotal === 'number' && typeof filteredTotal.value === 'number' && filteredTotal.value > previousTotal - 1) {
       throw new Error('资产删除结果待确认')
     }
     message.success('资产已删除')
