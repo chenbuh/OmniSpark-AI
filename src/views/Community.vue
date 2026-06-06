@@ -161,11 +161,11 @@
       </template>
     </n-modal>
 
-    <!-- 从共享资产库选择效果图 -->
+    <!-- 从当前项目资产库选择效果图 -->
     <n-modal
       v-model:show="showAssetPicker"
       preset="card"
-      title="从共享资产库选择效果图"
+      title="从当前项目资产库选择效果图"
       style="width: 60vw; max-width: 800px;"
     >
       <div class="assets-picker-grid">
@@ -290,7 +290,7 @@ interface CommunityPostRecord {
   createdAt: string
 }
 
-// 共享资产库中的图片资产
+// 当前项目资产库中的图片资产
 const imageAssets = computed(() => {
   return assetStore
     .getAssetsByProject(projectStore.activeProjectId)
@@ -567,7 +567,7 @@ function triggerImageUpload() {
   imageUploadInput.value?.click()
 }
 
-// 打开共享资产库选择器
+// 打开当前项目资产库选择器
 async function openAssetPicker() {
   if (!projectStore.activeProjectId) {
     message.error('请先选择一个项目空间')

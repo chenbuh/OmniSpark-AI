@@ -281,7 +281,7 @@
     <n-modal
       v-model:show="showAssetSelectModal"
       preset="card"
-      title="从共享资产库选择首帧参考图"
+      title="从当前项目资产库选择首帧参考图"
       style="width: 60vw; max-width: 800px;"
     >
       <div class="assets-picker-grid">
@@ -1056,6 +1056,10 @@ const handleClearRefImage = () => {
 
 // 打开资产选择弹窗（指定首帧/尾帧模式）
 const openAssetPicker = async (mode: 'start' | 'end') => {
+  if (!projectStore.activeProjectId) {
+    message.error('请先选择一个项目空间')
+    return
+  }
   assetPickerMode.value = mode
   await loadAssetLibrary()
   showAssetSelectModal.value = true

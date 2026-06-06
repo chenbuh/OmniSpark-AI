@@ -2,8 +2,8 @@
   <div class="assets-container">
     <div class="page-header">
       <div>
-        <h2>共享资产库 (Media Library)</h2>
-        <p class="subtitle">统一管理当前空间下的生成图、视频成果与参考素材，支持上传、检索、收藏与一键复用。</p>
+        <h2>资产库 (Media Library)</h2>
+        <p class="subtitle">统一管理当前空间与共享给我的生成图、视频成果与参考素材，支持上传、检索、收藏与一键复用。</p>
       </div>
       <n-space>
         <n-tabs v-model:value="assetTab" type="segment" size="small">
@@ -938,7 +938,7 @@ async function handleUploadChange(event: Event) {
       fileType: file.type
     })
     handleOpenDetail(refreshedAsset)
-    message.success(`素材已上传到共享资产库: ${file.name}`)
+    message.success(`素材已上传到当前项目资产库: ${file.name}`)
   } catch (err: unknown) {
     message.error(err instanceof Error && err.message ? err.message : '上传失败')
   } finally {
