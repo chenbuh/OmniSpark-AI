@@ -65,9 +65,13 @@
           <n-descriptions-item label="文件名">{{ previewAsset.fileName }}</n-descriptions-item>
           <n-descriptions-item label="大小">{{ previewAsset.fileSize || '-' }}</n-descriptions-item>
           <n-descriptions-item label="时间">{{ String(previewAsset.createdAt||'').replace('T',' ').substring(0,19) }}</n-descriptions-item>
+          <n-descriptions-item label="模型">{{ previewDisplayModelName || '未记录' }}</n-descriptions-item>
         </n-descriptions>
-        <div class="preview-prompt" v-if="previewAsset.prompt">
-          <strong>Prompt:</strong> {{ previewAsset.prompt }}
+        <div class="preview-prompt" v-if="previewDisplayPrompt">
+          <strong>Prompt:</strong> {{ previewDisplayPrompt }}
+        </div>
+        <div class="preview-prompt" v-if="previewDisplayNegativePrompt">
+          <strong>Negative:</strong> {{ previewDisplayNegativePrompt }}
         </div>
       </div>
       <template #footer>
@@ -85,6 +89,8 @@ import { useMessage } from 'naive-ui'
 import { Eye, Video } from 'lucide-vue-next'
 import { dictApi, type DataDictItem } from '@/api/dicts'
 import request from '@/api/request'
+import { taskApi } from '@/api/tasks'
+import { useTaskStore, type GenerationTask } from '@/store/task'
 
 type AssetType = 'image' | 'video' | 'reference'
 
@@ -103,12 +109,14 @@ interface AdminAssetRecord {
 }
 
 const message = useMessage()
+const taskStore = useTaskStore()
 const loadingAssets = ref(true)
 const assets = ref<AdminAssetRecord[] | null>(null)
 const typeFilter = ref<AssetType | null>(null)
 const searchText = ref('')
 const showPreview = ref(false)
 const previewAsset = ref<AdminAssetRecord | null>(null)
+const previewTask = ref<GenerationTask | null>(null)
 const page = ref(1)
 const pageSize = 12
 const total = ref<number | null>(null)
@@ -117,6 +125,7 @@ const assetTypeItemsLoadState = ref<'loading' | 'ready' | 'error'>('loading')
 const totalDisplay = computed(() => total.value == null ? '-' : total.value)
 const NO_CACHE_HEADERS = { 'X-No-Cache': '1' }
 const ASSET_TYPES: AssetType[] = ['image', 'video', 'reference']
+let latestPreviewTaskToken = 0
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === 'object' && !Array.isArray(value)
@@ -155,6 +164,24 @@ function normalizeAssetType(value: unknown): AssetType {
     throw new Error('资产数据待确认')
   }
   return normalized as AssetType
+}
+
+function normalizeTaskField(value: unknown) {
+  return typeof value === 'string' ? value.trim() : ''
+}
+
+function tryParseTaskRequestJson(task?: { requestJson?: string } | null) {
+  if (!task?.requestJson) {
+    return null
+  }
+  try {
+    const parsed = JSON.parse(task.requestJson)
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+      ? parsed as Record<string, unknown>
+      : null
+  } catch {
+    return null
+  }
 }
 
 function normalizeAssetRecord(value: unknown): AdminAssetRecord {
@@ -212,6 +239,18 @@ function requireAssetPage(value: unknown) {
     total: count
   }
 }
+
+const previewDisplayPrompt = computed(() => {
+  return normalizeTaskField(tryParseTaskRequestJson(previewTask.value)?.prompt) || previewAsset.value?.prompt || ''
+})
+
+const previewDisplayNegativePrompt = computed(() => {
+  return normalizeTaskField(tryParseTaskRequestJson(previewTask.value)?.negativePrompt) || previewTask.value?.negativePrompt || ''
+})
+
+const previewDisplayModelName = computed(() => {
+  return normalizeTaskField(tryParseTaskRequestJson(previewTask.value)?.modelName) || previewTask.value?.modelName || previewAsset.value?.modelName || ''
+})
 
 const typeOptions = computed(() => [
   ...assetTypeItems.value.map(item => ({ label: item.itemName, value: item.itemCode }))
@@ -360,12 +399,38 @@ function handleDeletePreview() {
   }
   const assetId = previewAsset.value.id
   showPreview.value = false
+  previewTask.value = null
   void handleDelete(assetId)
+}
+
+async function loadPreviewTask(asset: AdminAssetRecord) {
+  const loadToken = ++latestPreviewTaskToken
+  if (!asset.taskId) {
+    previewTask.value = null
+    return
+  }
+  try {
+    const response = await taskApi.getTask(asset.taskId)
+    const task = taskStore.normalizeTask(getResponseData(response))
+    if (task.projectId !== asset.projectId) {
+      throw new Error('资产关联任务待确认')
+    }
+    if (loadToken !== latestPreviewTaskToken) {
+      return
+    }
+    previewTask.value = task
+  } catch {
+    if (loadToken === latestPreviewTaskToken) {
+      previewTask.value = null
+    }
+  }
 }
 
 function openPreview(asset: AdminAssetRecord) {
   previewAsset.value = asset
+  previewTask.value = null
   showPreview.value = true
+  void loadPreviewTask(asset)
 }
 
 function downloadAsset() {

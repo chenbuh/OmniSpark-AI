@@ -836,7 +836,7 @@ const actualVideoPrompt = computed(() => {
 })
 
 const actualVideoModelName = computed(() => {
-  return normalizeTaskField(activeTask.value?.modelName) || currentAsset.value?.modelName || ''
+  return normalizeTaskField(activeVideoTaskRequest.value?.modelName) || normalizeTaskField(activeTask.value?.modelName) || currentAsset.value?.modelName || ''
 })
 
 const actualVideoModeLabel = computed(() => {

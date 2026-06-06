@@ -1656,7 +1656,7 @@ const actualImageNegativePrompt = computed(() => {
 })
 
 const actualImageModelName = computed(() => {
-  return normalizeTaskField(activeTask.value?.modelName) || currentAsset.value?.modelName || ''
+  return normalizeTaskField(activeImageTaskRequest.value?.modelName) || normalizeTaskField(activeTask.value?.modelName) || currentAsset.value?.modelName || ''
 })
 
 const actualImageSizeLabel = computed(() => {
