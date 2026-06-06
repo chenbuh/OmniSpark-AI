@@ -965,7 +965,7 @@ const ensureTaskResultAssetLoaded = async (task: { id: number; resultAssetId?: n
   }
   if (!pendingFetchAsset) {
     pendingFetchAsset = (async () => {
-      const response = await assetApi.getAssets({ taskId: task.id, projectId: projectStore.activeProjectId })
+      const response = await assetApi.getAssets({ taskId: task.id, projectId: taskContext.projectId })
       const assets = normalizeAssetList(getResponseData(response, '视频结果待确认'), '视频结果待确认')
       for (const item of assets) {
         upsertAsset(item)
@@ -988,11 +988,11 @@ const syncTaskStatus = async (taskId: number) => {
   const task = taskStore.upsertTask(getResponseData(detail, '视频任务状态待确认'))
   activeTaskId.value = task.id
   if (task.status === 'success') {
-    await taskStore.refresh({ projectId: projectStore.activeProjectId })
+    await taskStore.refresh({ projectId: task.projectId })
     await ensureTaskResultAssetLoaded(task)
     finishGeneratingState()
     message.success('视频生成完成')
-    assetStore.refresh({ projectId: projectStore.activeProjectId }).catch(() => {})
+    assetStore.refresh({ projectId: task.projectId }).catch(() => {})
     return task
   }
   if (task.status === 'failed') {
@@ -1154,7 +1154,7 @@ const handleStartGenerate = async () => {
       await ensureTaskResultAssetLoaded(task)
       finishGeneratingState()
       message.success('视频生成完成')
-      assetStore.refresh({ projectId: projectStore.activeProjectId }).catch(() => {})
+      assetStore.refresh({ projectId: task.projectId }).catch(() => {})
     } else if (task.status === 'failed') {
       message.error(task.errorMessage || '视频生成失败')
     } else {
