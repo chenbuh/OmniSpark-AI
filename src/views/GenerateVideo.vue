@@ -203,10 +203,32 @@
             <!-- 参数详情 -->
             <div class="params-details-card">
               <div class="params-head">
-                <span class="model-badge">视频模型: {{ currentAsset.modelName }}</span>
+                <span class="model-badge">视频模型: {{ actualVideoModelName || currentAsset.modelName }}</span>
                 <span class="date">{{ currentAsset.createdAt }}</span>
               </div>
               <p class="prompt-display"><strong>视频 Prompt:</strong> {{ currentAsset.prompt }}</p>
+              <div class="param-compare-grid">
+                <div class="param-item">
+                  <span class="param-label">生成模式</span>
+                  <span class="param-value">{{ actualVideoModeLabel }}</span>
+                </div>
+                <div class="param-item">
+                  <span class="param-label">视频时长</span>
+                  <span class="param-value">{{ actualVideoDurationLabel }}</span>
+                </div>
+                <div class="param-item">
+                  <span class="param-label">镜头运动</span>
+                  <span class="param-value">{{ actualVideoCameraMotionLabel }}</span>
+                </div>
+                <div class="param-item" v-if="actualVideoMotionSpeedLabel">
+                  <span class="param-label">运动强度</span>
+                  <span class="param-value">{{ actualVideoMotionSpeedLabel }}</span>
+                </div>
+                <div class="param-item" v-if="actualVideoHasEndFrame">
+                  <span class="param-label">尾帧</span>
+                  <span class="param-value">已指定</span>
+                </div>
+              </div>
             </div>
           </div>
 
@@ -741,6 +763,64 @@ const activeTaskProgress = computed(() => {
   const progress = activeTask.value?.progress
   return typeof progress === 'number' ? Math.max(0, Math.min(100, progress)) : null
 })
+
+function tryParseTaskRequestJsonForDisplay(task?: { requestJson?: string } | null) {
+  if (!task?.requestJson) {
+    return null
+  }
+  try {
+    const parsed = JSON.parse(task.requestJson)
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+      return null
+    }
+    return parsed as Record<string, unknown>
+  } catch {
+    return null
+  }
+}
+
+function toPositiveInteger(value: unknown) {
+  const parsed = Number(value)
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    return null
+  }
+  return Math.round(parsed)
+}
+
+const activeVideoTaskRequest = computed(() => tryParseTaskRequestJsonForDisplay(activeTask.value))
+
+const actualVideoModelName = computed(() => {
+  return normalizeTaskField(activeTask.value?.modelName) || currentAsset.value?.modelName || ''
+})
+
+const actualVideoModeLabel = computed(() => {
+  const sourceAssetId = toPositiveInteger(activeVideoTaskRequest.value?.sourceAssetId)
+  return sourceAssetId ? '图生视频' : '文生视频'
+})
+
+const actualVideoDurationLabel = computed(() => {
+  const duration = normalizeTaskField(activeVideoTaskRequest.value?.size)
+  return duration || '待确认'
+})
+
+const actualVideoCameraMotionLabel = computed(() => {
+  const options = activeVideoTaskRequest.value?.options
+  if (!options || typeof options !== 'object' || Array.isArray(options)) {
+    return '待确认'
+  }
+  return normalizeTaskField((options as Record<string, unknown>).cameraMotion) || '待确认'
+})
+
+const actualVideoMotionSpeedLabel = computed(() => {
+  const options = activeVideoTaskRequest.value?.options
+  if (!options || typeof options !== 'object' || Array.isArray(options)) {
+    return ''
+  }
+  const motionSpeed = toPositiveInteger((options as Record<string, unknown>).motionSpeed)
+  return motionSpeed ? `${motionSpeed}` : ''
+})
+
+const actualVideoHasEndFrame = computed(() => toPositiveInteger(activeVideoTaskRequest.value?.endAssetId) !== null)
 
 const stopTaskPolling = () => {
   if (taskPollingTimer) {
@@ -1528,7 +1608,35 @@ onBeforeUnmount(() => {
   font-size: 13px;
   color: #d1d5db;
   line-height: 1.5;
-  margin: 0;
+  margin: 0 0 12px 0;
+}
+
+.param-compare-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.param-item {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 6px 8px;
+  background: rgba(128,128,128,0.03);
+  border-radius: 6px;
+}
+
+.param-label {
+  font-size: 10px;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.param-value {
+  font-size: 12px;
+  color: var(--text-primary);
+  word-break: break-all;
 }
 
 /* 历史列表 */

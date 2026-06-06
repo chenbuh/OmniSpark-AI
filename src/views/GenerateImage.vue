@@ -338,29 +338,32 @@
                   <div class="param-compare-grid">
                     <div class="param-item">
                       <span class="param-label">尺寸</span>
-                      <span class="param-value">{{ resolvedSizeLabel }}</span>
+                      <span class="param-value">{{ actualImageSizeLabel }}</span>
                     </div>
-                    <div class="param-item" v-if="form.cfg">
+                    <div class="param-item" v-if="actualImageCfgLabel">
                       <span class="param-label">CFG</span>
-                      <span class="param-value">{{ form.cfg || '-' }}</span>
+                      <span class="param-value">{{ actualImageCfgLabel }}</span>
                     </div>
-                    <div class="param-item" v-if="form.steps">
+                    <div class="param-item" v-if="actualImageStepsLabel">
                       <span class="param-label">Steps</span>
-                      <span class="param-value">{{ form.steps || '-' }}</span>
+                      <span class="param-value">{{ actualImageStepsLabel }}</span>
                     </div>
                     <div class="param-item">
                       <span class="param-label">质量</span>
-                      <span class="param-value">{{ form.quality }}</span>
+                      <span class="param-value">{{ actualImageQualityLabel }}</span>
                     </div>
                     <div class="param-item">
                       <span class="param-label">生成模式</span>
-                      <span class="param-value">{{ generateMode === 'txt2img' ? '文生图' : generateMode === 'img2img' ? '图生图' : '局部重绘' }}</span>
+                      <span class="param-value">{{ actualImageModeLabel }}</span>
                     </div>
-                    <div class="param-item" v-if="currentAsset.modelName">
+                    <div class="param-item" v-if="actualImageModelName">
                       <span class="param-label">模型</span>
-                      <span class="param-value">{{ currentAsset.modelName }}</span>
+                      <span class="param-value">{{ actualImageModelName }}</span>
                     </div>
-
+                    <div class="param-item" v-if="actualImageBatchCountLabel">
+                      <span class="param-label">张数</span>
+                      <span class="param-value">{{ actualImageBatchCountLabel }}</span>
+                    </div>
                   </div>
                 </n-collapse-item>
               </n-collapse>
@@ -1560,6 +1563,99 @@ const activeTask = computed(() => {
 const activeTaskProgress = computed(() => {
   const progress = activeTask.value?.progress
   return typeof progress === 'number' ? Math.max(0, Math.min(100, progress)) : null
+})
+
+function tryParseTaskRequestJson(task?: { requestJson?: string } | null) {
+  if (!task?.requestJson) {
+    return null
+  }
+  try {
+    const parsed = JSON.parse(task.requestJson)
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+      return null
+    }
+    return parsed as Record<string, unknown>
+  } catch {
+    return null
+  }
+}
+
+function toPositiveInteger(value: unknown) {
+  const parsed = Number(value)
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    return null
+  }
+  return Math.round(parsed)
+}
+
+function normalizeActualImageMode(payload: Record<string, unknown> | null) {
+  if (!payload) {
+    return '待确认'
+  }
+  const maskAssetId = toPositiveInteger(payload.maskAssetId)
+  if (maskAssetId) {
+    return '局部重绘'
+  }
+  const referenceAssetIds = Array.isArray(payload.referenceAssetIds)
+    ? payload.referenceAssetIds.map(item => toPositiveInteger(item)).filter((item): item is number => item !== null)
+    : []
+  return referenceAssetIds.length > 0 ? '图生图' : '文生图'
+}
+
+const activeImageTaskRequest = computed(() => tryParseTaskRequestJson(activeTask.value))
+
+const actualImageModelName = computed(() => {
+  return normalizeTaskField(activeTask.value?.modelName) || currentAsset.value?.modelName || ''
+})
+
+const actualImageSizeLabel = computed(() => {
+  const payload = activeImageTaskRequest.value
+  if (!payload) {
+    return '待确认'
+  }
+  const options = payload.options
+  if (options && typeof options === 'object' && !Array.isArray(options)) {
+    const width = toPositiveInteger((options as Record<string, unknown>).width)
+    const height = toPositiveInteger((options as Record<string, unknown>).height)
+    if (width && height) {
+      return `${width} x ${height}px`
+    }
+  }
+  const size = normalizeTaskField(payload.size)
+  return size ? `${size.replace('x', ' x ')}px` : '待确认'
+})
+
+const actualImageCfgLabel = computed(() => {
+  const options = activeImageTaskRequest.value?.options
+  if (!options || typeof options !== 'object' || Array.isArray(options)) {
+    return ''
+  }
+  const value = Number((options as Record<string, unknown>).cfg)
+  return Number.isFinite(value) ? `${value}` : ''
+})
+
+const actualImageStepsLabel = computed(() => {
+  const options = activeImageTaskRequest.value?.options
+  if (!options || typeof options !== 'object' || Array.isArray(options)) {
+    return ''
+  }
+  const value = toPositiveInteger((options as Record<string, unknown>).steps)
+  return value ? `${value}` : ''
+})
+
+const actualImageQualityLabel = computed(() => {
+  const options = activeImageTaskRequest.value?.options
+  if (!options || typeof options !== 'object' || Array.isArray(options)) {
+    return '待确认'
+  }
+  return normalizeTaskField((options as Record<string, unknown>).quality) || '待确认'
+})
+
+const actualImageModeLabel = computed(() => normalizeActualImageMode(activeImageTaskRequest.value))
+
+const actualImageBatchCountLabel = computed(() => {
+  const count = toPositiveInteger(activeImageTaskRequest.value?.count)
+  return count ? `${count}` : ''
 })
 
 const formatElapsed = (seconds: number) => {
