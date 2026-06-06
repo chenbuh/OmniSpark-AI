@@ -113,6 +113,10 @@ function getResponseData(response: unknown, errorMessage: string) {
   return response.data
 }
 
+function getErrorMessage(error: unknown, fallback: string) {
+  return error instanceof Error && error.message ? error.message : fallback
+}
+
 function normalizeHealthStatus(value: unknown): HealthStatus {
   const normalized = typeof value === 'string' ? value.trim() : ''
   if (!HEALTH_STATUSES.includes(normalized as HealthStatus)) {
@@ -190,10 +194,10 @@ async function loadConfigs() {
     const response = await request.get<unknown>('/api/admin/config', { headers: NO_CACHE_HEADERS })
     configs.value = normalizeConfigList(getResponseData(response, '系统配置待确认'))
     configsLoadState.value = 'ready'
-  } catch (err: any) {
+  } catch (err: unknown) {
     configs.value = null
     configsLoadState.value = 'error'
-    message.error(err.message || '加载系统配置失败')
+    message.error(getErrorMessage(err, '加载系统配置失败'))
   } finally {
     loadingConfigs.value = false
   }
@@ -205,10 +209,10 @@ async function loadHealth() {
     const response = await request.get<unknown>('/api/admin/health')
     health.value = requireHealthStatus(getResponseData(response, '系统健康状态待确认'))
     healthLoadState.value = 'ready'
-  } catch (err: any) {
+  } catch (err: unknown) {
     health.value = null
     healthLoadState.value = 'error'
-    message.error(err.message || '加载系统健康状态失败')
+    message.error(getErrorMessage(err, '加载系统健康状态失败'))
   }
 }
 
@@ -237,8 +241,8 @@ async function handleSave(id: number) {
     }
     editingId.value = null
     message.success('配置已更新')
-  } catch (err: any) {
-    message.error(err.message || '更新失败')
+  } catch (err: unknown) {
+    message.error(getErrorMessage(err, '更新失败'))
   }
 }
 </script>

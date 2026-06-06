@@ -173,6 +173,10 @@ function getResponseData(response: unknown, errorMessage: string) {
   return response.data
 }
 
+function getErrorMessage(error: unknown, fallback: string) {
+  return error instanceof Error && error.message ? error.message : fallback
+}
+
 function normalizeOptionalText(value: unknown) {
   return typeof value === 'string' ? value.trim() : ''
 }
@@ -319,7 +323,7 @@ async function handleDelete(item: FileListItem) {
       throw new Error('文件统计待确认')
     }
     message.success('已删除')
-  } catch (err: any) { message.error(err.message || '删除失败') }
+  } catch (err: unknown) { message.error(getErrorMessage(err, '删除失败')) }
 }
 
 function switchView() { viewMode.value = viewMode.value === 'grid' ? 'list' : 'grid' }

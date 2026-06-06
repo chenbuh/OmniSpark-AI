@@ -62,6 +62,10 @@ function getResponseData(response: unknown) {
   return response.data
 }
 
+function getErrorMessage(error: unknown, fallback: string) {
+  return error instanceof Error && error.message ? error.message : fallback
+}
+
 function normalizeOptionalText(value: unknown) {
   return typeof value === 'string' ? value.trim() : ''
 }
@@ -130,10 +134,10 @@ async function loadLogs() {
     const data = requireLoginLogPage(getResponseData(response))
     logs.value = data.records
     total.value = data.total
-  } catch (err: any) {
+  } catch (err: unknown) {
     logs.value = null
     total.value = null
-    message.error(err.message || '加载登录日志失败')
+    message.error(getErrorMessage(err, '加载登录日志失败'))
   }
 }
 

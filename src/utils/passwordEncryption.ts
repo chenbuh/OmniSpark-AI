@@ -5,6 +5,29 @@ interface PasswordPublicKeyPayload {
   publicKey: string
 }
 
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === 'object' && !Array.isArray(value)
+}
+
+function getResponseData(response: unknown): unknown {
+  if (!isPlainObject(response) || !('data' in response)) {
+    throw new Error('密码公钥待确认')
+  }
+  return response.data
+}
+
+function requirePasswordPublicKeyPayload(value: unknown): PasswordPublicKeyPayload {
+  if (!isPlainObject(value)) {
+    throw new Error('密码公钥待确认')
+  }
+  const algorithm = typeof value.algorithm === 'string' ? value.algorithm.trim() : ''
+  const publicKey = typeof value.publicKey === 'string' ? value.publicKey.trim() : ''
+  if (!algorithm || !publicKey) {
+    throw new Error('密码公钥待确认')
+  }
+  return { algorithm, publicKey }
+}
+
 function pemToArrayBuffer(pem: string) {
   const base64 = pem
     .replace('-----BEGIN PUBLIC KEY-----', '')
@@ -19,10 +42,10 @@ function pemToArrayBuffer(pem: string) {
 }
 
 async function fetchPasswordPublicKey() {
-  const res = await request.get('/api/auth/public-key', {
+  const response = await request.get<unknown>('/api/auth/public-key', {
     headers: { 'x-no-cache': '1' }
   })
-  return res.data as PasswordPublicKeyPayload
+  return requirePasswordPublicKeyPayload(getResponseData(response))
 }
 
 export async function encryptPassword(plainPassword: string) {

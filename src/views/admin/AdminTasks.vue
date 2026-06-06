@@ -170,6 +170,10 @@ function getResponseData(response: unknown) {
   return response.data
 }
 
+function getErrorMessage(error: unknown, fallback: string) {
+  return error instanceof Error && error.message ? error.message : fallback
+}
+
 function normalizeOptionalNumber(value: unknown) {
   if (value == null || value === '') {
     return null
@@ -312,10 +316,10 @@ async function loadTasks(noCache = false) {
     tasks.value = data.records
     total.value = data.total
     mergeTaskMetaFromRecords(data.records)
-  } catch (err: any) {
+  } catch (err: unknown) {
     tasks.value = null
     total.value = null
-    message.error(err.message || '加载任务失败')
+    message.error(getErrorMessage(err, '加载任务失败'))
   } finally {
     loadingTasks.value = false
   }
@@ -367,7 +371,7 @@ async function handleDelete(id: number) {
       showDrawer.value = false
     }
     message.success('已删除')
-  } catch (err: any) { message.error(err.message || '删除失败') }
+  } catch (err: unknown) { message.error(getErrorMessage(err, '删除失败')) }
 }
 
 function showDetail(t: AdminTaskRecord) {

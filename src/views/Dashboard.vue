@@ -214,6 +214,7 @@ import { useProjectStore } from '@/store/project'
 import { useTaskStore } from '@/store/task'
 import { useAssetStore } from '@/store/asset'
 import type { PromptTemplate } from '@/api/templates'
+import type { GenerationTask } from '@/store/task'
 import SkeletonCard from '@/components/SkeletonCard.vue'
 import request from '@/api/request'
 import {
@@ -234,8 +235,16 @@ const projectStore = useProjectStore()
 const taskStore = useTaskStore()
 const assetStore = useAssetStore()
 
+type DashboardAnnouncement = {
+  id: number
+  title: string
+  content: string
+  priority: string
+  status: 1
+}
+
 const loading = ref(true)
-const announcement = ref<any>(null)
+const announcement = ref<DashboardAnnouncement | null>(null)
 const announcementLoadFailed = ref(false)
 const recommendedTemplates = ref<PromptTemplate[] | null>(null)
 const metricsLoadState = ref<'loading' | 'ready' | 'error'>('loading')
@@ -316,6 +325,21 @@ function normalizeOptionalText(value: unknown) {
   return typeof value === 'string' ? value.trim() : ''
 }
 
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === 'object' && !Array.isArray(value)
+}
+
+function getResponseData(response: unknown, errorMessage: string): unknown {
+  if (!isPlainObject(response) || !('data' in response)) {
+    throw new Error(errorMessage)
+  }
+  return response.data
+}
+
+function getErrorMessage(error: unknown, fallback: string) {
+  return error instanceof Error && error.message ? error.message : fallback
+}
+
 function requireNonNegativeNumber(value: unknown, errorMessage: string) {
   const normalized = Number(value)
   if (!Number.isFinite(normalized) || normalized < 0) {
@@ -390,21 +414,19 @@ function requireTemplatePage(value: unknown) {
   }
 }
 
-function normalizeAnnouncementRecord(value: unknown) {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+function normalizeAnnouncementRecord(value: unknown): DashboardAnnouncement {
+  if (!isPlainObject(value)) {
     throw new Error('公告待确认')
   }
-  const record = value as Record<string, unknown>
-  const id = requireNonNegativeNumber(record.id, '公告待确认')
-  const title = normalizeOptionalText(record.title)
-  const content = normalizeOptionalText(record.content)
-  const priority = normalizeOptionalText(record.priority)
-  const status = normalizeBinaryStatus(record.status)
+  const id = requireNonNegativeNumber(value.id, '公告待确认')
+  const title = normalizeOptionalText(value.title)
+  const content = normalizeOptionalText(value.content)
+  const priority = normalizeOptionalText(value.priority)
+  const status = normalizeBinaryStatus(value.status)
   if (id <= 0 || !title || !content || !priority || status !== 1) {
     throw new Error('公告待确认')
   }
   return {
-    ...record,
     id,
     title,
     content,
@@ -458,7 +480,7 @@ async function loadDashboardData(options?: { loading?: boolean }) {
 
   if (tplResult.status === 'fulfilled') {
     try {
-      const data = requireTemplatePage((tplResult.value as any).data)
+      const data = requireTemplatePage(getResponseData(tplResult.value, '热门提示词待确认'))
       recommendedTemplates.value = data.records
     } catch (err) {
       recommendedTemplates.value = null
@@ -471,7 +493,7 @@ async function loadDashboardData(options?: { loading?: boolean }) {
 
   if (annResult.status === 'fulfilled') {
     try {
-      const normalized = requireAnnouncementList((annResult.value as any).data)
+      const normalized = requireAnnouncementList(getResponseData(annResult.value, '公告待确认'))
       announcement.value = normalized.length > 0 ? normalized[0] : null
       announcementLoadFailed.value = false
     } catch {
@@ -807,7 +829,7 @@ watch(
 )
 
 // 复用提示词
-const handleReuse = (task: any) => {
+const handleReuse = (task: GenerationTask) => {
   if (task.taskType === 'image') {
     router.push({
       path: '/generate/image',
@@ -831,8 +853,8 @@ const handleDelete = async (id: number) => {
       throw new Error('任务删除结果待确认')
     }
     message.success('任务删除成功')
-  } catch (err: any) {
-    message.error(err.message || '任务删除失败')
+  } catch (err: unknown) {
+    message.error(getErrorMessage(err, '任务删除失败'))
   }
 }
 

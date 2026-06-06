@@ -254,6 +254,10 @@ function getResponseData(response: unknown, errorMessage: string) {
   return response.data
 }
 
+function getErrorMessage(error: unknown, fallback: string) {
+  return error instanceof Error && error.message ? error.message : fallback
+}
+
 function normalizeOptionalText(value: unknown) {
   return typeof value === 'string' ? value.trim() : ''
 }
@@ -456,10 +460,10 @@ async function loadUsers() {
     const data = requireUsersPage(getResponseData(response, '用户数据待确认'))
     users.value = data.records
     total.value = data.total
-  } catch (err: any) {
+  } catch (err: unknown) {
     users.value = null
     total.value = null
-    message.error(err.message || '加载用户失败')
+    message.error(getErrorMessage(err, '加载用户失败'))
   } finally {
     loading.value = false
   }
@@ -520,8 +524,8 @@ async function handleCreate() {
       message.success('用户已创建')
     }
     resetCreateForm()
-  } catch (err: any) {
-    message.error(err.message || '创建失败')
+  } catch (err: unknown) {
+    message.error(getErrorMessage(err, '创建失败'))
   } finally {
     creating.value = false
   }
@@ -537,7 +541,7 @@ async function handleUpdateRole(id: number, role: string) {
       throw new Error('角色更新结果待确认')
     }
     message.success('角色已更新')
-  } catch (err: any) { message.error(err.message || '更新失败') }
+  } catch (err: unknown) { message.error(getErrorMessage(err, '更新失败')) }
 }
 
 // --- 状态切换 ---
@@ -550,7 +554,7 @@ async function handleToggleStatus(u: AdminUserRecord, enabled: boolean) {
       throw new Error('用户状态待确认')
     }
     message.success(enabled ? '已启用' : '已禁用')
-  } catch (err: any) { message.error(err.message || '操作失败') }
+  } catch (err: unknown) { message.error(getErrorMessage(err, '操作失败')) }
 }
 
 function normalizeUserStatus(value: unknown): number | null {
@@ -589,8 +593,8 @@ async function confirmEdit(id: number) {
       throw new Error('昵称更新结果待确认')
     }
     message.success('昵称已更新')
-  } catch (err: any) {
-    message.error(err.message || '更新失败')
+  } catch (err: unknown) {
+    message.error(getErrorMessage(err, '更新失败'))
   }
 }
 
@@ -614,7 +618,7 @@ async function handleResetPassword(u: AdminUserRecord) {
           content: `用户「${u.username}」的新密码：${result.initialPassword}（请妥善转交，关闭后无法再次查看）`,
           positiveText: '我已记录'
         })
-      } catch (err: any) { message.error(err.message || '操作失败') }
+      } catch (err: unknown) { message.error(getErrorMessage(err, '操作失败')) }
     }
   })
 }
@@ -637,7 +641,7 @@ async function handleDeleteUser(u: AdminUserRecord) {
           throw new Error('删除结果待确认')
         }
         message.success('已删除')
-      } catch (err: any) { message.error(err.message || '删除失败') }
+      } catch (err: unknown) { message.error(getErrorMessage(err, '删除失败')) }
     }
   })
 }
@@ -664,7 +668,7 @@ async function handleExport() {
     link.click()
     URL.revokeObjectURL(url)
     message.success('导出成功')
-  } catch (err: any) { message.error(err.message || '导出失败') }
+  } catch (err: unknown) { message.error(getErrorMessage(err, '导出失败')) }
 }
 
 // --- 导入 ---
@@ -706,7 +710,7 @@ function triggerImport() {
           positiveText: '我已记录'
         })
       }
-    } catch (err: any) { message.error('导入失败: ' + (err.message || '文件格式错误')) }
+    } catch (err: unknown) { message.error(`导入失败: ${getErrorMessage(err, '文件格式错误')}`) }
   }
   input.click()
 }
