@@ -364,7 +364,7 @@ const registerRules = {
   password: [
     { required: true, message: '设置您的安全密码', trigger: ['blur', 'input'] },
     {
-      validator: (_rule: any, value: string) => {
+      validator: (_rule: unknown, value: string) => {
         const error = validatePasswordStrength(value, registerForm.username)
         return error ? new Error(error) : true
       },
@@ -374,7 +374,7 @@ const registerRules = {
   confirmPassword: [
     { required: true, message: '请重复输入密码以确认', trigger: 'blur' },
     {
-      validator: (_rule: any, value: string) => {
+      validator: (_rule: unknown, value: string) => {
         return value === registerForm.password
       },
       message: '两次输入的密码不一致，请核对',
@@ -432,6 +432,13 @@ const onCaptchaClose = () => {
   pendingAction.value = null
 }
 
+const getErrorMessage = (error: unknown, fallback: string) => {
+  if (error instanceof Error && error.message.trim()) {
+    return error.message
+  }
+  return fallback
+}
+
 const doLogin = async (captchaTicket: string) => {
   loading.value = true
   try {
@@ -442,8 +449,8 @@ const doLogin = async (captchaTicket: string) => {
     })
     message.success(`登录成功，欢迎回来，${result.userInfo.nickname}👋`)
     router.push('/dashboard')
-  } catch (err: any) {
-    message.error(err.message || '账户或安全密码校验失败，请重试！')
+  } catch (err: unknown) {
+    message.error(getErrorMessage(err, '账户或安全密码校验失败，请重试！'))
   } finally {
     loading.value = false
   }
@@ -465,8 +472,8 @@ const doRegister = async (captchaTicket: string) => {
     loginForm.username = createdUser.username
     loginForm.password = ''
     isLoginMode.value = true
-  } catch (err: any) {
-    message.error(err.message || '账号注册冲突，请稍后重试！')
+  } catch (err: unknown) {
+    message.error(getErrorMessage(err, '账号注册冲突，请稍后重试！'))
   } finally {
     loading.value = false
   }

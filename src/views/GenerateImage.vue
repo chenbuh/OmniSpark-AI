@@ -621,6 +621,13 @@ function getResponseData(response: unknown, errorMessage: string) {
   return response.data
 }
 
+function getErrorMessage(error: unknown, fallback: string) {
+  if (error instanceof Error && error.message.trim()) {
+    return error.message
+  }
+  return fallback
+}
+
 function requireGenerationMetaOptionList(value: unknown) {
   if (!Array.isArray(value)) {
     throw new Error('生图配置待确认')
@@ -1821,9 +1828,9 @@ const startTaskPolling = (taskId: number) => {
     taskSyncing = true
     try {
       await syncTaskStatus(taskId)
-    } catch (err: any) {
+    } catch (err: unknown) {
       finishGeneratingState()
-      message.error(err.message || '同步任务状态失败')
+      message.error(getErrorMessage(err, '同步任务状态失败'))
     } finally {
       taskSyncing = false
     }
@@ -1988,8 +1995,8 @@ const handleOptimizePrompt = async () => {
     form.prompt = payload.prompt
     const providerName = payload.providerName || selectedProvider.value?.name
     message.success(providerName ? `提示词已通过 ${providerName} 润色` : '提示词已润色')
-  } catch (error: any) {
-    message.error(error?.message || '提示词润色失败，请稍后重试')
+  } catch (error: unknown) {
+    message.error(getErrorMessage(error, '提示词润色失败，请稍后重试'))
   } finally {
     optimizing.value = false
   }
@@ -2101,9 +2108,9 @@ async function uploadRefFile(file: File, placeholderUrl: string) {
       }
       URL.revokeObjectURL(placeholderUrl)
     }
-  } catch (err: any) {
+  } catch (err: unknown) {
     removeRefPlaceholder(placeholderUrl)
-    message.error(err.message || '参考图上传失败')
+    message.error(getErrorMessage(err, '参考图上传失败'))
   }
 }
 
@@ -2266,9 +2273,9 @@ const handleStartGenerate = async () => {
       // 任务已提交，轮询会持续跟踪
       startTaskPolling(task.id)
     }
-  } catch (err: any) {
+  } catch (err: unknown) {
     taskCompleted.value = true
-    message.error(err.message || '生成触发失败')
+    message.error(getErrorMessage(err, '生成触发失败'))
   } finally {
     generating.value = false
     submitting.value = false
@@ -2297,8 +2304,8 @@ const handleDeleteTask = async (taskId: number) => {
     }
     ensureHistoryTasksRemoved([taskId])
     message.success('已删除')
-  } catch (err: any) {
-    message.error(err.message || '删除失败')
+  } catch (err: unknown) {
+    message.error(getErrorMessage(err, '删除失败'))
   }
 }
 
@@ -2320,8 +2327,8 @@ const handleBatchClear = async () => {
     taskCompleted.value = true
     ensureHistoryTasksRemoved(ids)
     message.success('历史记录已清空')
-  } catch (err: any) {
-    message.error(err.message || '清空失败')
+  } catch (err: unknown) {
+    message.error(getErrorMessage(err, '清空失败'))
   }
 }
 
@@ -2342,8 +2349,8 @@ const handleInspectHistoryTask = async (task: ImageHistoryTask) => {
   try {
     await ensureTaskAssetsLoaded(task)
     handleSelectHistory(task)
-  } catch (err: any) {
-    message.error(err.message || '该任务的图片结果待确认')
+  } catch (err: unknown) {
+    message.error(getErrorMessage(err, '该任务的图片结果待确认'))
   }
 }
 
@@ -2358,8 +2365,8 @@ const handleToggleFavorite = async () => {
         throw new Error('收藏状态待确认')
       }
       message.success(confirmed.favorite ? '资产收藏成功！' : '已取消收藏')
-    } catch (err: any) {
-      message.error(err.message || '收藏状态更新失败')
+    } catch (err: unknown) {
+      message.error(getErrorMessage(err, '收藏状态更新失败'))
     }
   }
 }

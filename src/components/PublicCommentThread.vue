@@ -193,6 +193,20 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === 'object' && !Array.isArray(value)
 }
 
+function getResponseData(response: unknown, errorMessage: string): unknown {
+  if (!isPlainObject(response) || !('data' in response)) {
+    throw new Error(errorMessage)
+  }
+  return response.data
+}
+
+function getErrorMessage(error: unknown, fallback: string) {
+  if (error instanceof Error && error.message.trim()) {
+    return error.message
+  }
+  return fallback
+}
+
 function normalizeOptionalText(value: unknown) {
   return typeof value === 'string' ? value.trim() : ''
 }
@@ -287,14 +301,14 @@ async function loadComments(silent = false): Promise<PublicComment[] | null> {
   loading.value = true
   try {
     const res = await request.get(commentEndpoint.value)
-    const loadedComments = requireCommentList((res as any).data)
+    const loadedComments = requireCommentList(getResponseData(res, '评论数据待确认'))
     comments.value = loadedComments
     emit('countChange', totalComments(loadedComments))
     return loadedComments
-  } catch (err: any) {
+  } catch (err: unknown) {
     comments.value = null
     if (!silent) {
-      message.error(err.message || '加载评论失败')
+      message.error(getErrorMessage(err, '加载评论失败'))
     }
     return null
   } finally {
@@ -373,7 +387,7 @@ async function submitComment(parentId?: number) {
       parentId,
       content
     })
-    const created = requireCreatedCommentResult((res as any).data)
+    const created = requireCreatedCommentResult(getResponseData(res, '评论结果待确认'))
     const refreshedComments = await loadComments(true)
     if (!refreshedComments) {
       throw new Error('评论结果待确认')
@@ -391,8 +405,8 @@ async function submitComment(parentId?: number) {
       draft.value = ''
     }
     emit('submitted')
-  } catch (err: any) {
-    message.error(err.message || '评论失败')
+  } catch (err: unknown) {
+    message.error(getErrorMessage(err, '评论失败'))
   } finally {
     submitting.value = false
   }
@@ -405,7 +419,7 @@ async function removeComment(comment: PublicComment) {
   deletingId.value = comment.id
   try {
     const res = await request.delete(`${commentEndpoint.value}/${comment.id}`)
-    requireDeletedCommentCount((res as any).data)
+    requireDeletedCommentCount(getResponseData(res, '评论删除结果待确认'))
     if (replyTargetId.value === comment.id || activeReplyRootId.value === comment.id || comment.parentId === activeReplyRootId.value) {
       cancelReply()
     }
@@ -418,8 +432,8 @@ async function removeComment(comment: PublicComment) {
       throw new Error('评论删除结果待确认')
     }
     message.success('评论已删除')
-  } catch (err: any) {
-    message.error(err.message || '删除评论失败')
+  } catch (err: unknown) {
+    message.error(getErrorMessage(err, '删除评论失败'))
   } finally {
     deletingId.value = null
   }

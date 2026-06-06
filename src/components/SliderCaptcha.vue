@@ -71,7 +71,7 @@
 
 <script setup lang="ts">
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
-import { captchaApi, type CaptchaData } from '@/api/captcha'
+import { captchaApi, type CaptchaData, type CaptchaVerifyPayload } from '@/api/captcha'
 
 const props = defineProps<{ visible: boolean }>()
 const emit = defineEmits<{
@@ -100,7 +100,18 @@ let startTime = 0
 let reloadTimer: ReturnType<typeof setTimeout> | null = null
 let latestReloadToken = 0
 
+type CaptchaVerifyDraft = Omit<CaptchaVerifyPayload, 'trail'> & {
+  trail?: number[][]
+}
+
 const stageRef = ref<HTMLElement | null>(null)
+
+function getErrorMessage(error: unknown, fallback: string) {
+  if (error instanceof Error && error.message.trim()) {
+    return error.message
+  }
+  return fallback
+}
 
 const trackY = computed(() => {
   const captcha = data.value
@@ -154,11 +165,11 @@ async function reload() {
       trackX.value = data.value.trackPath[0][0]
     }
     startTime = Date.now()
-  } catch (e: any) {
+  } catch (e: unknown) {
     if (!props.visible || reloadToken !== latestReloadToken) {
       return
     }
-    hint.value = e?.message || '加载失败，请重试'
+    hint.value = getErrorMessage(e, '加载失败，请重试')
     hintError.value = true
   } finally {
     if (reloadToken === latestReloadToken) {
@@ -195,10 +206,10 @@ function showError(msg: string) {
   }, 700)
 }
 
-async function doVerify(payload: any) {
+async function doVerify(payload: CaptchaVerifyDraft) {
   if (verifying.value) return
   verifying.value = true
-  const normalizedPayload = {
+  const normalizedPayload: CaptchaVerifyPayload = {
     ...payload,
     trail: trail.value.map(p => [...p])
   }
@@ -214,8 +225,8 @@ async function doVerify(payload: any) {
     hint.value = '验证通过'
     hintError.value = false
     emit('success', ticket)
-  } catch (e: any) {
-    showError(e?.message || '验证未通过，请重试')
+  } catch (e: unknown) {
+    showError(getErrorMessage(e, '验证未通过，请重试'))
   } finally {
     verifying.value = false
   }

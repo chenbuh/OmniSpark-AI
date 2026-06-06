@@ -309,6 +309,13 @@ function getResponseData(response: unknown, errorMessage: string) {
   return response.data
 }
 
+function getErrorMessage(error: unknown, fallback: string) {
+  if (error instanceof Error && error.message.trim()) {
+    return error.message
+  }
+  return fallback
+}
+
 function normalizeOptionalText(value: unknown) {
   return typeof value === 'string' ? value.trim() : ''
 }
@@ -749,8 +756,8 @@ const handleAddProject = async () => {
     addProjectForm.description = ''
     showAddProjectModal.value = false
     return true
-  } catch (err: any) {
-    message.error(err.message || '项目创建失败')
+  } catch (err: unknown) {
+    message.error(getErrorMessage(err, '项目创建失败'))
     return false
   }
 }
@@ -838,8 +845,8 @@ const handleAddShare = async () => {
     }
     message.success('共享成功')
     newShareTeamId.value = null
-  } catch (err: any) {
-    message.error(err.message || '共享失败')
+  } catch (err: unknown) {
+    message.error(getErrorMessage(err, '共享失败'))
   }
 }
 
@@ -865,8 +872,8 @@ const handleUpdateShare = async (shareId: number, permission: string) => {
       throw new Error('共享权限待确认')
     }
     message.success('权限已更新')
-  } catch (err: any) {
-    message.error(err.message || '更新失败')
+  } catch (err: unknown) {
+    message.error(getErrorMessage(err, '更新失败'))
   }
 }
 
@@ -893,8 +900,8 @@ const handleRemoveShare = async (shareId: number) => {
       throw new Error('取消共享结果待确认')
     }
     message.success('已取消共享')
-  } catch (err: any) {
-    message.error(err.message || '操作失败')
+  } catch (err: unknown) {
+    message.error(getErrorMessage(err, '操作失败'))
   }
 }
 
@@ -931,8 +938,8 @@ const handleProjectAction = async (key: string) => {
           const importedProject = await verifyImportedProjectData(importedProjectId, data)
           projectStore.setActiveProject(importedProject.id)
           message.success('项目导入成功！')
-      } catch (err: any) {
-        message.error('导入失败: ' + (err.message || '文件格式错误'))
+      } catch (err: unknown) {
+        message.error('导入失败: ' + getErrorMessage(err, '文件格式错误'))
       }
     }
     input.click()
@@ -956,8 +963,8 @@ const handleDeleteProject = async () => {
     if (route.path.startsWith('/admin/')) {
       await router.push('/admin/dashboard')
     }
-  } catch (err: any) {
-    message.error(err.message || '删除项目失败')
+  } catch (err: unknown) {
+    message.error(getErrorMessage(err, '删除项目失败'))
     return false
   }
 }
@@ -988,8 +995,8 @@ const handleExportProject = async () => {
     a.click()
     URL.revokeObjectURL(url)
     message.success('项目导出成功！')
-  } catch (err: any) {
-    message.error('导出失败: ' + (err.message || '网络错误'))
+  } catch (err: unknown) {
+    message.error('导出失败: ' + getErrorMessage(err, '网络错误'))
   }
 }
 
@@ -1022,11 +1029,11 @@ const loadNotifications = async () => {
     unreadCount.value = unreadItems.length
     notifications.value = allItems
     notificationErrorNotified = false
-  } catch (err: any) {
+  } catch (err: unknown) {
     unreadCount.value = null
     notifications.value = null
     if (!notificationErrorNotified) {
-      message.error(err.message || '通知数据待确认')
+      message.error(getErrorMessage(err, '通知数据待确认'))
       notificationErrorNotified = true
     }
   }
@@ -1141,8 +1148,8 @@ const handleMarkRead = async (n: NotificationItem) => {
     if (!confirmed || normalizeNotificationReadFlag(confirmed.isRead) !== true) {
       throw new Error('通知已读结果待确认')
     }
-  } catch (err: any) {
-    message.error(err.message || '通知已读失败')
+  } catch (err: unknown) {
+    message.error(getErrorMessage(err, '通知已读失败'))
   }
 }
 
@@ -1174,8 +1181,8 @@ const handleMarkAllRead = async () => {
     if (notifications.value?.some((item) => normalizeNotificationReadFlag(item.isRead) !== true)) {
       throw new Error('通知全部已读结果待确认')
     }
-  } catch (err: any) {
-    message.error(err.message || '通知全部已读失败')
+  } catch (err: unknown) {
+    message.error(getErrorMessage(err, '通知全部已读失败'))
   }
 }
 
