@@ -3,7 +3,7 @@
     <div class="page-header">
       <div>
         <h2>资产库 (Media Library)</h2>
-        <p class="subtitle">统一管理当前空间与共享给我的生成图、视频成果与参考素材，支持上传、检索、收藏与一键复用。</p>
+        <p class="subtitle">统一管理当前项目、所有可访问项目以及共享给我的生成图、视频成果与参考素材，支持上传、检索、收藏与一键复用。</p>
       </div>
       <n-space>
         <n-tabs v-model:value="assetTab" type="segment" size="small">
@@ -33,7 +33,7 @@
     <n-card class="glass-card filter-card" :bordered="false">
       <div class="toolbar-top">
         <div class="library-meta">
-          <span class="meta-title">{{ currentProjectName || '未选择项目空间' }}</span>
+          <span class="meta-title">{{ currentProjectName }}</span>
           <span class="meta-desc">{{ libraryMetaDesc }}</span>
         </div>
         <n-space>
@@ -420,21 +420,28 @@ const currentProjectName = computed(() => {
   if (assetTab.value === 'shared') {
     return '共享给我'
   }
-  return projectStore.projects.find(item => item.id === projectStore.activeProjectId)?.name || ''
+  return projectStore.projects.find(item => item.id === projectStore.activeProjectId)?.name || '所有可访问项目'
+})
+
+const currentScopeHint = computed(() => {
+  if (assetTab.value === 'shared') {
+    return '共享给我的项目资产'
+  }
+  return projectStore.activeProjectId ? '当前项目资产' : '所有可访问项目资产'
 })
 
 const versionHistorySubtitle = computed(() => {
   const asset = selectedAsset.value
   if (!asset) {
-    return '按当前项目中的同提示词与同模型名称归并'
+    return '按资产所属项目中的同提示词与同模型名称归并'
   }
   if (!selectedAssetDisplayPrompt.value) {
     return '当前资产没有提示词记录，暂时无法匹配版本历史'
   }
   if (!selectedAssetDisplayModelName.value) {
-    return '按当前项目中的同提示词归并，仅匹配未记录模型名的结果'
+    return '按资产所属项目中的同提示词归并，仅匹配未记录模型名的结果'
   }
-  return '按当前项目中的同提示词与同模型名称归并'
+  return '按资产所属项目中的同提示词与同模型名称归并'
 })
 
 const summaryCards = computed(() => {
@@ -442,17 +449,17 @@ const summaryCards = computed(() => {
     {
       label: '总资产数',
       value: formatSummaryValue(assetStats.value.total),
-      hint: assetStats.value.total === null ? '资产汇总待确认' : '当前空间的全部素材沉淀'
+      hint: assetStats.value.total === null ? '资产汇总待确认' : `${currentScopeHint.value}的全部素材沉淀`
     },
     {
       label: `${assetTypeLabel('image')}成果`,
       value: formatSummaryValue(assetStats.value.imageCount),
-      hint: assetStats.value.imageCount === null ? `${assetTypeLabel('image')}数量待确认` : `已沉淀 ${assetTypeLabel('image')}类资产`
+      hint: assetStats.value.imageCount === null ? `${assetTypeLabel('image')}数量待确认` : `${currentScopeHint.value}中已沉淀 ${assetTypeLabel('image')}类资产`
     },
     {
       label: `${assetTypeLabel('video')}成果`,
       value: formatSummaryValue(assetStats.value.videoCount),
-      hint: assetStats.value.videoCount === null ? `${assetTypeLabel('video')}数量待确认` : `可复用的${assetTypeLabel('video')}内容`
+      hint: assetStats.value.videoCount === null ? `${assetTypeLabel('video')}数量待确认` : `${currentScopeHint.value}中的可复用${assetTypeLabel('video')}内容`
     },
     {
       label: assetTypeLabel('reference'),
@@ -472,7 +479,11 @@ const assetTypeTabs = computed(() => {
 })
 
 const libraryMetaDesc = computed(() => {
-  const suffix = assetTab.value === 'shared' ? '（来自已共享项目）' : '（当前可访问范围）'
+  const suffix = assetTab.value === 'shared'
+    ? '（来自已共享项目）'
+    : projectStore.activeProjectId
+      ? '（当前项目）'
+      : '（所有可访问项目）'
   return `当前匹配 ${formatSummaryValue(filteredTotal.value)} / ${formatSummaryValue(assetStats.value.total)} 个资产${suffix}`
 })
 
