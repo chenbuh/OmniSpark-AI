@@ -992,6 +992,7 @@ async function handleApplyAsReference() {
     if (asset.assetType === 'video') {
       if (linkedTask) {
         router.push(buildGenerationReuseLocation(linkedTask))
+        message.success('已将该视频的真实生成参数带入视频工作台')
       } else {
         router.push({
           path: '/generate/video',
@@ -1000,13 +1001,14 @@ async function handleApplyAsReference() {
             model: asset.modelName || ''
           }
         })
+        message.success('已将该视频已记录的提示词与模型带入视频工作台')
       }
-      message.success('已将该视频的真实生成参数带入视频工作台')
     } else {
       if (linkedTask && linkedTask.taskType === 'image') {
         router.push(buildGenerationReuseLocation(linkedTask, {
           overrideSourceAssetId: asset.id
         }))
+        message.success('已将该素材设为图生图参考图，并带入真实生成参数')
       } else {
         router.push({
           path: '/generate/image',
@@ -1016,8 +1018,8 @@ async function handleApplyAsReference() {
             model: asset.modelName || ''
           }
         })
+        message.success('已将该素材设为图生图参考图，并带入已记录的提示词与模型')
       }
-      message.success('已将该素材设为图生图参考图，并带入真实生成参数')
     }
     showDetailDrawer.value = false
   } catch (err: unknown) {

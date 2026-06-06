@@ -1747,16 +1747,18 @@ async function resolveAssetGenerationFields(asset: Asset) {
   let negativePrompt = ''
   let modelName = asset.modelName || ''
   let providerId = ''
+  let hasRequestPayload = false
   const linkedTask = await loadLinkedTaskForAsset(asset)
   const requestPayload = tryParseTaskRequestJson(linkedTask)
   if (requestPayload) {
+    hasRequestPayload = true
     prompt = normalizeTaskField(requestPayload.prompt) || prompt
     negativePrompt = normalizeTaskField(requestPayload.negativePrompt)
     modelName = normalizeTaskField(requestPayload.modelName) || modelName
     const actualProviderId = toPositiveInteger(requestPayload.providerId)
     providerId = actualProviderId ? String(actualProviderId) : ''
   }
-  return { prompt, negativePrompt, modelName, providerId }
+  return { prompt, negativePrompt, modelName, providerId, hasRequestPayload }
 }
 
 function parseTaskRequestJson(task: { requestJson?: string }, errorMessage: string) {
@@ -2583,8 +2585,10 @@ const handleToVideo = async () => {
   const query: Record<string, string> = {
     sourceAssetId: asset.id.toString()
   }
+  let hasRequestPayload = false
   try {
     const resolvedFields = await resolveAssetGenerationFields(asset)
+    hasRequestPayload = resolvedFields.hasRequestPayload
     if (resolvedFields.prompt) {
       query.prompt = resolvedFields.prompt
     }
@@ -2606,7 +2610,11 @@ const handleToVideo = async () => {
     path: '/generate/video',
     query
   })
-  message.success('已将当前图片设为视频首帧，并优先带入真实提示词、模型与提供商参数')
+  message.success(
+    hasRequestPayload
+      ? '已将当前图片设为视频首帧，并优先带入真实提示词、模型与可确认的提供商参数'
+      : '已将当前图片设为视频首帧，并带入已记录的提示词与模型'
+  )
 }
 
 onBeforeUnmount(() => {
