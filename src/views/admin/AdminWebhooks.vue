@@ -46,6 +46,9 @@
           </tr>
         </tbody>
       </n-table>
+      <div class="pager" v-if="(total ?? 0) > pageSize">
+        <n-pagination v-model:page="page" :page-size="pageSize" :item-count="total" @update:page="load" />
+      </div>
     </n-card>
 
     <!-- 编辑弹窗 -->
@@ -100,9 +103,12 @@ const editingId = ref<number | null>(null)
 const eventOptions = ref<WebhookEventOption[]>([])
 const eventOptionsLoadState = ref<'loading' | 'ready' | 'error'>('loading')
 const listLoadState = ref<'loading' | 'ready' | 'error'>('loading')
+const page = ref(1)
+const pageSize = 10
+const total = ref<number | null>(null)
 const form = reactive({ name: '', url: '', events: [] as string[], secret: '' })
 const eventLabelMap = computed(() => Object.fromEntries(eventOptions.value.map(item => [item.value, item.label])))
-const listCountDisplay = computed(() => list.value === null ? '-' : list.value.length)
+const listCountDisplay = computed(() => total.value == null ? '-' : total.value)
 const NO_CACHE_HEADERS = { 'X-No-Cache': '1' }
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
@@ -142,11 +148,15 @@ function normalizeWebhookRecord(value: unknown): WebhookRecord {
   return requireWebhook(value, 'update')
 }
 
-function normalizeWebhookList(value: unknown): WebhookRecord[] {
-  if (!Array.isArray(value)) {
+function requireWebhookPage(value: unknown): { records: WebhookRecord[]; total: number } {
+  if (!isPlainObject(value) || !Array.isArray(value.records)) {
     throw new Error('Webhook 数据待确认')
   }
-  const normalized = value.map((item: unknown) => normalizeWebhookRecord(item))
+  const totalValue = Number(value.total)
+  if (!Number.isFinite(totalValue) || totalValue < 0) {
+    throw new Error('Webhook 数据待确认')
+  }
+  const normalized = value.records.map((item: unknown) => normalizeWebhookRecord(item))
   const ids = new Set<number>()
   for (const item of normalized) {
     if (ids.has(item.id)) {
@@ -154,7 +164,13 @@ function normalizeWebhookList(value: unknown): WebhookRecord[] {
     }
     ids.add(item.id)
   }
-  return normalized
+  if (normalized.length > totalValue) {
+    throw new Error('Webhook 数据待确认')
+  }
+  return {
+    records: normalized,
+    total: totalValue
+  }
 }
 
 onMounted(async () => {
@@ -166,12 +182,18 @@ async function load() {
   loadingList.value = true
   listLoadState.value = 'loading'
   try {
-    const res = await request.get<unknown>('/api/admin/webhooks', { headers: NO_CACHE_HEADERS })
-    list.value = normalizeWebhookList(getResponseData(res, 'Webhook 数据待确认'))
+    const res = await request.get<unknown>('/api/admin/webhooks', {
+      params: { page: page.value, pageSize },
+      headers: NO_CACHE_HEADERS
+    })
+    const data = requireWebhookPage(getResponseData(res, 'Webhook 数据待确认'))
+    list.value = data.records
+    total.value = data.total
     listLoadState.value = 'ready'
   }
   catch (err: unknown) {
     list.value = null
+    total.value = null
     listLoadState.value = 'error'
     message.error(err instanceof Error && err.message ? err.message : '加载 Webhook 列表失败')
   } finally {
@@ -260,7 +282,7 @@ async function handleSave() {
   if (!/^https?:\/\//i.test(form.url.trim())) { message.error('Webhook 回调地址仅支持 http 或 https'); return }
   const eventsValue = form.events.join(',')
   try {
-    const previousCount = list.value?.length
+    const previousTotal = total.value
     const params = `name=${encodeURIComponent(form.name)}&url=${encodeURIComponent(form.url)}&events=${encodeURIComponent(eventsValue)}&secret=${encodeURIComponent(form.secret)}`
     if (editingId.value) {
       const currentEditingId = editingId.value
@@ -273,7 +295,7 @@ async function handleSave() {
         || refreshed.name !== form.name
         || refreshed.url !== form.url
         || normalizeEvents(refreshed.events).join(',') !== eventsValue
-        || (typeof previousCount === 'number' && list.value?.length !== previousCount)
+        || (typeof previousTotal === 'number' && total.value !== previousTotal)
       ) {
         throw new Error('Webhook 更新结果待确认')
       }
@@ -281,6 +303,7 @@ async function handleSave() {
     } else {
       const res = await request.post<unknown>(`/api/admin/webhooks?${params}`)
       const created = requireWebhook(getResponseData(res, 'Webhook 创建结果待确认'), 'create')
+      page.value = 1
       await load()
       const refreshed = list.value?.find(item => Number(item.id) === created.id)
       if (
@@ -288,7 +311,7 @@ async function handleSave() {
         || refreshed.name !== form.name
         || refreshed.url !== form.url
         || normalizeEvents(refreshed.events).join(',') !== eventsValue
-        || (typeof previousCount === 'number' && typeof list.value?.length === 'number' && list.value.length < previousCount + 1)
+        || (typeof previousTotal === 'number' && total.value !== previousTotal + 1)
       ) {
         throw new Error('Webhook 创建结果待确认')
       }
@@ -326,13 +349,16 @@ async function toggleStatus(w: WebhookRecord) {
 
 async function handleDelete(id: number) {
   try {
-    const previousCount = list.value?.length
+    const previousTotal = total.value
     await request.delete(`/api/admin/webhooks/${id}`)
+    if ((list.value?.length || 0) === 1 && page.value > 1) {
+      page.value--
+    }
     await load()
     if (list.value?.some(item => Number(item.id) === id)) {
       throw new Error('Webhook 删除结果待确认')
     }
-    if (typeof previousCount === 'number' && typeof list.value?.length === 'number' && list.value.length > Math.max(0, previousCount - 1)) {
+    if (typeof previousTotal === 'number' && total.value !== Math.max(0, previousTotal - 1)) {
       throw new Error('Webhook 删除结果待确认')
     }
     message.success('已删除')
@@ -364,4 +390,5 @@ function normalizeBinaryStatus(value: unknown): boolean | null {
 .admin-table th { background: rgba(255,255,255,0.02) !important; color: #9ca3af !important; border-bottom: 1px solid rgba(255,255,255,0.06) !important; font-size: 12px; }
 .admin-table td { border-bottom: 1px solid rgba(255,255,255,0.04) !important; color: #e5e7eb; padding: 8px; font-size: 13px; }
 .empty-cell { text-align: center; padding: 24px !important; color: #9ca3af; }
+.pager { display: flex; justify-content: flex-end; margin-top: 16px; }
 </style>

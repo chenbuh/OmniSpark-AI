@@ -3,13 +3,11 @@ package com.example.aihub.module.system;
 import cn.dev33.satoken.annotation.SaCheckLogin;
 import cn.dev33.satoken.annotation.SaCheckRole;
 import com.example.aihub.common.result.ApiResult;
-import com.example.aihub.common.util.PagingUtil;
+import com.example.aihub.common.result.PageResult;
 import com.example.aihub.infrastructure.entity.ScheduledTask;
 import com.example.aihub.infrastructure.service.DynamicSchedulerService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.*;
-
-import java.util.List;
 
 @RestController
 @RequiredArgsConstructor
@@ -20,8 +18,9 @@ public class ScheduledTaskController {
     private final DynamicSchedulerService schedulerService;
 
     @GetMapping
-    public ApiResult<List<ScheduledTask>> list(@RequestParam(defaultValue = "100") int limit) {
-        return ApiResult.ok(schedulerService.list(PagingUtil.clampLimit(limit, 100, 100)));
+    public ApiResult<PageResult<ScheduledTask>> list(@RequestParam(defaultValue = "1") long page,
+                                                     @RequestParam(defaultValue = "20") long pageSize) {
+        return ApiResult.ok(schedulerService.page(page, pageSize));
     }
 
     @PostMapping("/{id}/toggle")

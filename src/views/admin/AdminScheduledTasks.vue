@@ -66,6 +66,9 @@
           </tr>
         </tbody>
       </n-table>
+      <div class="pager" v-if="(total ?? 0) > pageSize">
+        <n-pagination v-model:page="page" :page-size="pageSize" :item-count="total" @update:page="load" />
+      </div>
     </n-card>
 
     <!-- 新建/编辑弹窗 -->
@@ -141,12 +144,15 @@ const runningId = ref<number | null>(null)
 const showEditor = ref(false)
 const editingId = ref<number | null>(null)
 const tasksLoadState = ref<'loading' | 'ready' | 'error'>('loading')
+const page = ref(1)
+const pageSize = 10
+const total = ref<number | null>(null)
 
 const form = reactive({
   name: '', description: '', taskType: 'cleanup' as ScheduledTaskType, cron: '0 0 3 * * ?'
 })
 const cleanupDays = ref(30)
-const tasksCountDisplay = computed(() => tasks.value === null ? '-' : tasks.value.length)
+const tasksCountDisplay = computed(() => total.value == null ? '-' : total.value)
 
 const typeOptions = [
   { label: '数据清理', value: 'cleanup' as ScheduledTaskType }
@@ -190,11 +196,18 @@ function normalizeLastStatus(value: unknown): ScheduledTaskLastStatus {
   return normalized
 }
 
-function requireScheduledTasks(value: unknown): ScheduledTaskRecord[] {
-  if (!Array.isArray(value)) {
+function requireScheduledTaskPage(value: unknown): { records: ScheduledTaskRecord[]; total: number } {
+  if (!isPlainObject(value)) {
     throw new Error('定时任务数据待确认')
   }
-  const normalized = value.map(item => normalizeScheduledTaskRecord(item))
+  if (!Array.isArray(value.records)) {
+    throw new Error('定时任务数据待确认')
+  }
+  const totalValue = Number(value.total)
+  if (!Number.isFinite(totalValue) || totalValue < 0) {
+    throw new Error('定时任务数据待确认')
+  }
+  const normalized = value.records.map(item => normalizeScheduledTaskRecord(item))
   const ids = new Set<number>()
   normalized.forEach((item) => {
     if (ids.has(item.id)) {
@@ -202,7 +215,13 @@ function requireScheduledTasks(value: unknown): ScheduledTaskRecord[] {
     }
     ids.add(item.id)
   })
-  return normalized
+  if (normalized.length > totalValue) {
+    throw new Error('定时任务数据待确认')
+  }
+  return {
+    records: normalized,
+    total: totalValue
+  }
 }
 
 function requireScheduledTaskResult(value: unknown, action: 'create' | 'update' | 'toggle') {
@@ -294,12 +313,17 @@ async function load() {
   loadingTasks.value = true
   tasksLoadState.value = 'loading'
   try {
-    const response = await request.get<unknown>('/api/admin/scheduled-tasks', { headers: { 'x-no-cache': '1' } })
-    const data = requireScheduledTasks(getResponseData(response, '定时任务数据待确认'))
-    tasks.value = data
+    const response = await request.get<unknown>('/api/admin/scheduled-tasks', {
+      params: { page: page.value, pageSize },
+      headers: { 'x-no-cache': '1' }
+    })
+    const data = requireScheduledTaskPage(getResponseData(response, '定时任务数据待确认'))
+    tasks.value = data.records
+    total.value = data.total
     tasksLoadState.value = 'ready'
   } catch (err: unknown) {
     tasks.value = null
+    total.value = null
     tasksLoadState.value = 'error'
     message.error(getErrorMessage(err, '加载定时任务失败'))
   } finally {
@@ -353,7 +377,7 @@ async function handleSave() {
     cleanupDays: form.taskType === 'cleanup' ? cleanupDays.value : null
   }
   try {
-    const previousCount = tasks.value?.length
+    const previousTotal = total.value
     if (editingId.value) {
       const currentEditingId = editingId.value
       const response = await request.put<unknown>(`/api/admin/scheduled-tasks/${currentEditingId}`, payload)
@@ -361,17 +385,18 @@ async function handleSave() {
       await load()
       const refreshed = tasks.value?.find(task => task.id === currentEditingId)
       assertScheduledTaskMatches(refreshed, expected, 'update')
-      if (typeof previousCount === 'number' && tasks.value?.length !== previousCount) {
+      if (typeof previousTotal === 'number' && total.value !== previousTotal) {
         throw new Error('任务更新结果待确认')
       }
       message.success('任务已更新')
     } else {
       const response = await request.post<unknown>('/api/admin/scheduled-tasks', payload)
       const created = requireScheduledTaskResult(getResponseData(response, '任务创建结果待确认'), 'create')
+      page.value = 1
       await load()
       const refreshed = tasks.value?.find(task => task.id === created.id)
       assertScheduledTaskMatches(refreshed, expected, 'create')
-      if (typeof previousCount === 'number' && typeof tasks.value?.length === 'number' && tasks.value.length < previousCount + 1) {
+      if (typeof previousTotal === 'number' && total.value !== previousTotal + 1) {
         throw new Error('任务创建结果待确认')
       }
       message.success('任务已创建')
@@ -382,13 +407,16 @@ async function handleSave() {
 
 async function handleDelete(id: number) {
   try {
-    const previousCount = tasks.value?.length
+    const previousTotal = total.value
     await request.delete(`/api/admin/scheduled-tasks/${id}`)
+    if ((tasks.value?.length || 0) === 1 && page.value > 1) {
+      page.value--
+    }
     await load()
     if (tasks.value?.some(task => task.id === id)) {
       throw new Error('删除结果待确认')
     }
-    if (typeof previousCount === 'number' && typeof tasks.value?.length === 'number' && tasks.value.length > Math.max(0, previousCount - 1)) {
+    if (typeof previousTotal === 'number' && total.value !== Math.max(0, previousTotal - 1)) {
       throw new Error('删除结果待确认')
     }
     message.success('已删除')
@@ -471,4 +499,5 @@ async function handleRunNow(id: number) {
 .status-note { margin-bottom: 12px; font-size: 12px; color: #fca5a5; }
 .cron-hint { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; font-size: 12px; color: var(--text-muted); margin-bottom: 10px; }
 .empty-cell { text-align: center; padding: 24px !important; color: var(--text-muted); }
+.pager { display: flex; justify-content: flex-end; margin-top: 16px; }
 </style>

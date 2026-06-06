@@ -1,7 +1,9 @@
 package com.example.aihub.infrastructure.service;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.example.aihub.common.exception.BusinessException;
+import com.example.aihub.common.result.PageResult;
 import com.example.aihub.common.util.PagingUtil;
 import com.example.aihub.infrastructure.entity.Webhook;
 import com.example.aihub.infrastructure.mapper.WebhookMapper;
@@ -32,10 +34,14 @@ public class WebhookService {
             .connectTimeout(Duration.ofSeconds(10))
             .build();
 
-    public List<Webhook> list(int limit) {
-        return webhookMapper.selectList(new LambdaQueryWrapper<Webhook>()
-                .orderByDesc(Webhook::getId)
-                .last("LIMIT " + PagingUtil.clampLimit(limit, 100, 100)));
+    public PageResult<Webhook> page(long page, long pageSize) {
+        long safePage = PagingUtil.normalizePage(page);
+        long safePageSize = PagingUtil.clampPageSize(pageSize, 20);
+        Page<Webhook> result = webhookMapper.selectPage(
+                new Page<>(safePage, safePageSize),
+                new LambdaQueryWrapper<Webhook>().orderByDesc(Webhook::getId)
+        );
+        return new PageResult<>(result.getTotal(), result.getPages(), result.getRecords());
     }
 
     public Webhook get(Long id) {

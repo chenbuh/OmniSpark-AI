@@ -3,13 +3,11 @@ package com.example.aihub.module.webhook;
 import cn.dev33.satoken.annotation.SaCheckLogin;
 import cn.dev33.satoken.annotation.SaCheckRole;
 import com.example.aihub.common.result.ApiResult;
-import com.example.aihub.common.util.PagingUtil;
+import com.example.aihub.common.result.PageResult;
 import com.example.aihub.infrastructure.entity.Webhook;
 import com.example.aihub.infrastructure.service.WebhookService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.*;
-
-import java.util.List;
 
 @RestController
 @RequiredArgsConstructor
@@ -20,8 +18,9 @@ public class WebhookController {
     private final WebhookService webhookService;
 
     @GetMapping
-    public ApiResult<List<Webhook>> list(@RequestParam(defaultValue = "100") int limit) {
-        return ApiResult.ok(webhookService.list(PagingUtil.clampLimit(limit, 100, 100)));
+    public ApiResult<PageResult<Webhook>> list(@RequestParam(defaultValue = "1") long page,
+                                               @RequestParam(defaultValue = "20") long pageSize) {
+        return ApiResult.ok(webhookService.page(page, pageSize));
     }
 
     @GetMapping("/meta")

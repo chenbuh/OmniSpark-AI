@@ -4,7 +4,9 @@ import com.example.aihub.infrastructure.entity.ScheduledTask;
 import com.example.aihub.infrastructure.mapper.ScheduledTaskMapper;
 import com.example.aihub.module.system.AdminCleanupController;
 import com.example.aihub.common.exception.BusinessException;
+import com.example.aihub.common.result.PageResult;
 import com.example.aihub.common.util.PagingUtil;
+import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.annotation.PostConstruct;
@@ -41,10 +43,15 @@ public class DynamicSchedulerService {
         log.info("Dynamic scheduler initialized");
     }
 
-    public List<ScheduledTask> list(int limit) {
-        return taskMapper.selectList(new com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper<ScheduledTask>()
-                .orderByDesc(ScheduledTask::getId)
-                .last("LIMIT " + PagingUtil.clampLimit(limit, 100, 100)));
+    public PageResult<ScheduledTask> page(long page, long pageSize) {
+        long safePage = PagingUtil.normalizePage(page);
+        long safePageSize = PagingUtil.clampPageSize(pageSize, 20);
+        Page<ScheduledTask> result = taskMapper.selectPage(
+                new Page<>(safePage, safePageSize),
+                new com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper<ScheduledTask>()
+                        .orderByDesc(ScheduledTask::getId)
+        );
+        return new PageResult<>(result.getTotal(), result.getPages(), result.getRecords());
     }
 
     @Transactional(rollbackFor = Exception.class)
