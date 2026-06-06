@@ -71,21 +71,65 @@ import { ref, onMounted } from 'vue'
 import { useMessage } from 'naive-ui'
 import request from '@/api/request'
 
+type HealthStatus = 'UP' | 'DOWN' | 'DEGRADED'
+type ServiceHealthStatus = 'UP' | 'DOWN'
+
+interface SystemConfigItem {
+  id: number
+  configKey: string
+  configValue: string
+  configGroup: string
+}
+
+interface SystemHealth {
+  status: HealthStatus
+  database: ServiceHealthStatus
+  redis: ServiceHealthStatus
+  version: string
+  uptimeReadable: string
+  startedAt: string
+}
+
 const message = useMessage()
 const loadingConfigs = ref(true)
-const configs = ref<any[] | null>(null)
-const health = ref<any>(null)
+const configs = ref<SystemConfigItem[] | null>(null)
+const health = ref<SystemHealth | null>(null)
 const editingId = ref<number | null>(null)
 const editValue = ref('')
 const configsLoadState = ref<'loading' | 'ready' | 'error'>('loading')
 const healthLoadState = ref<'loading' | 'ready' | 'error'>('loading')
 const NO_CACHE_HEADERS = { 'X-No-Cache': '1' }
+const HEALTH_STATUSES: HealthStatus[] = ['UP', 'DOWN', 'DEGRADED']
+const SERVICE_HEALTH_STATUSES: ServiceHealthStatus[] = ['UP', 'DOWN']
 
-function isPlainObject(value: unknown): value is Record<string, any> {
+function isPlainObject(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === 'object' && !Array.isArray(value)
 }
 
-function normalizeConfigItem(item: unknown) {
+function getResponseData(response: unknown, errorMessage: string) {
+  if (!isPlainObject(response) || !('data' in response)) {
+    throw new Error(errorMessage)
+  }
+  return response.data
+}
+
+function normalizeHealthStatus(value: unknown): HealthStatus {
+  const normalized = typeof value === 'string' ? value.trim() : ''
+  if (!HEALTH_STATUSES.includes(normalized as HealthStatus)) {
+    throw new Error('系统健康状态待确认')
+  }
+  return normalized as HealthStatus
+}
+
+function normalizeServiceHealthStatus(value: unknown): ServiceHealthStatus {
+  const normalized = typeof value === 'string' ? value.trim() : ''
+  if (!SERVICE_HEALTH_STATUSES.includes(normalized as ServiceHealthStatus)) {
+    throw new Error('系统健康状态待确认')
+  }
+  return normalized as ServiceHealthStatus
+}
+
+function normalizeConfigItem(item: unknown): SystemConfigItem {
   if (!isPlainObject(item)) {
     throw new Error('系统配置待确认')
   }
@@ -97,7 +141,6 @@ function normalizeConfigItem(item: unknown) {
     throw new Error('系统配置待确认')
   }
   return {
-    ...item,
     id,
     configKey,
     configValue,
@@ -105,27 +148,47 @@ function normalizeConfigItem(item: unknown) {
   }
 }
 
-function normalizeConfigList(value: unknown) {
+function normalizeConfigList(value: unknown): SystemConfigItem[] {
   if (!Array.isArray(value)) {
     throw new Error('系统配置待确认')
   }
   const normalized = value.map((item: unknown) => normalizeConfigItem(item))
   const ids = new Set<number>()
+  const configKeys = new Set<string>()
   for (const item of normalized) {
-    if (ids.has(item.id)) {
+    if (ids.has(item.id) || configKeys.has(item.configKey)) {
       throw new Error('系统配置待确认')
     }
     ids.add(item.id)
+    configKeys.add(item.configKey)
   }
   return normalized
+}
+
+function requireHealthStatus(value: unknown): SystemHealth {
+  if (!isPlainObject(value)) {
+    throw new Error('系统健康状态待确认')
+  }
+  const version = typeof value.version === 'string' ? value.version.trim() : ''
+  if (!version) {
+    throw new Error('系统健康状态待确认')
+  }
+  return {
+    status: normalizeHealthStatus(value.status),
+    database: normalizeServiceHealthStatus(value.database),
+    redis: normalizeServiceHealthStatus(value.redis),
+    version,
+    uptimeReadable: typeof value.uptimeReadable === 'string' ? value.uptimeReadable.trim() : '',
+    startedAt: typeof value.startedAt === 'string' ? value.startedAt.trim() : ''
+  }
 }
 
 async function loadConfigs() {
   loadingConfigs.value = true
   configsLoadState.value = 'loading'
   try {
-    const res = await request.get('/api/admin/config', { headers: NO_CACHE_HEADERS })
-    configs.value = normalizeConfigList((res as any).data)
+    const response = await request.get<unknown>('/api/admin/config', { headers: NO_CACHE_HEADERS })
+    configs.value = normalizeConfigList(getResponseData(response, '系统配置待确认'))
     configsLoadState.value = 'ready'
   } catch (err: any) {
     configs.value = null
@@ -139,22 +202,8 @@ async function loadConfigs() {
 async function loadHealth() {
   healthLoadState.value = 'loading'
   try {
-    const res = await request.get('/api/admin/health')
-    const data = (res as any).data
-    if (!isPlainObject(data)) {
-      throw new Error('系统健康状态待确认')
-    }
-    if (typeof data.status !== 'string' || typeof data.database !== 'string' || typeof data.redis !== 'string' || typeof data.version !== 'string') {
-      throw new Error('系统健康状态待确认')
-    }
-    health.value = {
-      status: data.status,
-      database: data.database,
-      redis: data.redis,
-      version: data.version,
-      uptimeReadable: typeof data.uptimeReadable === 'string' ? data.uptimeReadable : '',
-      startedAt: typeof data.startedAt === 'string' ? data.startedAt : ''
-    }
+    const response = await request.get<unknown>('/api/admin/health')
+    health.value = requireHealthStatus(getResponseData(response, '系统健康状态待确认'))
     healthLoadState.value = 'ready'
   } catch (err: any) {
     health.value = null
@@ -165,7 +214,7 @@ async function loadHealth() {
 
 onMounted(() => { loadConfigs(); loadHealth() })
 
-function startEdit(cfg: any) {
+function startEdit(cfg: SystemConfigItem) {
   editingId.value = cfg.id
   editValue.value = cfg.configValue
 }

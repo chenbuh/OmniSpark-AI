@@ -95,22 +95,45 @@ import { useMessage } from 'naive-ui'
 import { FileText, Trash2 } from 'lucide-vue-next'
 import request from '@/api/request'
 
+type TaskStatus = 'pending' | 'running' | 'success' | 'failed'
+type TaskType = 'image' | 'video'
+
+interface AdminTaskRecord {
+  id: number
+  projectId: number
+  providerId: number | null
+  taskType: TaskType
+  prompt: string
+  negativePrompt: string
+  status: TaskStatus
+  progress: number | null
+  progressText: string
+  modelName: string
+  resultAssetId: number | null
+  errorMessage: string
+  requestJson: string
+  responseJson: string
+  createdAt: string
+}
+
 const message = useMessage()
 const loadingTasks = ref(true)
-const tasks = ref<any[] | null>(null)
-const statusFilter = ref<string | null>(null)
-const typeFilter = ref<string | null>(null)
+const tasks = ref<AdminTaskRecord[] | null>(null)
+const statusFilter = ref<TaskStatus | null>(null)
+const typeFilter = ref<TaskType | null>(null)
 const searchText = ref('')
 const showDrawer = ref(false)
-const detail = ref<any>(null)
+const detail = ref<AdminTaskRecord | null>(null)
 const page = ref(1)
 const pageSize = 10
 const total = ref<number | null>(null)
-const taskStatuses = ref<string[]>([])
-const taskTypes = ref<string[]>([])
+const taskStatuses = ref<TaskStatus[]>([])
+const taskTypes = ref<TaskType[]>([])
 const taskMetaLoadState = ref<'loading' | 'ready' | 'error'>('loading')
 const totalDisplay = computed(() => total.value == null ? '-' : total.value)
 const NO_CACHE_HEADERS = { 'X-No-Cache': '1' }
+const TASK_STATUSES: TaskStatus[] = ['pending', 'running', 'success', 'failed']
+const TASK_TYPES: TaskType[] = ['image', 'video']
 
 const statusOptions = computed(() => taskStatuses.value.map(value => ({
   label: statusLabel(value),
@@ -136,6 +159,17 @@ const formatTaskProgress = (progress: unknown) => {
   return Number.isNaN(normalized) ? '-' : `${Math.max(0, Math.min(100, normalized))}%`
 }
 
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === 'object' && !Array.isArray(value)
+}
+
+function getResponseData(response: unknown) {
+  if (!isPlainObject(response) || !('data' in response)) {
+    throw new Error('任务数据待确认')
+  }
+  return response.data
+}
+
 function normalizeOptionalNumber(value: unknown) {
   if (value == null || value === '') {
     return null
@@ -144,56 +178,72 @@ function normalizeOptionalNumber(value: unknown) {
   return Number.isFinite(normalized) ? normalized : null
 }
 
-function normalizeTaskRecord(value: unknown) {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+function normalizeOptionalPositiveNumber(value: unknown) {
+  const normalized = normalizeOptionalNumber(value)
+  return normalized != null && normalized > 0 ? normalized : null
+}
+
+function normalizeTaskStatus(value: unknown): TaskStatus {
+  const normalized = typeof value === 'string' ? value.trim() : ''
+  if (!TASK_STATUSES.includes(normalized as TaskStatus)) {
     throw new Error('任务数据待确认')
   }
-  const id = Number((value as any).id)
-  const projectId = normalizeOptionalNumber((value as any).projectId)
-  const taskType = typeof (value as any).taskType === 'string' ? (value as any).taskType.trim() : ''
-  const prompt = typeof (value as any).prompt === 'string' ? (value as any).prompt : ''
-  const status = typeof (value as any).status === 'string' ? (value as any).status.trim() : ''
-  const progress = normalizeOptionalNumber((value as any).progress)
-  const modelName = typeof (value as any).modelName === 'string' ? (value as any).modelName.trim() : ''
-  const createdAt = typeof (value as any).createdAt === 'string' ? (value as any).createdAt.trim() : ''
-  if (!Number.isFinite(id) || id <= 0 || projectId == null || !taskType || !status || !modelName || !createdAt) {
+  return normalized as TaskStatus
+}
+
+function normalizeTaskType(value: unknown): TaskType {
+  const normalized = typeof value === 'string' ? value.trim() : ''
+  if (!TASK_TYPES.includes(normalized as TaskType)) {
+    throw new Error('任务数据待确认')
+  }
+  return normalized as TaskType
+}
+
+function normalizeTaskRecord(value: unknown): AdminTaskRecord {
+  if (!isPlainObject(value)) {
+    throw new Error('任务数据待确认')
+  }
+  const id = Number(value.id)
+  const projectId = normalizeOptionalPositiveNumber(value.projectId)
+  const taskType = normalizeTaskType(value.taskType)
+  const prompt = typeof value.prompt === 'string' ? value.prompt : ''
+  const status = normalizeTaskStatus(value.status)
+  const progress = normalizeOptionalNumber(value.progress)
+  const modelName = typeof value.modelName === 'string' ? value.modelName.trim() : ''
+  const createdAt = typeof value.createdAt === 'string' ? value.createdAt.trim() : ''
+  if (!Number.isFinite(id) || id <= 0 || projectId == null || !modelName || !createdAt || (progress != null && (progress < 0 || progress > 100))) {
     throw new Error('任务数据待确认')
   }
   return {
-    ...(value as Record<string, unknown>),
     id,
     projectId,
-    providerId: normalizeOptionalNumber((value as any).providerId),
+    providerId: normalizeOptionalPositiveNumber(value.providerId),
     taskType,
     prompt,
-    negativePrompt: typeof (value as any).negativePrompt === 'string' ? (value as any).negativePrompt : '',
+    negativePrompt: typeof value.negativePrompt === 'string' ? value.negativePrompt : '',
     status,
     progress,
-    progressText: typeof (value as any).progressText === 'string' ? (value as any).progressText : '',
+    progressText: typeof value.progressText === 'string' ? value.progressText : '',
     modelName,
-    resultAssetId: normalizeOptionalNumber((value as any).resultAssetId),
-    errorMessage: typeof (value as any).errorMessage === 'string' ? (value as any).errorMessage : '',
-    requestJson: typeof (value as any).requestJson === 'string' ? (value as any).requestJson : '',
-    responseJson: typeof (value as any).responseJson === 'string' ? (value as any).responseJson : '',
+    resultAssetId: normalizeOptionalPositiveNumber(value.resultAssetId),
+    errorMessage: typeof value.errorMessage === 'string' ? value.errorMessage : '',
+    requestJson: typeof value.requestJson === 'string' ? value.requestJson : '',
+    responseJson: typeof value.responseJson === 'string' ? value.responseJson : '',
     createdAt
   }
 }
 
 function requireTaskMeta(value: unknown) {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+  if (!isPlainObject(value)) {
     throw new Error('任务元数据待确认')
   }
-  const statuses = (value as any).statuses
-  const taskTypesValue = (value as any).taskTypes
+  const statuses = value.statuses
+  const taskTypesValue = value.taskTypes
   if (!Array.isArray(statuses) || !Array.isArray(taskTypesValue)) {
     throw new Error('任务元数据待确认')
   }
-  const normalizedStatuses = Array.from(new Set(
-    statuses.map((item: unknown) => typeof item === 'string' ? item.trim() : '').filter(Boolean)
-  ))
-  const normalizedTaskTypes = Array.from(new Set(
-    taskTypesValue.map((item: unknown) => typeof item === 'string' ? item.trim() : '').filter(Boolean)
-  ))
+  const normalizedStatuses = Array.from(new Set(statuses.map((item: unknown) => normalizeTaskStatus(item))))
+  const normalizedTaskTypes = Array.from(new Set(taskTypesValue.map((item: unknown) => normalizeTaskType(item))))
   return {
     statuses: normalizedStatuses,
     taskTypes: normalizedTaskTypes
@@ -201,11 +251,11 @@ function requireTaskMeta(value: unknown) {
 }
 
 function requireTaskPage(value: unknown) {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+  if (!isPlainObject(value)) {
     throw new Error('任务数据待确认')
   }
-  const records = (value as any).records
-  const count = Number((value as any).total)
+  const records = value.records
+  const count = Number(value.total)
   if (!Array.isArray(records) || !Number.isFinite(count) || count < 0) {
     throw new Error('任务数据待确认')
   }
@@ -229,8 +279,8 @@ function requireTaskPage(value: unknown) {
 async function loadTaskMeta() {
   taskMetaLoadState.value = 'loading'
   try {
-    const res = await request.get('/api/admin/tasks/meta', { headers: NO_CACHE_HEADERS })
-    const data = requireTaskMeta((res as any).data)
+    const response = await request.get<unknown>('/api/admin/tasks/meta', { headers: NO_CACHE_HEADERS })
+    const data = requireTaskMeta(getResponseData(response))
     taskStatuses.value = data.statuses
     taskTypes.value = data.taskTypes
     taskMetaLoadState.value = 'ready'
@@ -250,15 +300,15 @@ function reload() {
 async function loadTasks(noCache = false) {
   loadingTasks.value = true
   try {
-    const params: Record<string, any> = { page: page.value, pageSize }
+    const params: Record<string, number | string> = { page: page.value, pageSize }
     if (statusFilter.value) params.status = statusFilter.value
     if (typeFilter.value) params.taskType = typeFilter.value
     if (searchText.value) params.search = searchText.value
-    const res = await request.get('/api/admin/tasks', {
+    const response = await request.get<unknown>('/api/admin/tasks', {
       params,
       headers: noCache ? NO_CACHE_HEADERS : undefined
     })
-    const data = requireTaskPage((res as any).data)
+    const data = requireTaskPage(getResponseData(response))
     tasks.value = data.records
     total.value = data.total
     mergeTaskMetaFromRecords(data.records)
@@ -271,20 +321,18 @@ async function loadTasks(noCache = false) {
   }
 }
 
-function mergeTaskMetaFromRecords(records: any[]) {
+function mergeTaskMetaFromRecords(records: AdminTaskRecord[]) {
   const statusSet = new Set(taskStatuses.value)
   const typeSet = new Set(taskTypes.value)
   records.forEach(record => {
-    const status = typeof record?.status === 'string' ? record.status.trim() : ''
-    const taskType = typeof record?.taskType === 'string' ? record.taskType.trim() : ''
-    if (status) statusSet.add(status)
-    if (taskType) typeSet.add(taskType)
+    statusSet.add(record.status)
+    typeSet.add(record.taskType)
   })
   taskStatuses.value = Array.from(statusSet).sort((left, right) => taskStatusOrder(left) - taskStatusOrder(right) || left.localeCompare(right))
   taskTypes.value = Array.from(typeSet).sort((left, right) => taskTypeOrder(left) - taskTypeOrder(right) || left.localeCompare(right))
 }
 
-function taskStatusOrder(status: string) {
+function taskStatusOrder(status: TaskStatus) {
   if (status === 'pending') return 0
   if (status === 'running') return 1
   if (status === 'success') return 2
@@ -292,7 +340,7 @@ function taskStatusOrder(status: string) {
   return 99
 }
 
-function taskTypeOrder(taskType: string) {
+function taskTypeOrder(taskType: TaskType) {
   if (taskType === 'image') return 0
   if (taskType === 'video') return 1
   return 99
@@ -322,7 +370,7 @@ async function handleDelete(id: number) {
   } catch (err: any) { message.error(err.message || '删除失败') }
 }
 
-function showDetail(t: any) {
+function showDetail(t: AdminTaskRecord) {
   detail.value = t
   showDrawer.value = true
 }

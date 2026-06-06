@@ -73,7 +73,7 @@
       <template #footer>
         <n-button size="small" @click="showPreview = false">关闭</n-button>
         <n-button size="small" type="primary" @click="downloadAsset">下载原文件</n-button>
-        <n-button size="small" type="error" @click="handleDelete(previewAsset?.id); showPreview = false">删除</n-button>
+        <n-button size="small" type="error" @click="handleDeletePreview">删除</n-button>
       </template>
     </n-modal>
   </div>
@@ -86,13 +86,29 @@ import { Eye, Video } from 'lucide-vue-next'
 import { dictApi, type DataDictItem } from '@/api/dicts'
 import request from '@/api/request'
 
+type AssetType = 'image' | 'video' | 'reference'
+
+interface AdminAssetRecord {
+  id: number
+  projectId: number
+  taskId: number | null
+  assetType: AssetType
+  fileName: string
+  fileUrl: string
+  thumbUrl: string
+  fileSize: number | null
+  prompt: string
+  modelName: string
+  createdAt: string
+}
+
 const message = useMessage()
 const loadingAssets = ref(true)
-const assets = ref<any[] | null>(null)
-const typeFilter = ref<string | null>(null)
+const assets = ref<AdminAssetRecord[] | null>(null)
+const typeFilter = ref<AssetType | null>(null)
 const searchText = ref('')
 const showPreview = ref(false)
-const previewAsset = ref<any>(null)
+const previewAsset = ref<AdminAssetRecord | null>(null)
 const page = ref(1)
 const pageSize = 12
 const total = ref<number | null>(null)
@@ -100,6 +116,18 @@ const assetTypeItems = ref<DataDictItem[]>([])
 const assetTypeItemsLoadState = ref<'loading' | 'ready' | 'error'>('loading')
 const totalDisplay = computed(() => total.value == null ? '-' : total.value)
 const NO_CACHE_HEADERS = { 'X-No-Cache': '1' }
+const ASSET_TYPES: AssetType[] = ['image', 'video', 'reference']
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === 'object' && !Array.isArray(value)
+}
+
+function getResponseData(response: unknown) {
+  if (!isPlainObject(response) || !('data' in response)) {
+    throw new Error('资产数据待确认')
+  }
+  return response.data
+}
 
 function normalizeOptionalNumber(value: unknown) {
   if (value == null || value === '') {
@@ -109,42 +137,55 @@ function normalizeOptionalNumber(value: unknown) {
   return Number.isFinite(normalized) ? normalized : null
 }
 
-function normalizeAssetRecord(value: unknown) {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+function normalizeOptionalPositiveNumber(value: unknown) {
+  const normalized = normalizeOptionalNumber(value)
+  return normalized != null && normalized > 0 ? normalized : null
+}
+
+function normalizeAssetType(value: unknown): AssetType {
+  const normalized = typeof value === 'string' ? value.trim() : ''
+  if (!ASSET_TYPES.includes(normalized as AssetType)) {
     throw new Error('资产数据待确认')
   }
-  const id = Number((value as any).id)
-  const projectId = normalizeOptionalNumber((value as any).projectId)
-  const taskId = normalizeOptionalNumber((value as any).taskId)
-  const assetType = typeof (value as any).assetType === 'string' ? (value as any).assetType.trim() : ''
-  const fileName = typeof (value as any).fileName === 'string' ? (value as any).fileName.trim() : ''
-  const fileUrl = typeof (value as any).fileUrl === 'string' ? (value as any).fileUrl.trim() : ''
-  const createdAt = typeof (value as any).createdAt === 'string' ? (value as any).createdAt.trim() : ''
-  if (!Number.isFinite(id) || id <= 0 || projectId == null || !assetType || !fileName || !fileUrl || !createdAt) {
+  return normalized as AssetType
+}
+
+function normalizeAssetRecord(value: unknown): AdminAssetRecord {
+  if (!isPlainObject(value)) {
+    throw new Error('资产数据待确认')
+  }
+  const id = Number(value.id)
+  const projectId = normalizeOptionalPositiveNumber(value.projectId)
+  const taskId = normalizeOptionalPositiveNumber(value.taskId)
+  const assetType = normalizeAssetType(value.assetType)
+  const fileName = typeof value.fileName === 'string' ? value.fileName.trim() : ''
+  const fileUrl = typeof value.fileUrl === 'string' ? value.fileUrl.trim() : ''
+  const createdAt = typeof value.createdAt === 'string' ? value.createdAt.trim() : ''
+  const fileSize = normalizeOptionalNumber(value.fileSize)
+  if (!Number.isFinite(id) || id <= 0 || projectId == null || !fileName || !fileUrl || !createdAt || (fileSize != null && fileSize < 0)) {
     throw new Error('资产数据待确认')
   }
   return {
-    ...(value as Record<string, unknown>),
     id,
     projectId,
     taskId,
     assetType,
     fileName,
     fileUrl,
-    thumbUrl: typeof (value as any).thumbUrl === 'string' ? (value as any).thumbUrl.trim() : '',
-    fileSize: normalizeOptionalNumber((value as any).fileSize),
-    prompt: typeof (value as any).prompt === 'string' ? (value as any).prompt : '',
-    modelName: typeof (value as any).modelName === 'string' ? (value as any).modelName : '',
+    thumbUrl: typeof value.thumbUrl === 'string' ? value.thumbUrl.trim() : '',
+    fileSize,
+    prompt: typeof value.prompt === 'string' ? value.prompt : '',
+    modelName: typeof value.modelName === 'string' ? value.modelName.trim() : '',
     createdAt
   }
 }
 
 function requireAssetPage(value: unknown) {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+  if (!isPlainObject(value)) {
     throw new Error('资产数据待确认')
   }
-  const records = (value as any).records
-  const count = Number((value as any).total)
+  const records = value.records
+  const count = Number(value.total)
   if (!Array.isArray(records) || !Number.isFinite(count) || count < 0) {
     throw new Error('资产数据待确认')
   }
@@ -185,8 +226,8 @@ function assetTypeLabel(assetType?: string | null) {
 async function loadAssetTypeItems() {
   assetTypeItemsLoadState.value = 'loading'
   try {
-    const res = await dictApi.getItems('asset_category')
-    const items = requireAssetTypeItems((res as any).data)
+    const response = await dictApi.getItems('asset_category')
+    const items = requireAssetTypeItems(response.data)
     assetTypeItems.value = items
     assetTypeItemsLoadState.value = 'ready'
   } catch {
@@ -201,16 +242,42 @@ function requireAssetTypeItems(value: unknown) {
   }
   const seenCodes = new Set<string>()
   return value.map((item: unknown) => {
-    if (!item || typeof item !== 'object' || Array.isArray(item)) {
+    if (!isPlainObject(item)) {
       throw new Error('资产类型待确认')
     }
-    const itemCode = typeof (item as any).itemCode === 'string' ? (item as any).itemCode.trim() : ''
-    const itemName = typeof (item as any).itemName === 'string' ? (item as any).itemName.trim() : ''
-    if (!itemCode || !itemName || seenCodes.has(itemCode)) {
+    const id = Number(item.id)
+    const dictId = Number(item.dictId)
+    const itemCode = typeof item.itemCode === 'string' ? item.itemCode.trim() : ''
+    const itemName = typeof item.itemName === 'string' ? item.itemName.trim() : ''
+    const sortOrder = normalizeOptionalNumber(item.sortOrder)
+    const status = normalizeOptionalNumber(item.status)
+    if (
+      !Number.isFinite(id)
+      || id <= 0
+      || !Number.isFinite(dictId)
+      || dictId <= 0
+      || !itemCode
+      || !itemName
+      || seenCodes.has(itemCode)
+      || (sortOrder != null && sortOrder < 0)
+      || (status != null && status < 0)
+    ) {
       throw new Error('资产类型待确认')
     }
     seenCodes.add(itemCode)
-    return item as DataDictItem
+    const normalized: DataDictItem = {
+      id,
+      dictId,
+      itemCode,
+      itemName
+    }
+    if (sortOrder != null) {
+      normalized.sortOrder = sortOrder
+    }
+    if (status != null) {
+      normalized.status = status
+    }
+    return normalized
   })
 }
 
@@ -223,14 +290,14 @@ function reload() {
 async function loadAssets(noCache = false) {
   loadingAssets.value = true
   try {
-    const params: Record<string, any> = { page: page.value, pageSize }
+    const params: Record<string, number | string> = { page: page.value, pageSize }
     if (typeFilter.value) params.assetType = typeFilter.value
     if (searchText.value) params.search = searchText.value
-    const res = await request.get('/api/admin/assets', {
+    const response = await request.get<unknown>('/api/admin/assets', {
       params,
       headers: noCache ? NO_CACHE_HEADERS : undefined
     })
-    const data = requireAssetPage((res as any).data)
+    const data = requireAssetPage(getResponseData(response))
     assets.value = data.records
     total.value = data.total
   } catch (err: any) {
@@ -280,7 +347,16 @@ async function handleDelete(id: number) {
   } catch (err: any) { message.error(err.message || '删除失败') }
 }
 
-function openPreview(asset: any) {
+function handleDeletePreview() {
+  if (!previewAsset.value) {
+    return
+  }
+  const assetId = previewAsset.value.id
+  showPreview.value = false
+  void handleDelete(assetId)
+}
+
+function openPreview(asset: AdminAssetRecord) {
   previewAsset.value = asset
   showPreview.value = true
 }
