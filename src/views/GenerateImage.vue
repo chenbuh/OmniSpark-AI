@@ -1727,6 +1727,38 @@ function normalizeTaskField(value: unknown) {
   return typeof value === 'string' ? value.trim() : ''
 }
 
+async function loadLinkedTaskForAsset(asset: Asset) {
+  const linkedTask = activeTask.value?.id === asset.taskId
+    ? activeTask.value
+    : (asset.taskId ? taskStore.tasks.find(task => task.id === asset.taskId) || null : null)
+  if (linkedTask?.requestJson || !asset.taskId) {
+    return linkedTask
+  }
+  const response = await taskApi.getTask(asset.taskId)
+  const confirmedTask = taskStore.normalizeTask(getResponseData(response, '图片任务结果待确认'))
+  if (confirmedTask.projectId !== asset.projectId || confirmedTask.id !== asset.taskId) {
+    throw new Error('图片任务结果待确认')
+  }
+  return confirmedTask
+}
+
+async function resolveAssetGenerationFields(asset: Asset) {
+  let prompt = asset.prompt || ''
+  let negativePrompt = ''
+  let modelName = asset.modelName || ''
+  let providerId = ''
+  const linkedTask = await loadLinkedTaskForAsset(asset)
+  const requestPayload = tryParseTaskRequestJson(linkedTask)
+  if (requestPayload) {
+    prompt = normalizeTaskField(requestPayload.prompt) || prompt
+    negativePrompt = normalizeTaskField(requestPayload.negativePrompt)
+    modelName = normalizeTaskField(requestPayload.modelName) || modelName
+    const actualProviderId = toPositiveInteger(requestPayload.providerId)
+    providerId = actualProviderId ? String(actualProviderId) : ''
+  }
+  return { prompt, negativePrompt, modelName, providerId }
+}
+
 function parseTaskRequestJson(task: { requestJson?: string }, errorMessage: string) {
   if (!task.requestJson) {
     throw new Error(errorMessage)
@@ -2520,29 +2552,61 @@ const handleDownload = () => {
 const handleShareToCommunity = async () => {
   if (!currentAsset.value) { message.error('请先生成图片'); return }
   const asset = currentAsset.value
+  let sharePrompt = asset.prompt || ''
+  let shareNegativePrompt = ''
+  let shareModel = asset.modelName || ''
+  try {
+    const resolvedFields = await resolveAssetGenerationFields(asset)
+    sharePrompt = resolvedFields.prompt
+    shareNegativePrompt = resolvedFields.negativePrompt
+    shareModel = resolvedFields.modelName
+  } catch {
+    // 社区分享允许在缺少任务详情时退回到资产表已记录字段
+  }
   router.push({
     path: '/community',
     query: {
-      sharePrompt: asset.prompt || '',
-      shareModel: asset.modelName || '',
+      sharePrompt,
+      shareNegativePrompt,
+      shareModel,
       shareImage: asset.fileUrl || ''
     }
   })
   message.success('已跳转至社区分享页')
 }
 
-const handleToVideo = () => {
-  if (currentAsset.value) {
-    router.push({
-      path: '/generate/video',
-      query: {
-        sourceAssetId: currentAsset.value.id.toString(),
-        prompt: currentAsset.value.prompt || '',
-        model: currentAsset.value.modelName || ''
-      }
-    })
-    message.success('已将当前图片带入视频工作台作为首帧参考')
+const handleToVideo = async () => {
+  if (!currentAsset.value) {
+    return
   }
+  const asset = currentAsset.value
+  const query: Record<string, string> = {
+    sourceAssetId: asset.id.toString()
+  }
+  try {
+    const resolvedFields = await resolveAssetGenerationFields(asset)
+    if (resolvedFields.prompt) {
+      query.prompt = resolvedFields.prompt
+    }
+    if (resolvedFields.modelName) {
+      query.model = resolvedFields.modelName
+    }
+    if (resolvedFields.providerId) {
+      query.providerId = resolvedFields.providerId
+    }
+  } catch {
+    if (asset.prompt) {
+      query.prompt = asset.prompt
+    }
+    if (asset.modelName) {
+      query.model = asset.modelName
+    }
+  }
+  router.push({
+    path: '/generate/video',
+    query
+  })
+  message.success('已将当前图片设为视频首帧，并优先带入真实提示词、模型与提供商参数')
 }
 
 onBeforeUnmount(() => {

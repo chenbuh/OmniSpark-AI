@@ -554,6 +554,7 @@ onMounted(async () => {
 
   if (route.query.sharePrompt) {
     form.prompt = route.query.sharePrompt as string
+    form.negativePrompt = (route.query.shareNegativePrompt as string) || ''
     form.modelName = (route.query.shareModel as string) || ''
     form.imageUrl = toRelativeUrl((route.query.shareImage as string) || '')
     showUploadModal.value = true
