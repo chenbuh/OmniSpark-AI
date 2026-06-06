@@ -119,7 +119,8 @@ function normalizeAssetRecord(value: unknown) {
   const assetType = typeof (value as any).assetType === 'string' ? (value as any).assetType.trim() : ''
   const fileName = typeof (value as any).fileName === 'string' ? (value as any).fileName.trim() : ''
   const fileUrl = typeof (value as any).fileUrl === 'string' ? (value as any).fileUrl.trim() : ''
-  if (!Number.isFinite(id) || id <= 0 || projectId == null || !assetType || !fileName || !fileUrl) {
+  const createdAt = typeof (value as any).createdAt === 'string' ? (value as any).createdAt.trim() : ''
+  if (!Number.isFinite(id) || id <= 0 || projectId == null || !assetType || !fileName || !fileUrl || !createdAt) {
     throw new Error('资产数据待确认')
   }
   return {
@@ -134,7 +135,7 @@ function normalizeAssetRecord(value: unknown) {
     fileSize: normalizeOptionalNumber((value as any).fileSize),
     prompt: typeof (value as any).prompt === 'string' ? (value as any).prompt : '',
     modelName: typeof (value as any).modelName === 'string' ? (value as any).modelName : '',
-    createdAt: (value as any).createdAt ?? null
+    createdAt
   }
 }
 
@@ -143,8 +144,8 @@ function requireAssetPage(value: unknown) {
     throw new Error('资产数据待确认')
   }
   const records = (value as any).records
-  const count = (value as any).total
-  if (!Array.isArray(records) || typeof count !== 'number') {
+  const count = Number((value as any).total)
+  if (!Array.isArray(records) || !Number.isFinite(count) || count < 0) {
     throw new Error('资产数据待确认')
   }
   const normalizedRecords = records.map((item: unknown) => normalizeAssetRecord(item))
@@ -155,6 +156,9 @@ function requireAssetPage(value: unknown) {
     }
     ids.add(item.id)
   })
+  if (normalizedRecords.length > count) {
+    throw new Error('资产数据待确认')
+  }
   return {
     records: normalizedRecords,
     total: count
@@ -182,16 +186,32 @@ async function loadAssetTypeItems() {
   assetTypeItemsLoadState.value = 'loading'
   try {
     const res = await dictApi.getItems('asset_category')
-    if (!Array.isArray((res as any).data)) {
-      throw new Error('资产类型待确认')
-    }
-    const items = (res as any).data
+    const items = requireAssetTypeItems((res as any).data)
     assetTypeItems.value = items
     assetTypeItemsLoadState.value = 'ready'
   } catch {
     assetTypeItems.value = []
     assetTypeItemsLoadState.value = 'error'
   }
+}
+
+function requireAssetTypeItems(value: unknown) {
+  if (!Array.isArray(value)) {
+    throw new Error('资产类型待确认')
+  }
+  const seenCodes = new Set<string>()
+  return value.map((item: unknown) => {
+    if (!item || typeof item !== 'object' || Array.isArray(item)) {
+      throw new Error('资产类型待确认')
+    }
+    const itemCode = typeof (item as any).itemCode === 'string' ? (item as any).itemCode.trim() : ''
+    const itemName = typeof (item as any).itemName === 'string' ? (item as any).itemName.trim() : ''
+    if (!itemCode || !itemName || seenCodes.has(itemCode)) {
+      throw new Error('资产类型待确认')
+    }
+    seenCodes.add(itemCode)
+    return item as DataDictItem
+  })
 }
 
 // 过滤变化时回到第 1 页

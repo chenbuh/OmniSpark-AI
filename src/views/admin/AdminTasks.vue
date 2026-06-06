@@ -155,7 +155,8 @@ function normalizeTaskRecord(value: unknown) {
   const status = typeof (value as any).status === 'string' ? (value as any).status.trim() : ''
   const progress = normalizeOptionalNumber((value as any).progress)
   const modelName = typeof (value as any).modelName === 'string' ? (value as any).modelName.trim() : ''
-  if (!Number.isFinite(id) || id <= 0 || projectId == null || !taskType || !status || !modelName) {
+  const createdAt = typeof (value as any).createdAt === 'string' ? (value as any).createdAt.trim() : ''
+  if (!Number.isFinite(id) || id <= 0 || projectId == null || !taskType || !status || !modelName || !createdAt) {
     throw new Error('任务数据待确认')
   }
   return {
@@ -174,7 +175,7 @@ function normalizeTaskRecord(value: unknown) {
     errorMessage: typeof (value as any).errorMessage === 'string' ? (value as any).errorMessage : '',
     requestJson: typeof (value as any).requestJson === 'string' ? (value as any).requestJson : '',
     responseJson: typeof (value as any).responseJson === 'string' ? (value as any).responseJson : '',
-    createdAt: (value as any).createdAt ?? null
+    createdAt
   }
 }
 
@@ -204,8 +205,8 @@ function requireTaskPage(value: unknown) {
     throw new Error('任务数据待确认')
   }
   const records = (value as any).records
-  const count = (value as any).total
-  if (!Array.isArray(records) || typeof count !== 'number') {
+  const count = Number((value as any).total)
+  if (!Array.isArray(records) || !Number.isFinite(count) || count < 0) {
     throw new Error('任务数据待确认')
   }
   const normalizedRecords = records.map((item: unknown) => normalizeTaskRecord(item))
@@ -216,6 +217,9 @@ function requireTaskPage(value: unknown) {
     }
     ids.add(item.id)
   })
+  if (normalizedRecords.length > count) {
+    throw new Error('任务数据待确认')
+  }
   return {
     records: normalizedRecords,
     total: count

@@ -180,9 +180,20 @@ import { encryptPassword } from '@/utils/passwordEncryption'
 
 const message = useMessage()
 const dialog = useDialog()
+const NO_CACHE_HEADERS = { 'X-No-Cache': '1' }
 
 // --- 数据 ---
-const users = ref<any[] | null>(null)
+type AdminUserRecord = {
+  id: number
+  username: string
+  nickname: string
+  avatar: string
+  role: string
+  status: number
+  createdAt: string
+}
+
+const users = ref<AdminUserRecord[] | null>(null)
 const search = ref('')
 const loading = ref(true)
 
@@ -214,13 +225,49 @@ function requireUsersPage(value: unknown) {
     throw new Error('用户数据待确认')
   }
   const records = (value as any).records
-  const count = (value as any).total
-  if (!Array.isArray(records) || typeof count !== 'number') {
+  const count = Number((value as any).total)
+  if (!Array.isArray(records) || !Number.isFinite(count) || count < 0) {
+    throw new Error('用户数据待确认')
+  }
+  const ids = new Set<number>()
+  const normalizedRecords = records.map((item: unknown) => {
+    const normalized = normalizeUserRecord(item)
+    if (ids.has(normalized.id)) {
+      throw new Error('用户数据待确认')
+    }
+    ids.add(normalized.id)
+    return normalized
+  })
+  if (normalizedRecords.length > count) {
     throw new Error('用户数据待确认')
   }
   return {
-    records,
+    records: normalizedRecords,
     total: count
+  }
+}
+
+function normalizeUserRecord(value: unknown): AdminUserRecord {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new Error('用户数据待确认')
+  }
+  const record = value as Record<string, unknown>
+  const id = Number(record.id)
+  const username = typeof record.username === 'string' ? record.username.trim() : ''
+  const role = typeof record.role === 'string' ? record.role.trim() : ''
+  const status = normalizeUserStatus(record.status)
+  const createdAt = typeof record.createdAt === 'string' ? record.createdAt.trim() : ''
+  if (!Number.isFinite(id) || id <= 0 || !username || !role || status == null || !createdAt) {
+    throw new Error('用户数据待确认')
+  }
+  return {
+    id,
+    username,
+    nickname: typeof record.nickname === 'string' ? record.nickname.trim() : '',
+    avatar: typeof record.avatar === 'string' ? record.avatar.trim() : '',
+    role,
+    status,
+    createdAt
   }
 }
 
@@ -265,10 +312,7 @@ async function loadRoleOptions() {
   roleOptionsLoadState.value = 'loading'
   try {
     const res = await request.get('/api/admin/users/roles')
-    if (!Array.isArray((res as any).data)) {
-      throw new Error('角色选项待确认')
-    }
-    const options = (res as any).data
+    const options = requireRoleOptions((res as any).data)
     roleOptions.value = options
     roleOptionsLoadState.value = 'ready'
     if (!roleOptions.value.some(item => item.value === createForm.value.role)) {
@@ -279,6 +323,25 @@ async function loadRoleOptions() {
     roleOptionsLoadState.value = 'error'
     createForm.value.role = defaultCreateRole()
   }
+}
+
+function requireRoleOptions(value: unknown) {
+  if (!Array.isArray(value)) {
+    throw new Error('角色选项待确认')
+  }
+  const seenValues = new Set<string>()
+  return value.map((item: unknown) => {
+    if (!item || typeof item !== 'object' || Array.isArray(item)) {
+      throw new Error('角色选项待确认')
+    }
+    const label = typeof (item as any).label === 'string' ? (item as any).label.trim() : ''
+    const optionValue = typeof (item as any).value === 'string' ? (item as any).value.trim() : ''
+    if (!label || !optionValue || seenValues.has(optionValue)) {
+      throw new Error('角色选项待确认')
+    }
+    seenValues.add(optionValue)
+    return { label, value: optionValue }
+  })
 }
 
 function defaultCreateRole() {
@@ -299,7 +362,7 @@ async function loadUsers() {
   try {
     const params: Record<string, any> = { page: page.value, pageSize }
     if (search.value) params.search = search.value
-    const res = await request.get('/api/admin/users', { params })
+    const res = await request.get('/api/admin/users', { params, headers: NO_CACHE_HEADERS })
     const data = requireUsersPage((res as any).data)
     users.value = data.records
     total.value = data.total
@@ -582,10 +645,11 @@ async function loadUserByUsername(username: string) {
       page: 1,
       pageSize: 100,
       search: keyword
-    }
+    },
+    headers: NO_CACHE_HEADERS
   })
   const data = requireUsersPage((res as any).data)
-  return data.records.find((item: any) => String(item.username || '') === keyword) || null
+  return data.records.find(item => item.username === keyword) || null
 }
 
 function buildGeneratedCredentialSummary(items: Array<{ username?: string; initialPassword?: string }>) {
