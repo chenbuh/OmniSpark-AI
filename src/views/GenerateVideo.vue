@@ -612,7 +612,7 @@ const providerOptions = computed(() => {
 
 const modelOptions = ref<{ label: string; value: string }[]>([])
 
-// 获取本空间视频生成历史
+// 获取当前项目视频生成历史
 const taskHistory = computed(() => {
   return taskStore
     .getTasksByProject(projectStore.activeProjectId)

@@ -846,7 +846,7 @@ const resolvedSizeLabel = computed(() => {
   return `${width} x ${height}px`
 })
 
-// 获取当前空间下的生图提供商
+// 获取当前项目可用的生图提供商
 const providerOptions = computed(() => {
   return providerStore
     .getProvidersByProject(projectStore.activeProjectId)
@@ -864,7 +864,7 @@ const selectedProvider = computed(() => {
 // 模型列表选择
 const modelOptions = ref<{ label: string; value: string }[]>([])
 
-// 获取本空间生图历史记录
+// 获取当前项目生图历史记录
 const taskHistory = computed(() => {
   return taskStore
     .getTasksByProject(projectStore.activeProjectId)

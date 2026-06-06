@@ -254,7 +254,7 @@ const PUBLIC_TEMPLATE_LIBRARY_PROJECT_ID = 0
 let dashboardContext: gsap.Context | null = null
 let dashboardMatchMedia: gsap.MatchMedia | null = null
 
-// 获取当前空间下的资产
+// 获取当前项目下的资产
 const currentAssets = computed(() => {
   return assetStore.getAssetsByProject(projectStore.activeProjectId)
 })
