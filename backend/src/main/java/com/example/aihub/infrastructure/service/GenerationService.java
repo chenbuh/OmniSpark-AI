@@ -2,7 +2,9 @@ package com.example.aihub.infrastructure.service;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
+import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.example.aihub.common.exception.BusinessException;
+import com.example.aihub.common.result.PageResult;
 import com.example.aihub.common.security.UploadAccessSignatureService;
 import com.example.aihub.common.storage.UploadStorageResolver;
 import com.example.aihub.common.util.PagingUtil;
@@ -142,24 +144,18 @@ public class GenerationService {
     }
 
     public List<GenerationTaskVO> list(TaskQueryDTO query) {
-        LambdaQueryWrapper<GenerationTask> wrapper = new LambdaQueryWrapper<>();
-        if (query.getProjectId() != null) {
-            projectAccessGuard.assertAccess(query.getProjectId());
-            wrapper.eq(GenerationTask::getProjectId, query.getProjectId());
-        } else {
-            // 未指定项目时，仅返回当前用户可访问的项目任务，避免返回全量数据
-            List<Long> projectIds = projectAccessGuard.accessibleProjectIds();
-            if (projectIds.isEmpty()) {
-                return List.of();
-            }
-            wrapper.in(GenerationTask::getProjectId, projectIds);
-        }
-        if (query.getStatus() != null && !query.getStatus().isBlank()) {
-            wrapper.eq(GenerationTask::getStatus, query.getStatus());
-        }
-        wrapper.orderByDesc(GenerationTask::getId);
+        LambdaQueryWrapper<GenerationTask> wrapper = buildTaskQueryWrapper(query);
         wrapper.last("LIMIT " + PagingUtil.clampLimit(query.getLimit() == null ? 0 : query.getLimit(), 100, 100));
         return taskMapper.selectList(wrapper).stream().map(this::toTaskVO).toList();
+    }
+
+    public PageResult<GenerationTaskVO> page(TaskQueryDTO query) {
+        LambdaQueryWrapper<GenerationTask> wrapper = buildTaskQueryWrapper(query);
+        Page<GenerationTask> result = taskMapper.selectPage(
+                new Page<>(PagingUtil.normalizePage(query.getPage()), PagingUtil.clampPageSize(query.getPageSize(), 100)),
+                wrapper
+        );
+        return new PageResult<>(result.getTotal(), result.getPages(), result.getRecords().stream().map(this::toTaskVO).toList());
     }
 
     public GenerationTaskVO getTask(Long id) {
@@ -1175,6 +1171,26 @@ public class GenerationService {
 
     private GenerationTaskVO toTaskVO(GenerationTask task) {
         return VoMapper.copy(task, GenerationTaskVO.class);
+    }
+
+    private LambdaQueryWrapper<GenerationTask> buildTaskQueryWrapper(TaskQueryDTO query) {
+        LambdaQueryWrapper<GenerationTask> wrapper = new LambdaQueryWrapper<>();
+        if (query.getProjectId() != null) {
+            projectAccessGuard.assertAccess(query.getProjectId());
+            wrapper.eq(GenerationTask::getProjectId, query.getProjectId());
+        } else {
+            List<Long> projectIds = projectAccessGuard.accessibleProjectIds();
+            if (projectIds.isEmpty()) {
+                wrapper.in(GenerationTask::getProjectId, List.of(-1L));
+                return wrapper;
+            }
+            wrapper.in(GenerationTask::getProjectId, projectIds);
+        }
+        if (query.getStatus() != null && !query.getStatus().isBlank()) {
+            wrapper.eq(GenerationTask::getStatus, query.getStatus());
+        }
+        wrapper.orderByDesc(GenerationTask::getId);
+        return wrapper;
     }
 
     private void deleteTaskInternal(Long taskId) {

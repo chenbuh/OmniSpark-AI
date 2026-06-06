@@ -44,8 +44,7 @@ export const useTaskStore = defineStore('task', {
       return normalized
     },
     async refresh(params?: { projectId?: number; status?: string }) {
-      const response = await taskApi.getTasks(params)
-      this.setTasks(getResponseData(response, '任务数据待确认'))
+      this.setTasks(await taskApi.getAllTasks(params))
       return this.tasks
     },
     getTasksByProject(projectId: number) {

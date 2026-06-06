@@ -1152,8 +1152,7 @@ async function loadRuns(workflowId: number) {
   runsLoading.value = true
   runs.value = null
   try {
-    const res = await workflowApi.listRuns(workflowId)
-    runs.value = normalizeRunList(getResponseData(res, '工作流运行记录待确认'))
+    runs.value = normalizeRunList(await workflowApi.getAllRuns(workflowId))
   } catch {
     runs.value = null
   } finally {

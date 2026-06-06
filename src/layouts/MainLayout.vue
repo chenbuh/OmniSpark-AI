@@ -604,10 +604,10 @@ async function verifyImportedProjectData(
   )
   const [providersRes, workflowsRes] = await Promise.all([
     collectAllProviderRecords(projectId),
-    workflowApi.list(projectId)
+    workflowApi.getAllWorkflows(projectId)
   ])
   const providers = requirePositiveIdList(providersRes, '项目导入结果待确认')
-  const workflows = requirePositiveIdList(getResponseData(workflowsRes, '项目导入结果待确认'), '项目导入结果待确认')
+  const workflows = requirePositiveIdList(workflowsRes, '项目导入结果待确认')
   if (providers.length !== payload.providers.length) {
     throw new Error('项目导入结果待确认')
   }

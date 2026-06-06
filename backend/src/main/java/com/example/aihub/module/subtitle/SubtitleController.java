@@ -2,6 +2,7 @@ package com.example.aihub.module.subtitle;
 
 import cn.dev33.satoken.annotation.SaCheckLogin;
 import com.example.aihub.common.result.ApiResult;
+import com.example.aihub.common.result.PageResult;
 import com.example.aihub.common.util.PagingUtil;
 import com.example.aihub.infrastructure.dto.SubtitleGenerateDTO;
 import com.example.aihub.infrastructure.dto.SubtitleUpdateDTO;
@@ -24,6 +25,13 @@ public class SubtitleController {
     public ApiResult<List<SubtitleVO>> list(@PathVariable Long assetId,
                                             @RequestParam(defaultValue = "100") int limit) {
         return ApiResult.ok(subtitleService.listByAsset(assetId, PagingUtil.clampLimit(limit, 100, 100)));
+    }
+
+    @GetMapping("/{assetId}/page")
+    public ApiResult<PageResult<SubtitleVO>> page(@PathVariable Long assetId,
+                                                  @RequestParam(defaultValue = "1") long page,
+                                                  @RequestParam(defaultValue = "100") long pageSize) {
+        return ApiResult.ok(subtitleService.pageByAsset(assetId, page, pageSize));
     }
 
     @PostMapping("/generate")

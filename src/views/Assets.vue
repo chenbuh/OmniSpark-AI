@@ -1184,8 +1184,7 @@ async function loadSubtitles() {
     return
   }
   try {
-    const response = await subtitleApi.list(selectedAsset.value.id)
-    subtitles.value = requireSubtitleList(getResponseData(response, '字幕数据待确认'))
+    subtitles.value = requireSubtitleList(await subtitleApi.getAllByAsset(selectedAsset.value.id))
   } catch {
     subtitles.value = null
   }

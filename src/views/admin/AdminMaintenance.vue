@@ -41,6 +41,7 @@
 <script setup lang="ts">
 import { computed, reactive, onMounted, ref } from 'vue'
 import { useMessage } from 'naive-ui'
+import { collectAllPageRecords } from '@/api/pagination'
 import request from '@/api/request'
 
 interface MaintenanceStatus {
@@ -145,11 +146,14 @@ async function fetchMaintenanceStatus(noCache = false): Promise<MaintenanceStatu
 }
 
 async function fetchMaintenanceConfigs(): Promise<MaintenanceConfigItem[]> {
-  const res = await request.get<unknown>('/api/admin/config', {
-    params: { group: 'maintenance' },
-    headers: NO_CACHE_HEADERS
+  const configs = await collectAllPageRecords<MaintenanceConfigItem>({
+    loadPage: (page, pageSize) => request.get<unknown>('/api/admin/config/page', {
+      params: { group: 'maintenance', page, pageSize },
+      headers: NO_CACHE_HEADERS
+    }),
+    errorMessage: '维护模式配置待确认'
   })
-  return normalizeConfigList(getResponseData(res, '维护模式配置待确认'))
+  return normalizeConfigList(configs)
 }
 
 async function requireMaintenanceConfigConfirmed(expected: { enabled: boolean; message: string }) {

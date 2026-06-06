@@ -1,4 +1,5 @@
 import request from './request'
+import { collectAllPageRecords } from './pagination'
 
 export type WorkflowStepType = 'image' | 'video' | 'subtitle'
 
@@ -79,6 +80,13 @@ export const workflowApi = {
     return request.get('/api/workflows/page', { params })
   },
 
+  async getAllWorkflows(projectId?: number) {
+    return collectAllPageRecords<WorkflowVO>({
+      loadPage: (page, pageSize) => workflowApi.page({ projectId, page, pageSize }),
+      errorMessage: '工作流数据待确认'
+    })
+  },
+
   async get(id: number) {
     return request.get(`/api/workflows/${id}`)
   },
@@ -101,5 +109,16 @@ export const workflowApi = {
 
   async listRuns(id: number) {
     return request.get(`/api/workflows/${id}/runs`)
+  },
+
+  async pageRuns(id: number, params: { page: number; pageSize: number }) {
+    return request.get(`/api/workflows/${id}/runs/page`, { params })
+  },
+
+  async getAllRuns(id: number) {
+    return collectAllPageRecords<WorkflowRunVO>({
+      loadPage: (page, pageSize) => workflowApi.pageRuns(id, { page, pageSize }),
+      errorMessage: '工作流运行记录待确认'
+    })
   }
 }

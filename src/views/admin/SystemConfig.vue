@@ -69,6 +69,7 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
 import { useMessage } from 'naive-ui'
+import { collectAllPageRecords } from '@/api/pagination'
 import request from '@/api/request'
 import { usePlatformStore } from '@/store/platform'
 
@@ -193,8 +194,14 @@ async function loadConfigs() {
   loadingConfigs.value = true
   configsLoadState.value = 'loading'
   try {
-    const response = await request.get<unknown>('/api/admin/config', { headers: NO_CACHE_HEADERS })
-    configs.value = normalizeConfigList(getResponseData(response, '系统配置待确认'))
+    const allConfigs = await collectAllPageRecords<SystemConfigItem>({
+      loadPage: (page, pageSize) => request.get<unknown>('/api/admin/config/page', {
+        params: { page, pageSize },
+        headers: NO_CACHE_HEADERS
+      }),
+      errorMessage: '系统配置待确认'
+    })
+    configs.value = normalizeConfigList(allConfigs)
     const platformNameConfig = configs.value.find(item => item.configKey === 'platform.name')
     if (platformNameConfig?.configValue) {
       platformStore.setPlatformName(platformNameConfig.configValue)

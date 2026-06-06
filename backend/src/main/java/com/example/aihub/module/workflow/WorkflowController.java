@@ -74,6 +74,13 @@ public class WorkflowController {
         return ApiResult.ok(workflowService.listRuns(id, PagingUtil.clampLimit(limit, 100, 100)));
     }
 
+    @GetMapping("/{id}/runs/page")
+    public ApiResult<PageResult<WorkflowRunVO>> pageRuns(@PathVariable Long id,
+                                                         @RequestParam(defaultValue = "1") long page,
+                                                         @RequestParam(defaultValue = "100") long pageSize) {
+        return ApiResult.ok(workflowService.pageRuns(id, page, pageSize));
+    }
+
     @GetMapping("/runs/{runId}")
     public ApiResult<WorkflowRunVO> getRun(@PathVariable Long runId) {
         return ApiResult.ok(workflowService.getRun(runId));

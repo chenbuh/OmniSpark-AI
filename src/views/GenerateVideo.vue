@@ -1004,8 +1004,10 @@ const ensureTaskResultAssetLoaded = async (task: { id: number; resultAssetId?: n
   }
   if (!pendingFetchAsset) {
     pendingFetchAsset = (async () => {
-      const response = await assetApi.getAssets({ taskId: task.id, projectId: taskContext.projectId })
-      const assets = normalizeAssetList(getResponseData(response, '视频结果待确认'), '视频结果待确认')
+      const assets = normalizeAssetList(
+        await assetApi.getAllAssets({ taskId: task.id, projectId: taskContext.projectId }),
+        '视频结果待确认'
+      )
       for (const item of assets) {
         upsertAsset(item)
       }

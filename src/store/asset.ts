@@ -106,8 +106,11 @@ export const useAssetStore = defineStore('asset', {
       this.assets = normalizeAssetList(assets, this.normalizeAsset)
     },
     async refresh(params?: { projectId?: number; assetType?: string; taskId?: number; limit?: number }) {
-      const response = await assetApi.getAssets(params)
-      this.setAssets(getResponseData(response, '资产数据待确认'))
+      this.setAssets(await assetApi.getAllAssets({
+        projectId: params?.projectId,
+        assetType: params?.assetType,
+        taskId: params?.taskId
+      }))
       return this.assets
     },
     getAssetsByProject(projectId: number) {

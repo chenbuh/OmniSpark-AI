@@ -39,12 +39,13 @@ public class AssetController {
     public ApiResult<PageResult<AssetVO>> page(@RequestParam(defaultValue = "own") String scope,
                                                @RequestParam(name = "projectId", required = false) Long projectId,
                                                @RequestParam(name = "assetType", required = false) String assetType,
+                                               @RequestParam(name = "taskId", required = false) Long taskId,
                                                @RequestParam(name = "favorite", required = false) Boolean favorite,
                                                @RequestParam(name = "search", required = false) String search,
                                                @RequestParam(defaultValue = "latest") String sort,
                                                @RequestParam(defaultValue = "1") long page,
                                                @RequestParam(defaultValue = "24") long pageSize) {
-        return ApiResult.ok(assetService.page(scope, projectId, assetType, favorite, search, sort, page, pageSize));
+        return ApiResult.ok(assetService.page(scope, projectId, assetType, taskId, favorite, search, sort, page, pageSize));
     }
 
     @GetMapping("/stats")

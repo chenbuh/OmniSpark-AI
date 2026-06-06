@@ -90,7 +90,7 @@ public class AssetService {
         return assetMapper.selectList(assetWrapper).stream().map(this::toVO).toList();
     }
 
-    public PageResult<AssetVO> page(String scope, Long projectId, String assetType, Boolean favorite,
+    public PageResult<AssetVO> page(String scope, Long projectId, String assetType, Long taskId, Boolean favorite,
                                     String search, String sort, long page, long pageSize) {
         List<Long> projectIds = resolveProjectIds(scope, projectId);
         if (projectIds.isEmpty()) {
@@ -98,7 +98,7 @@ public class AssetService {
         }
         long safePage = PagingUtil.normalizePage(page);
         long safePageSize = PagingUtil.clampPageSize(pageSize, 24);
-        LambdaQueryWrapper<Asset> wrapper = buildAssetFilter(projectIds, assetType, favorite, search);
+        LambdaQueryWrapper<Asset> wrapper = buildAssetFilter(projectIds, assetType, taskId, favorite, search);
         applySort(wrapper, sort);
 
         Page<Asset> result = assetMapper.selectPage(new Page<>(safePage, safePageSize), wrapper);
@@ -363,11 +363,14 @@ public class AssetService {
         return shares.stream().map(ProjectShare::getProjectId).distinct().toList();
     }
 
-    private LambdaQueryWrapper<Asset> buildAssetFilter(List<Long> projectIds, String assetType, Boolean favorite, String search) {
+    private LambdaQueryWrapper<Asset> buildAssetFilter(List<Long> projectIds, String assetType, Long taskId, Boolean favorite, String search) {
         LambdaQueryWrapper<Asset> wrapper = new LambdaQueryWrapper<Asset>()
                 .in(Asset::getProjectId, projectIds);
         if (assetType != null && !assetType.isBlank()) {
             wrapper.eq(Asset::getAssetType, assetType);
+        }
+        if (taskId != null) {
+            wrapper.eq(Asset::getTaskId, taskId);
         }
         if (favorite != null) {
             wrapper.eq(Asset::getFavorite, favorite ? 1 : 0);

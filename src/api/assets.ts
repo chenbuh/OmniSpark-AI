@@ -1,4 +1,5 @@
 import request from './request'
+import { collectAllPageRecords } from './pagination'
 
 export interface PageResult<T> {
   total: number
@@ -10,6 +11,7 @@ export interface AssetPageParams {
   scope?: 'own' | 'shared'
   projectId?: number
   assetType?: string
+  taskId?: number
   favorite?: boolean
   search?: string
   sort?: string
@@ -61,6 +63,7 @@ export const assetApi = {
         scope: params?.scope || 'own',
         projectId: params?.projectId,
         assetType: params?.assetType,
+        taskId: params?.taskId,
         favorite: params?.favorite,
         search: params?.search,
         sort: params?.sort || 'latest',
@@ -70,6 +73,17 @@ export const assetApi = {
       headers: {
         'x-no-cache': '1'
       }
+    })
+  },
+
+  async getAllAssets(params?: AssetPageParams) {
+    return collectAllPageRecords<AssetVersionResult>({
+      loadPage: (page, pageSize) => assetApi.pageAssets({
+        ...params,
+        page,
+        pageSize
+      }),
+      errorMessage: '资产数据待确认'
     })
   },
 

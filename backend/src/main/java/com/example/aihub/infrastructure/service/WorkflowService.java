@@ -188,6 +188,21 @@ public class WorkflowService {
                 .toList();
     }
 
+    public PageResult<WorkflowRunVO> pageRuns(Long workflowId, long page, long pageSize) {
+        Workflow workflow = workflowMapper.selectById(workflowId);
+        if (workflow == null) {
+            throw new BusinessException("工作流不存在");
+        }
+        projectAccessGuard.assertAccess(workflow.getProjectId());
+        Page<WorkflowRun> result = runMapper.selectPage(
+                new Page<>(PagingUtil.normalizePage(page), PagingUtil.clampPageSize(pageSize, 100)),
+                new LambdaQueryWrapper<WorkflowRun>()
+                        .eq(WorkflowRun::getWorkflowId, workflowId)
+                        .orderByDesc(WorkflowRun::getId)
+        );
+        return new PageResult<>(result.getTotal(), result.getPages(), result.getRecords().stream().map(this::toRunVO).toList());
+    }
+
     public WorkflowRunVO getRun(Long runId) {
         WorkflowRun run = runMapper.selectById(runId);
         if (run == null) {

@@ -1,4 +1,5 @@
 import request from './request'
+import { collectAllPageRecords } from './pagination'
 
 export const taskApi = {
   // 获取任务列表，支持按项目空间和状态过滤
@@ -8,6 +9,26 @@ export const taskApi = {
       headers: {
         'x-no-cache': '1'
       }
+    })
+  },
+
+  async pageTasks(params?: { projectId?: number; status?: string; page?: number; pageSize?: number }) {
+    return request.get('/api/tasks/page', {
+      params,
+      headers: {
+        'x-no-cache': '1'
+      }
+    })
+  },
+
+  async getAllTasks(params?: { projectId?: number; status?: string }) {
+    return collectAllPageRecords({
+      loadPage: (page, pageSize) => taskApi.pageTasks({
+        ...params,
+        page,
+        pageSize
+      }),
+      errorMessage: '任务数据待确认'
     })
   },
 

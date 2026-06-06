@@ -2087,8 +2087,10 @@ const ensureTaskAssetsLoaded = async (task: { id: number; resultAssetId?: number
   }
   if (!pendingFetchAsset) {
     pendingFetchAsset = (async () => {
-      const response = await assetApi.getAssets({ taskId: task.id, projectId: taskContext.projectId })
-      const assets = normalizeImageAssetList(getResponseData(response, '图片结果待确认'), '图片结果待确认')
+      const assets = normalizeImageAssetList(
+        await assetApi.getAllAssets({ taskId: task.id, projectId: taskContext.projectId }),
+        '图片结果待确认'
+      )
       assets.forEach((item) => {
         upsertAsset(item)
       })

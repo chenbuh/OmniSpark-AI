@@ -1,7 +1,9 @@
 package com.example.aihub.infrastructure.service;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.example.aihub.common.exception.BusinessException;
+import com.example.aihub.common.result.PageResult;
 import com.example.aihub.common.security.UploadAccessSignatureService;
 import com.example.aihub.common.storage.UploadStorageResolver;
 import com.example.aihub.common.util.PagingUtil;
@@ -55,6 +57,17 @@ public class SubtitleService {
                         .orderByDesc(Subtitle::getId)
                         .last("LIMIT " + PagingUtil.clampLimit(limit, 100, 100)))
                 .stream().map(this::toVO).toList();
+    }
+
+    public PageResult<SubtitleVO> pageByAsset(Long assetId, long page, long pageSize) {
+        requireAccessibleAsset(assetId);
+        Page<Subtitle> result = subtitleMapper.selectPage(
+                new Page<>(PagingUtil.normalizePage(page), PagingUtil.clampPageSize(pageSize, 100)),
+                new LambdaQueryWrapper<Subtitle>()
+                        .eq(Subtitle::getAssetId, assetId)
+                        .orderByDesc(Subtitle::getId)
+        );
+        return new PageResult<>(result.getTotal(), result.getPages(), result.getRecords().stream().map(this::toVO).toList());
     }
 
     public SubtitleVO get(Long id) {

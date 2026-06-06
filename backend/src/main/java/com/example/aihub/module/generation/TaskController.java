@@ -2,6 +2,7 @@ package com.example.aihub.module.generation;
 
 import cn.dev33.satoken.annotation.SaCheckLogin;
 import com.example.aihub.common.result.ApiResult;
+import com.example.aihub.common.result.PageResult;
 import com.example.aihub.common.util.PagingUtil;
 import com.example.aihub.infrastructure.dto.TaskQueryDTO;
 import com.example.aihub.infrastructure.service.GenerationService;
@@ -27,6 +28,13 @@ public class TaskController {
     public ApiResult<List<GenerationTaskVO>> list(TaskQueryDTO query) {
         query.setLimit(PagingUtil.clampLimit(query.getLimit() == null ? 0 : query.getLimit(), 100, 100));
         return ApiResult.ok(generationService.list(query));
+    }
+
+    @GetMapping("/page")
+    public ApiResult<PageResult<GenerationTaskVO>> page(TaskQueryDTO query) {
+        query.setPage(PagingUtil.normalizePage(query.getPage()));
+        query.setPageSize(PagingUtil.clampPageSize(query.getPageSize(), 100));
+        return ApiResult.ok(generationService.page(query));
     }
 
     @GetMapping("/{id}")
