@@ -2,19 +2,19 @@
   <div class="providers-container">
     <div class="page-header">
       <h2>模型配置中心 (Model Providers)</h2>
-      <p class="subtitle">管理并隔离当前项目空间下的 AI 模型提供商，支持图像、视频、字幕转写和真实 TTS 配音接口。</p>
+      <p class="subtitle">管理当前项目模型提供商，并查看当前项目可用的公共模型提供商，支持图像、视频、字幕转写和真实 TTS 配音接口。</p>
     </div>
 
     <!-- 列表操作卡 -->
     <n-card class="glass-card table-card" :bordered="false">
       <div class="actions-bar">
-        <span class="count-lbl">当前空间已配置: {{ currentProviders.length }} 个</span>
+        <span class="count-lbl">当前项目可用: {{ currentProviders.length }} 个</span>
         <n-button type="primary" size="medium" :disabled="providerMetaLoadState !== 'ready'" @click="handleOpenAddModal">
           <template #icon><Plus /></template>添加提供商
         </n-button>
       </div>
       <div v-if="providerMetaLoadState === 'error'" class="status-note">提供商类型与音频格式待确认，请稍后重试。</div>
-      <div v-if="providerListLoadState === 'error'" class="status-note">当前项目的提供商列表待确认，请稍后重试。</div>
+      <div v-if="providerListLoadState === 'error'" class="status-note">当前项目可用的提供商列表待确认，请稍后重试。</div>
 
       <n-table :single-line="false" class="providers-table" style="margin-top: 15px;">
         <thead>
@@ -100,7 +100,7 @@
           <tr v-if="currentProviders.length === 0">
             <td colspan="7" class="empty-row">
               <Layers class="empty-icon" />
-              <span>当前空间未配置任何模型，点击右上角添加。</span>
+              <span>当前项目暂无可用模型提供商，点击右上角添加。</span>
             </td>
           </tr>
         </tbody>
@@ -265,6 +265,10 @@ const defaultResponseFormat = computed(() => providerMeta.value.defaults?.audioR
 const currentProviders = computed(() => {
   return providerStore.getProvidersByProject(projectStore.activeProjectId)
 })
+
+const providerScopeLabel = (provider: ModelProvider) => {
+  return provider.projectId === 0 ? '公共范围' : '当前项目'
+}
 
 // 前端分页(providerStore 全量不动,仅渲染层切片)
 const page = ref(1)
@@ -477,7 +481,7 @@ const handleSetDefault = async (provider: ModelProvider) => {
     providerStore.providers.find(item => item.id === provider.id) || provider,
     provider.type
   )
-  message.success(`已成功将 ${provider.name} 设为当前空间默认 [${getTypeLabel(provider.type)}] 提供商`)
+  message.success(`已成功将 ${provider.name} 设为${providerScopeLabel(provider)}默认 [${getTypeLabel(provider.type)}] 提供商`)
 }
 
 const providerDefaultLabel = (provider: ModelProvider) => {
@@ -627,7 +631,7 @@ const handleSave = async () => {
         isDefault: form.isDefault
       }
     )
-    message.success('新模型提供商配置已注入当前空间')
+    message.success('新模型提供商配置已添加到当前项目')
   }
   showModal.value = false
 }
