@@ -261,7 +261,7 @@
                   <div v-else-if="task.status === 'success'" class="thumb-video-badge">
                     <Tv class="thumb-badge-icon" />
                   </div>
-                  <img v-if="task.status === 'success'" :src="getAssetThumbUrl(task.resultAssetId)" :alt="task.prompt || '视频任务缩略图'" class="history-thumb-img" />
+                  <img v-if="task.status === 'success'" :src="getAssetThumbUrl(task.resultAssetId)" :alt="getVideoTaskDisplayPrompt(task) || '视频任务缩略图'" class="history-thumb-img" />
                   <div v-else-if="task.status === 'failed'" class="thumb-failed-overlay">
                     <span class="thumb-failed-text">失败</span>
                   </div>
@@ -826,6 +826,10 @@ function toPositiveInteger(value: unknown) {
 }
 
 const activeVideoTaskRequest = computed(() => tryParseTaskRequestJsonForDisplay(activeTask.value))
+
+function getVideoTaskDisplayPrompt(task?: { prompt?: string; requestJson?: string } | null) {
+  return normalizeTaskField(tryParseTaskRequestJsonForDisplay(task)?.prompt) || task?.prompt || ''
+}
 
 const actualVideoPrompt = computed(() => {
   return normalizeTaskField(activeVideoTaskRequest.value?.prompt) || currentAsset.value?.prompt || ''

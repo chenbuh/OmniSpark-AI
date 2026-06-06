@@ -400,7 +400,7 @@
                   <div v-if="task.status === 'running' || task.status === 'pending'" class="thumb-loading-overlay">
                     <n-spin size="small" />
                   </div>
-                  <img v-else-if="task.status === 'success' && task.resultAssetId" :src="getAssetThumbUrl(task.resultAssetId)" :alt="task.prompt || '历史任务缩略图'" class="history-thumb-img" />
+                  <img v-else-if="task.status === 'success' && task.resultAssetId" :src="getAssetThumbUrl(task.resultAssetId)" :alt="getImageTaskDisplayPrompt(task) || '历史任务缩略图'" class="history-thumb-img" />
                   <div v-else class="thumb-failed-overlay">
                     <span class="thumb-failed-text">失败</span>
                   </div>
@@ -435,13 +435,13 @@
               <span class="gallery-loading-text">进行中</span>
             </div>
             <img v-else-if="task.status === 'success' && task.resultAssetId"
-              :src="getAssetThumbUrl(task.resultAssetId)" :alt="task.prompt || '生成结果缩略图'" class="gallery-img" loading="lazy" />
+              :src="getAssetThumbUrl(task.resultAssetId)" :alt="getImageTaskDisplayPrompt(task) || '生成结果缩略图'" class="gallery-img" loading="lazy" />
             <div v-else class="gallery-failed">
               <span>❌ 失败</span>
             </div>
           </div>
           <div class="gallery-meta">
-            <n-ellipsis :line-clamp="1" class="gallery-prompt">{{ task.prompt || '无提示词' }}</n-ellipsis>
+            <n-ellipsis :line-clamp="1" class="gallery-prompt">{{ getImageTaskDisplayPrompt(task) || '无提示词' }}</n-ellipsis>
             <div class="gallery-bottom">
               <span class="gallery-date">{{ String(task.createdAt||'').replace('T',' ').substring(5,16) }}</span>
               <n-space :size="4">
@@ -1642,6 +1642,10 @@ function normalizeActualImageMode(payload: Record<string, unknown> | null) {
 }
 
 const activeImageTaskRequest = computed(() => tryParseTaskRequestJson(activeTask.value))
+
+function getImageTaskDisplayPrompt(task?: { prompt?: string; requestJson?: string } | null) {
+  return normalizeTaskField(tryParseTaskRequestJson(task)?.prompt) || task?.prompt || ''
+}
 
 const actualImagePrompt = computed(() => {
   return normalizeTaskField(activeImageTaskRequest.value?.prompt) || currentAsset.value?.prompt || ''
