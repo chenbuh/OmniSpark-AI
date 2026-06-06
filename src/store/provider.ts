@@ -50,20 +50,20 @@ export const useModelProviderStore = defineStore('modelProvider', {
       this.setProviders(getResponseData(res, '模型提供商数据待确认'))
       if (
         typeof projectId === 'number'
-        && this.providers.some(item => item.projectId !== 0 && item.projectId !== projectId)
+        && this.providers.some(item => item.projectId !== projectId)
       ) {
         throw new Error('模型提供商数据待确认')
       }
       return this.providers
     },
-    getProvidersByProject(projectId: number) {
-      return this.providers.filter(p => p.projectId === projectId || p.projectId === 0)
+    getProvidersForProject(projectId: number) {
+      return this.providers.filter(provider => provider.projectId === projectId)
     },
     async addProvider(provider: Omit<ModelProvider, 'id'>) {
       const res = await providerApi.createProvider(provider)
       const responseData = getResponseData(res, '模型提供商创建结果待确认')
       const beforeIds = new Set(
-        this.getProvidersByProject(provider.projectId)
+        this.getProvidersForProject(provider.projectId)
           .map(item => item.id)
           .filter(id => Number.isFinite(id) && id > 0)
       )
@@ -85,7 +85,7 @@ export const useModelProviderStore = defineStore('modelProvider', {
           return assertProviderMatchesExpected(createdById, expected, 'create')
         }
       }
-      const createdByDiff = this.getProvidersByProject(provider.projectId).find(item =>
+      const createdByDiff = this.getProvidersForProject(provider.projectId).find(item =>
         !beforeIds.has(item.id)
         && item.name === provider.name
         && item.type === provider.type

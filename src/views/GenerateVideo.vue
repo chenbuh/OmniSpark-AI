@@ -602,7 +602,7 @@ async function loadGenerationMeta() {
 
 const providerOptions = computed(() => {
   return providerStore
-    .getProvidersByProject(projectStore.activeProjectId)
+    .getProvidersForProject(projectStore.activeProjectId)
     .filter(p => allowedVideoProviderTypes.value.includes(p.type))
     .map(p => ({
       label: p.name,
@@ -621,7 +621,7 @@ const taskHistory = computed(() => {
 
 const initDefaults = () => {
   const providers = providerStore
-    .getProvidersByProject(projectStore.activeProjectId)
+    .getProvidersForProject(projectStore.activeProjectId)
     .filter(p => allowedVideoProviderTypes.value.includes(p.type))
   if (providers.length > 0) {
     const defaultProvider = providers.find(p => p.isDefault) || providers[0]
@@ -729,7 +729,7 @@ onMounted(async () => {
   if (route.query.providerId) {
     const providerId = Number(route.query.providerId)
     const provider = providerStore
-      .getProvidersByProject(projectStore.activeProjectId)
+      .getProvidersForProject(projectStore.activeProjectId)
       .find(item => item.id === providerId && allowedVideoProviderTypes.value.includes(item.type))
     if (provider) {
       form.providerId = provider.id

@@ -2,19 +2,19 @@
   <div class="providers-container">
     <div class="page-header">
       <h2>模型配置中心 (Model Providers)</h2>
-      <p class="subtitle">管理当前项目模型提供商，并查看当前项目可用的公共模型提供商，支持图像、视频、字幕转写和真实 TTS 配音接口。</p>
+      <p class="subtitle">管理当前项目模型提供商，支持图像、视频、字幕转写和真实 TTS 配音接口。</p>
     </div>
 
     <!-- 列表操作卡 -->
     <n-card class="glass-card table-card" :bordered="false">
       <div class="actions-bar">
-        <span class="count-lbl">当前项目可用: {{ currentProviders.length }} 个</span>
+        <span class="count-lbl">当前项目已配置: {{ currentProviders.length }} 个</span>
         <n-button type="primary" size="medium" :disabled="providerMetaLoadState !== 'ready'" @click="handleOpenAddModal">
           <template #icon><Plus /></template>添加提供商
         </n-button>
       </div>
       <div v-if="providerMetaLoadState === 'error'" class="status-note">提供商类型与音频格式待确认，请稍后重试。</div>
-      <div v-if="providerListLoadState === 'error'" class="status-note">当前项目可用的提供商列表待确认，请稍后重试。</div>
+      <div v-if="providerListLoadState === 'error'" class="status-note">当前项目提供商列表待确认，请稍后重试。</div>
 
       <n-table :single-line="false" class="providers-table" style="margin-top: 15px;">
         <thead>
@@ -263,12 +263,8 @@ const defaultProviderType = computed(() => providerMeta.value.defaults?.provider
 const defaultResponseFormat = computed(() => providerMeta.value.defaults?.audioResponseFormat || responseFormatOptions.value[0]?.value || '')
 
 const currentProviders = computed(() => {
-  return providerStore.getProvidersByProject(projectStore.activeProjectId)
+  return providerStore.getProvidersForProject(projectStore.activeProjectId)
 })
-
-const providerScopeLabel = (provider: ModelProvider) => {
-  return provider.projectId === 0 ? '公共范围' : '当前项目'
-}
 
 // 前端分页(providerStore 全量不动,仅渲染层切片)
 const page = ref(1)
@@ -458,7 +454,7 @@ async function loadProviderList() {
     }
     await providerStore.refresh(projectStore.activeProjectId)
     const hasForeignProjectProvider = currentProviders.value.some(provider =>
-      provider.projectId !== projectStore.activeProjectId && provider.projectId !== 0
+      provider.projectId !== projectStore.activeProjectId
     )
     if (hasForeignProjectProvider) {
       throw new Error('模型提供商数据待确认')
@@ -481,7 +477,7 @@ const handleSetDefault = async (provider: ModelProvider) => {
     providerStore.providers.find(item => item.id === provider.id) || provider,
     provider.type
   )
-  message.success(`已成功将 ${provider.name} 设为${providerScopeLabel(provider)}默认 [${getTypeLabel(provider.type)}] 提供商`)
+  message.success(`已成功将 ${provider.name} 设为当前项目默认 [${getTypeLabel(provider.type)}] 提供商`)
 }
 
 const providerDefaultLabel = (provider: ModelProvider) => {

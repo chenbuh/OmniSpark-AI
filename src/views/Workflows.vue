@@ -598,7 +598,7 @@ function providerOptions(type: string) {
 }
 
 function getProviderOptions(type: 'image' | 'video') {
-  const providers = providerStore.getProvidersByProject(projectStore.activeProjectId)
+  const providers = providerStore.getProvidersForProject(projectStore.activeProjectId)
   const allowedTypes = type === 'image' ? allowedImageProviderTypes.value : allowedVideoProviderTypes.value
   return providers
     .filter(provider => allowedTypes.includes(provider.type))

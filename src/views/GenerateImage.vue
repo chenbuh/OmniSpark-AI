@@ -846,10 +846,10 @@ const resolvedSizeLabel = computed(() => {
   return `${width} x ${height}px`
 })
 
-// 获取当前项目可用的生图提供商
+// 获取当前项目已配置的生图提供商
 const providerOptions = computed(() => {
   return providerStore
-    .getProvidersByProject(projectStore.activeProjectId)
+    .getProvidersForProject(projectStore.activeProjectId)
     .filter(p => allowedImageProviderTypes.value.includes(p.type))
     .map(p => ({
       label: p.name,
@@ -874,7 +874,7 @@ const taskHistory = computed(() => {
 // 监听项目切换，自动设置默认的模型提供商与模型
 const initDefaults = () => {
   const providers = providerStore
-    .getProvidersByProject(projectStore.activeProjectId)
+    .getProvidersForProject(projectStore.activeProjectId)
     .filter(p => allowedImageProviderTypes.value.includes(p.type))
   if (providers.length > 0) {
     const defaultProvider = providers.find(p => p.isDefault) || providers[0]
@@ -1499,7 +1499,7 @@ onMounted(async () => {
   if (route.query.providerId) {
     const providerId = Number(route.query.providerId)
     const provider = providerStore
-      .getProvidersByProject(projectStore.activeProjectId)
+      .getProvidersForProject(projectStore.activeProjectId)
       .find(item => item.id === providerId && allowedImageProviderTypes.value.includes(item.type))
     if (provider) {
       form.providerId = provider.id
