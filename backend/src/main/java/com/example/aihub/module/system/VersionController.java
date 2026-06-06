@@ -2,6 +2,7 @@ package com.example.aihub.module.system;
 
 import cn.dev33.satoken.annotation.SaCheckLogin;
 import cn.dev33.satoken.annotation.SaCheckRole;
+import com.example.aihub.common.meta.BuildMetadataService;
 import com.example.aihub.common.result.ApiResult;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -17,12 +18,8 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.nio.file.Paths;
 import java.time.Duration;
 import java.time.LocalDateTime;
-import java.util.List;
 import java.util.LinkedHashMap;
 import java.util.Map;
 
@@ -31,18 +28,6 @@ import java.util.Map;
 @SaCheckLogin
 @SaCheckRole("admin")
 public class VersionController {
-
-    @Value("${app.version:1.0.0}")
-    private String currentVersion;
-
-    @Value("${app.build-time:unknown}")
-    private String buildTime;
-
-    @Value("${app.build-commit:}")
-    private String buildCommit;
-
-    @Value("${app.build-branch:}")
-    private String buildBranch;
 
     @Value("${app.update.prefer-release:true}")
     private boolean preferRelease;
@@ -73,12 +58,14 @@ public class VersionController {
 
     private final ObjectMapper objectMapper;
     private final HttpClient httpClient;
+    private final BuildMetadataService buildMetadataService;
 
     private volatile Map<String, Object> cachedCheckResult;
     private volatile long cachedCheckAt = 0L;
 
-    public VersionController(ObjectMapper objectMapper) {
+    public VersionController(ObjectMapper objectMapper, BuildMetadataService buildMetadataService) {
         this.objectMapper = objectMapper;
+        this.buildMetadataService = buildMetadataService;
         this.httpClient = HttpClient.newBuilder()
                 .connectTimeout(Duration.ofSeconds(6))
                 .build();
@@ -232,7 +219,7 @@ public class VersionController {
         JsonNode commitNode = node.path("commit");
         result.put("sourceType", "commit");
         result.put("sourceLabel", "GitHub 最新提交");
-        result.put("latestVersion", currentVersion);
+        result.put("latestVersion", displayCurrentVersion());
         String currentCommitSha = displayCurrentCommitSha();
         boolean canCompareCommit = !currentCommitSha.isBlank();
         boolean hasUpdate = canCompareCommit && !sha.equalsIgnoreCase(currentCommitSha);
@@ -320,44 +307,23 @@ public class VersionController {
     }
 
     private String displayCurrentVersion() {
-        return sanitizeBuildValue(currentVersion, "开发环境");
+        return buildMetadataService.currentVersionForDisplay();
     }
 
     private String displayBuildTime() {
-        return sanitizeBuildValue(buildTime, "开发环境未注入");
+        return buildMetadataService.buildTimeForDisplay();
     }
 
     private String displayCurrentCommitSha() {
-        String configured = sanitizeBuildValue(buildCommit, "");
-        if (!configured.isBlank()) {
-            return configured;
-        }
-        String localCommit = readLocalGitCommitSha();
-        return localCommit == null ? "" : localCommit;
+        return buildMetadataService.currentCommitSha();
     }
 
     private String displayCurrentBranch() {
-        String configured = sanitizeBuildValue(buildBranch, "");
-        if (!configured.isBlank()) {
-            return configured;
-        }
-        String localBranch = readLocalGitBranch();
-        return localBranch == null ? "" : localBranch;
+        return buildMetadataService.currentBranch();
     }
 
     private String comparisonCurrentVersion() {
-        return sanitizeBuildValue(currentVersion, "");
-    }
-
-    private String sanitizeBuildValue(String value, String fallback) {
-        if (value == null || value.isBlank()) {
-            return fallback;
-        }
-        String trimmed = value.trim();
-        if (trimmed.startsWith("@") && trimmed.endsWith("@")) {
-            return fallback;
-        }
-        return trimmed;
+        return buildMetadataService.currentVersionOrBlank();
     }
 
     private String encodedRepoPath() {
@@ -391,101 +357,6 @@ public class VersionController {
             return "";
         }
         return sha.substring(0, Math.min(7, sha.length()));
-    }
-
-    private String readLocalGitCommitSha() {
-        try {
-            Path gitDir = resolveGitDir();
-            if (gitDir == null) {
-                return null;
-            }
-            String headContent = readTrimmed(gitDir.resolve("HEAD"));
-            if (headContent == null || headContent.isBlank()) {
-                return null;
-            }
-            if (!headContent.startsWith("ref:")) {
-                return headContent;
-            }
-            String ref = headContent.substring(4).trim();
-            String sha = readTrimmed(gitDir.resolve(ref));
-            if (sha != null && !sha.isBlank()) {
-                return sha;
-            }
-            return readPackedRef(gitDir, ref);
-        } catch (Exception ignored) {
-            return null;
-        }
-    }
-
-    private String readLocalGitBranch() {
-        try {
-            Path gitDir = resolveGitDir();
-            if (gitDir == null) {
-                return null;
-            }
-            String headContent = readTrimmed(gitDir.resolve("HEAD"));
-            if (headContent == null || !headContent.startsWith("ref:")) {
-                return null;
-            }
-            String ref = headContent.substring(4).trim();
-            int lastSlash = ref.lastIndexOf('/');
-            return lastSlash >= 0 ? ref.substring(lastSlash + 1) : ref;
-        } catch (Exception ignored) {
-            return null;
-        }
-    }
-
-    private Path resolveGitDir() {
-        Path current = Paths.get("").toAbsolutePath().normalize();
-        while (current != null) {
-            Path gitPath = current.resolve(".git");
-            if (Files.isDirectory(gitPath)) {
-                return gitPath;
-            }
-            if (Files.isRegularFile(gitPath)) {
-                String pointer = readTrimmed(gitPath);
-                if (pointer != null && pointer.startsWith("gitdir:")) {
-                    String relativePath = pointer.substring("gitdir:".length()).trim();
-                    return current.resolve(relativePath).normalize();
-                }
-            }
-            current = current.getParent();
-        }
-        return null;
-    }
-
-    private String readPackedRef(Path gitDir, String ref) {
-        Path packedRefsPath = gitDir.resolve("packed-refs");
-        if (!Files.exists(packedRefsPath)) {
-            return null;
-        }
-        try {
-            List<String> lines = Files.readAllLines(packedRefsPath);
-            for (String line : lines) {
-                String trimmed = line.trim();
-                if (trimmed.isBlank() || trimmed.startsWith("#") || trimmed.startsWith("^")) {
-                    continue;
-                }
-                String[] parts = trimmed.split("\\s+", 2);
-                if (parts.length == 2 && ref.equals(parts[1].trim())) {
-                    return parts[0].trim();
-                }
-            }
-        } catch (Exception ignored) {
-            return null;
-        }
-        return null;
-    }
-
-    private String readTrimmed(Path path) {
-        try {
-            if (path == null || !Files.exists(path)) {
-                return null;
-            }
-            return Files.readString(path).trim();
-        } catch (Exception ignored) {
-            return null;
-        }
     }
 
     private String safeMessage(Exception e) {

@@ -2,10 +2,10 @@ package com.example.aihub.module.system;
 
 import cn.dev33.satoken.annotation.SaCheckLogin;
 import cn.dev33.satoken.annotation.SaCheckRole;
+import com.example.aihub.common.meta.BuildMetadataService;
 import com.example.aihub.common.result.ApiResult;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -32,9 +32,7 @@ public class HealthController {
 
     private final JdbcTemplate jdbcTemplate;
     private final StringRedisTemplate redisTemplate;
-
-    @Value("${app.version:1.0.0}")
-    private String appVersion;
+    private final BuildMetadataService buildMetadataService;
 
     @GetMapping("/health")
     public ApiResult<Map<String, Object>> health() {
@@ -70,7 +68,7 @@ public class HealthController {
             info.put("status", "DEGRADED");
         }
 
-        info.put("version", appVersion);
+        info.put("version", buildMetadataService.currentVersionForDisplay());
         return ApiResult.ok(info);
     }
 

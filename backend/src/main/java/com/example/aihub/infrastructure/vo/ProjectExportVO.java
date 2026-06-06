@@ -9,6 +9,9 @@ import java.util.Map;
 public class ProjectExportVO {
     private String version;
     private String exportedAt;
+    private String sourceBuildTime;
+    private String sourceBranch;
+    private String sourceCommitSha;
     private String canaryToken;
     private ProjectVO project;
     private List<ModelProviderVO> providers;

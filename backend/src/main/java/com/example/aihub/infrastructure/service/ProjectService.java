@@ -1,6 +1,7 @@
 package com.example.aihub.infrastructure.service;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.example.aihub.common.meta.BuildMetadataService;
 import com.example.aihub.common.exception.BusinessException;
 import com.example.aihub.common.util.PagingUtil;
 import com.example.aihub.common.util.SecurityUtil;
@@ -38,6 +39,7 @@ public class ProjectService {
     private final com.example.aihub.common.security.ProjectAccessGuard projectAccessGuard;
     private final AssetService assetService;
     private final SubtitleService subtitleService;
+    private final BuildMetadataService buildMetadataService;
 
     // ===== 原有 listMine / create / update / delete 保持不变 =====
 
@@ -144,8 +146,11 @@ public class ProjectService {
         if (project == null) throw new BusinessException("项目不存在");
 
         ProjectExportVO vo = new ProjectExportVO();
-        vo.setVersion("1.0");
+        vo.setVersion(buildMetadataService.currentVersionForDisplay());
         vo.setExportedAt(LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")));
+        vo.setSourceBuildTime(buildMetadataService.buildTimeOrBlank());
+        vo.setSourceBranch(buildMetadataService.currentBranch());
+        vo.setSourceCommitSha(buildMetadataService.currentCommitSha());
         vo.setProject(VoMapper.copy(project, ProjectVO.class));
         vo.setProviders(providerMapper.selectList(
                 new LambdaQueryWrapper<ModelProvider>().eq(ModelProvider::getProjectId, projectId))
@@ -164,6 +169,7 @@ public class ProjectService {
                     m.put("name", w.getName());
                     m.put("description", w.getDescription());
                     m.put("stepsJson", w.getStepsJson());
+                    m.put("status", w.getStatus());
                     return m;
                 }).toList());
         vo.setAssets(assetMapper.selectList(
@@ -186,11 +192,14 @@ public class ProjectService {
     @Transactional(rollbackFor = Exception.class)
     public Long importProject(ProjectExportVO data) {
         if (data.getProject() == null) throw new BusinessException("导入数据缺少项目信息");
+        if (normalizeOptionalText(data.getVersion()).isBlank()) throw new BusinessException("导入数据缺少导出版本信息");
+        String importedProjectName = normalizeOptionalText(data.getProject().getName());
+        if (importedProjectName.isBlank()) throw new BusinessException("导入项目名称不能为空");
 
         // 创建项目
         Project project = new Project();
         project.setUserId(SecurityUtil.loginUserId());
-        project.setName(data.getProject().getName() + " (导入)");
+        project.setName(importedProjectName + " (导入)");
         project.setDescription(data.getProject().getDescription());
         project.setStatus(1);
         projectMapper.insert(project);
@@ -206,8 +215,9 @@ public class ProjectService {
                 entity.setBaseUrl(p.getBaseUrl());
                 entity.setApiKey(p.getApiKey());
                 entity.setModelName(p.getModelName());
-                entity.setEnabled(p.getEnabled());
-                entity.setIsDefault(p.getIsDefault());
+                entity.setEnabled(normalizeStatusFlag(p.getEnabled(), 1));
+                entity.setIsDefault(normalizeStatusFlag(p.getIsDefault(), 0));
+                entity.setConfigJson(p.getConfigJson());
                 providerMapper.insert(entity);
             }
         }
@@ -219,8 +229,10 @@ public class ProjectService {
                 entity.setProjectId(newId);
                 entity.setName(t.getName());
                 entity.setContent(t.getContent());
+                entity.setNegativePrompt(t.getNegativePrompt());
+                entity.setModelName(t.getModelName());
                 entity.setTag(t.getTag());
-                entity.setStatus(1);
+                entity.setStatus(normalizeStatusFlag(t.getStatus(), 1));
                 templateMapper.insert(entity);
             }
         }
@@ -235,8 +247,13 @@ public class ProjectService {
                 entity.setContent(s.getContent());
                 entity.setNegativePrompt(s.getNegativePrompt());
                 entity.setModelName(s.getModelName());
+                entity.setCfg(s.getCfg());
+                entity.setSteps(s.getSteps());
+                entity.setSize(s.getSize());
+                entity.setParamsJson(s.getParamsJson());
+                entity.setPreviewUrl(s.getPreviewUrl());
                 entity.setTag(s.getTag());
-                entity.setStatus(1);
+                entity.setStatus(normalizeStatusFlag(s.getStatus(), 1));
                 styleCardMapper.insert(entity);
             }
         }
@@ -244,16 +261,70 @@ public class ProjectService {
         // 导入工作流
         if (data.getWorkflows() != null) {
             for (Map<String, Object> w : data.getWorkflows()) {
+                ImportedWorkflowRecord workflowRecord = requireImportedWorkflowRecord(w);
                 Workflow entity = new Workflow();
                 entity.setProjectId(newId);
-                entity.setName((String) w.getOrDefault("name", "导入工作流"));
-                entity.setDescription((String) w.getOrDefault("description", ""));
-                entity.setStepsJson((String) w.getOrDefault("stepsJson", "[]"));
-                entity.setStatus(1);
+                entity.setName(workflowRecord.name());
+                entity.setDescription(workflowRecord.description());
+                entity.setStepsJson(workflowRecord.stepsJson());
+                entity.setStatus(workflowRecord.status());
                 workflowMapper.insert(entity);
             }
         }
 
         return newId;
     }
+
+    private ImportedWorkflowRecord requireImportedWorkflowRecord(Map<String, Object> workflowData) {
+        if (workflowData == null) {
+            throw new BusinessException("导入工作流数据缺失");
+        }
+        String name = normalizeOptionalText(workflowData.get("name"));
+        if (name.isBlank()) {
+            throw new BusinessException("导入工作流名称不能为空");
+        }
+        String description = normalizeOptionalText(workflowData.get("description"));
+        String stepsJson = normalizeOptionalText(workflowData.get("stepsJson"));
+        if (stepsJson.isBlank()) {
+            throw new BusinessException("导入工作流步骤不能为空");
+        }
+        try {
+            if (!objectMapper.readTree(stepsJson).isArray()) {
+                throw new BusinessException("导入工作流步骤格式不正确");
+            }
+        } catch (BusinessException e) {
+            throw e;
+        } catch (Exception e) {
+            throw new BusinessException("导入工作流步骤格式不正确");
+        }
+        Integer status = normalizeStatusFlag(asInteger(workflowData.get("status")), 1);
+        return new ImportedWorkflowRecord(name, description, stepsJson, status);
+    }
+
+    private Integer normalizeStatusFlag(Integer value, int fallback) {
+        if (value == null) {
+            return fallback;
+        }
+        return value == 0 ? 0 : 1;
+    }
+
+    private Integer asInteger(Object value) {
+        if (value == null) {
+            return null;
+        }
+        if (value instanceof Number number) {
+            return number.intValue();
+        }
+        try {
+            return Integer.parseInt(String.valueOf(value).trim());
+        } catch (Exception ignored) {
+            return null;
+        }
+    }
+
+    private String normalizeOptionalText(Object value) {
+        return value == null ? "" : String.valueOf(value).trim();
+    }
+
+    private record ImportedWorkflowRecord(String name, String description, String stepsJson, Integer status) {}
 }
