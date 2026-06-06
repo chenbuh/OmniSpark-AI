@@ -1756,12 +1756,12 @@ async function loadLinkedTaskForAsset(asset: Asset) {
 }
 
 async function resolveAssetGenerationFields(asset: Asset) {
-  let prompt = asset.prompt || ''
-  let negativePrompt = ''
-  let modelName = asset.modelName || ''
-  let providerId = ''
-  let hasRequestPayload = false
   const linkedTask = await loadLinkedTaskForAsset(asset)
+  let prompt = linkedTask?.prompt || asset.prompt || ''
+  let negativePrompt = linkedTask?.negativePrompt || ''
+  let modelName = linkedTask?.modelName || asset.modelName || ''
+  let providerId = linkedTask?.providerId ? String(linkedTask.providerId) : ''
+  let hasRequestPayload = false
   const requestPayload = tryParseTaskRequestJson(linkedTask)
   if (requestPayload) {
     hasRequestPayload = true
@@ -1922,12 +1922,6 @@ function assertGeneratedImageAsset(
     throw new Error('图片结果待确认')
   }
   if (!asset.fileUrl && !asset.thumbUrl) {
-    throw new Error('图片结果待确认')
-  }
-  if (normalizeTaskField(asset.prompt) !== normalizeTaskField(task.prompt)) {
-    throw new Error('图片结果待确认')
-  }
-  if (normalizeTaskField(asset.modelName) !== normalizeTaskField(task.modelName)) {
     throw new Error('图片结果待确认')
   }
   if (task.resultAssetId && asset.id === task.resultAssetId && asset.taskId !== task.id) {

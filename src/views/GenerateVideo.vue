@@ -896,12 +896,6 @@ function assertGeneratedVideoAsset(
   if (!asset.fileUrl && !asset.thumbUrl) {
     throw new Error('视频结果待确认')
   }
-  if (normalizeTaskField(asset.prompt) !== normalizeTaskField(task.prompt)) {
-    throw new Error('视频结果待确认')
-  }
-  if (normalizeTaskField(asset.modelName) !== normalizeTaskField(task.modelName)) {
-    throw new Error('视频结果待确认')
-  }
 }
 
 function getConfirmedVideoTaskAsset(task: { id: number; projectId: number; prompt?: string; modelName?: string; resultAssetId?: number }) {
