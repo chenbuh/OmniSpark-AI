@@ -1768,11 +1768,9 @@ async function resolveAssetGenerationFields(asset: Asset) {
   let negativePrompt = linkedTask?.negativePrompt || ''
   let modelName = linkedTask?.modelName || asset.modelName || ''
   let providerId = linkedTask?.providerId ? String(linkedTask.providerId) : ''
-  let hasRequestPayload = false
   let sourceLevel: 'request' | 'task' | 'asset' = linkedTask ? 'task' : 'asset'
   const requestPayload = tryParseTaskRequestJson(linkedTask)
   if (requestPayload) {
-    hasRequestPayload = true
     sourceLevel = 'request'
     prompt = normalizeTaskField(requestPayload.prompt) || prompt
     negativePrompt = normalizeTaskField(requestPayload.negativePrompt)
@@ -1780,7 +1778,7 @@ async function resolveAssetGenerationFields(asset: Asset) {
     const actualProviderId = toPositiveInteger(requestPayload.providerId)
     providerId = actualProviderId ? String(actualProviderId) : ''
   }
-  return { prompt, negativePrompt, modelName, providerId, hasRequestPayload, sourceLevel }
+  return { prompt, negativePrompt, modelName, providerId, sourceLevel }
 }
 
 function parseTaskRequestJson(task: { requestJson?: string }, errorMessage: string) {
@@ -2581,11 +2579,13 @@ const handleShareToCommunity = async () => {
   let sharePrompt = asset.prompt || ''
   let shareNegativePrompt = ''
   let shareModel = asset.modelName || ''
+  let sourceLevel: 'request' | 'task' | 'asset' = 'asset'
   try {
     const resolvedFields = await resolveAssetGenerationFields(asset)
     sharePrompt = resolvedFields.prompt
     shareNegativePrompt = resolvedFields.negativePrompt
     shareModel = resolvedFields.modelName
+    sourceLevel = resolvedFields.sourceLevel
   } catch {
     // 社区分享允许在缺少任务详情时退回到资产表已记录字段
   }
@@ -2598,7 +2598,13 @@ const handleShareToCommunity = async () => {
       shareImage: asset.fileUrl || ''
     }
   })
-  message.success('已跳转至社区分享页')
+  message.success(
+    sourceLevel === 'request'
+      ? '已跳转至社区分享页，并带入真实提示词与模型'
+      : sourceLevel === 'task'
+        ? '已跳转至社区分享页，并带入任务已记录的提示词与模型'
+        : '已跳转至社区分享页，并带入资产当前已记录的提示词与模型'
+  )
 }
 
 const handleToVideo = async () => {
