@@ -621,6 +621,17 @@ function getAssetDisplayModelName(asset?: Asset | null, task?: GenerationTask | 
   return normalizeTaskField(tryParseTaskRequestJson(task)?.modelName) || task?.modelName || asset?.modelName || ''
 }
 
+function getGenerationSourceLevel(task?: GenerationTask | null) {
+  const payload = tryParseTaskRequestJson(task)
+  if (payload?.prompt || payload?.modelName) {
+    return 'request' as const
+  }
+  if (task) {
+    return 'task' as const
+  }
+  return 'asset' as const
+}
+
 const selectedAssetDisplayPrompt = computed(() => getAssetDisplayPrompt(selectedAsset.value, selectedAssetTask.value))
 const selectedAssetDisplayModelName = computed(() => getAssetDisplayModelName(selectedAsset.value, selectedAssetTask.value))
 
@@ -987,7 +998,14 @@ async function handleCopyPrompt() {
   }
   try {
     await navigator.clipboard.writeText(prompt)
-    message.success(normalizeTaskField(tryParseTaskRequestJson(selectedAssetTask.value)?.prompt) ? '真实提示词已复制到剪贴板' : '已复制资产当前已记录的提示词')
+    const sourceLevel = getGenerationSourceLevel(selectedAssetTask.value)
+    message.success(
+      sourceLevel === 'request'
+        ? '真实提示词已复制到剪贴板'
+        : sourceLevel === 'task'
+          ? '已复制关联任务已记录的提示词'
+          : '已复制资产当前已记录的提示词'
+    )
   } catch {
     message.error('复制失败，请稍后再试')
   }
@@ -1070,10 +1088,15 @@ async function handleApplyAsReference() {
     const linkedTask = await loadAssetTask(asset)
     const fallbackPrompt = getAssetDisplayPrompt(asset, linkedTask || selectedAssetTask.value)
     const fallbackModelName = getAssetDisplayModelName(asset, linkedTask || selectedAssetTask.value)
+    const sourceLevel = getGenerationSourceLevel(linkedTask)
     if (asset.assetType === 'video') {
       if (linkedTask) {
         router.push(buildGenerationReuseLocation(linkedTask))
-        message.success('已将该视频的真实生成参数带入视频工作台')
+        message.success(
+          sourceLevel === 'request'
+            ? '已将该视频的真实生成参数带入视频工作台'
+            : '已将该视频关联任务已记录的提示词、模型与提供商参数带入视频工作台'
+        )
       } else {
         router.push({
           path: '/generate/video',
@@ -1082,14 +1105,18 @@ async function handleApplyAsReference() {
             model: fallbackModelName
           }
         })
-        message.success('已将该视频已记录的提示词与模型带入视频工作台')
+        message.success('已将该视频资产当前已记录的提示词与模型带入视频工作台')
       }
     } else {
       if (linkedTask && linkedTask.taskType === 'image') {
         router.push(buildGenerationReuseLocation(linkedTask, {
           overrideSourceAssetId: asset.id
         }))
-        message.success('已将该素材设为图生图参考图，并带入真实生成参数')
+        message.success(
+          sourceLevel === 'request'
+            ? '已将该素材设为图生图参考图，并带入真实生成参数'
+            : '已将该素材设为图生图参考图，并带入关联任务已记录的提示词、模型与提供商参数'
+        )
       } else {
         router.push({
           path: '/generate/image',
@@ -1099,7 +1126,7 @@ async function handleApplyAsReference() {
             model: fallbackModelName
           }
         })
-        message.success('已将该素材设为图生图参考图，并带入已记录的提示词与模型')
+        message.success('已将该素材设为图生图参考图，并带入资产当前已记录的提示词与模型')
       }
     }
     showDetailDrawer.value = false
