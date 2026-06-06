@@ -443,7 +443,7 @@ const collaborationNotice = computed(() => {
     return ''
   }
   if (activeProject.value.accessPermission === 'view') {
-    return '当前打开的是共享查看项目。根据后端真实权限，资产上传、删除、收藏、字幕与配音仍会直接作用到这个项目；只有项目配置类页面会保持只读。'
+    return '当前打开的是共享查看项目。根据后端真实权限，资产上传、删除、收藏、字幕与配音仍会直接作用到这个项目；项目共享管理、删除等敏感设置仍会按权限受限。'
   }
   return `当前打开的是共享${formatProjectPermissionLabel(activeProject.value.accessPermission)}项目，资产上传、删除、收藏、字幕与配音都会直接作用到这个项目。`
 })

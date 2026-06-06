@@ -396,7 +396,7 @@ const sharedProjectNotice = computed(() => {
     return ''
   }
   if (activeProject.value.accessPermission === 'view') {
-    return '当前打开的是共享查看项目。根据后端真实权限，你仍可在这里直接生成视频、选择项目资产作为首尾帧并清理本项目历史；只有模型配置等少数项目级配置页会保持只读。'
+    return '当前打开的是共享查看项目。根据后端真实权限，你仍可在这里直接生成视频、选择项目资产作为首尾帧并清理本项目历史；项目共享管理、删除等敏感设置仍会按权限受限。'
   }
   return `当前打开的是共享${formatProjectPermissionLabel(activeProject.value.accessPermission)}项目，新的生成结果与视频历史都会直接归档到这个项目。`
 })
