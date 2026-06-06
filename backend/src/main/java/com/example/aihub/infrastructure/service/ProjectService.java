@@ -151,6 +151,8 @@ public class ProjectService {
         vo.setSourceBuildTime(buildMetadataService.buildTimeOrBlank());
         vo.setSourceBranch(buildMetadataService.currentBranch());
         vo.setSourceCommitSha(buildMetadataService.currentCommitSha());
+        vo.setAssetTransferMode("metadata-only");
+        vo.setAssetExportNotice("导出文件中的 assets 仅包含资产元数据，不包含可自动恢复的二进制文件；导入后请手动重新上传相关素材。");
         vo.setProject(VoMapper.copy(project, ProjectVO.class));
         vo.setProviders(providerMapper.selectList(
                 new LambdaQueryWrapper<ModelProvider>().eq(ModelProvider::getProjectId, projectId))
@@ -172,7 +174,7 @@ public class ProjectService {
                     m.put("status", w.getStatus());
                     return m;
                 }).toList());
-        vo.setAssets(assetMapper.selectList(
+        List<Map<String, Object>> exportedAssets = assetMapper.selectList(
                 new LambdaQueryWrapper<Asset>().eq(Asset::getProjectId, projectId))
                 .stream().map(a -> {
                     Map<String, Object> m = new LinkedHashMap<>();
@@ -185,7 +187,9 @@ public class ProjectService {
                     m.put("prompt", a.getPrompt());
                     m.put("modelName", a.getModelName());
                     return m;
-                }).toList());
+                }).toList();
+        vo.setAssets(exportedAssets);
+        vo.setExportedAssetCount(exportedAssets.size());
         return vo;
     }
 

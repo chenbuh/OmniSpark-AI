@@ -459,9 +459,24 @@ function requireExportPayload(value: unknown) {
   const styleCards = requireObjectArray(value.styleCards, '项目导出结果待确认')
   const workflows = requireObjectArray(value.workflows, '项目导出结果待确认')
   const assets = requireObjectArray(value.assets, '项目导出结果待确认')
+  const assetTransferMode = normalizeOptionalText(value.assetTransferMode)
+  const exportedAssetCount = Number(value.exportedAssetCount ?? assets.length)
+  const assetExportNotice = normalizeOptionalText(value.assetExportNotice)
+  if (!Number.isFinite(exportedAssetCount) || exportedAssetCount < 0) {
+    throw new Error('项目导出结果待确认')
+  }
+  if (assetTransferMode && assetTransferMode !== 'metadata-only') {
+    throw new Error('项目导出结果待确认')
+  }
+  if (assetTransferMode === 'metadata-only' && exportedAssetCount !== assets.length) {
+    throw new Error('项目导出结果待确认')
+  }
   return {
     version,
     exportedAt,
+    assetTransferMode,
+    exportedAssetCount,
+    assetExportNotice,
     canaryToken: typeof value.canaryToken === 'string' ? value.canaryToken : '',
     project: {
       id: projectId,
@@ -1047,7 +1062,12 @@ const handleExportProject = async () => {
     a.download = `project_${projectStore.activeProjectId}_${Date.now()}.json`
     a.click()
     URL.revokeObjectURL(url)
-    message.success('项目导出成功！')
+    message.success(exportPayload.assetTransferMode === 'metadata-only' && exportPayload.exportedAssetCount > 0
+      ? `项目导出完成，已写入 ${exportPayload.exportedAssetCount} 个资产元数据`
+      : '项目导出成功！')
+    if (exportPayload.assetTransferMode === 'metadata-only' && exportPayload.assetExportNotice) {
+      message.warning(exportPayload.assetExportNotice)
+    }
   } catch (err: unknown) {
     message.error('导出失败: ' + getErrorMessage(err, '网络错误'))
   }

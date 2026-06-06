@@ -12,6 +12,9 @@ public class ProjectExportVO {
     private String sourceBuildTime;
     private String sourceBranch;
     private String sourceCommitSha;
+    private String assetTransferMode;
+    private Integer exportedAssetCount;
+    private String assetExportNotice;
     private String canaryToken;
     private ProjectVO project;
     private List<ModelProviderVO> providers;
