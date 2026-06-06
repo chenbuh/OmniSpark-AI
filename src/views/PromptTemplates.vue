@@ -5,6 +5,10 @@
       <p class="subtitle">公共提示词模板库，管理并收藏优秀的 AI 提示词指令，跨项目一键应用至生图或视频面板。</p>
     </div>
 
+    <div class="scope-notice">
+      模板内容统一保存到公共模板库，不会跟随当前项目切换；在这里新建、编辑或删除模板，影响的是全局公共模板内容，点击“生图 / 视频”时才会把提示词带入你当前打开的创作空间。
+    </div>
+
     <n-card class="glass-card filter-card" :bordered="false">
       <div class="filter-row">
         <n-tabs v-model:value="activeTag" type="segment" class="filter-tabs">
@@ -734,6 +738,16 @@ const handleDelete = async (id: number) => {
 .page-header { margin-bottom: 24px; }
 .page-header h2 { font-size: 24px; font-weight: 700; margin: 0 0 6px 0; color: var(--text-primary); }
 .subtitle { font-size: 13px; color: var(--text-muted); margin: 0; }
+.scope-notice {
+  margin-bottom: 16px;
+  padding: 12px 14px;
+  border-radius: 14px;
+  border: 1px solid rgba(59, 130, 246, 0.22);
+  background: linear-gradient(135deg, rgba(59, 130, 246, 0.1), rgba(16, 185, 129, 0.08));
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 1.65;
+}
 .glass-card { background: rgba(15,23,42,0.4) !important; backdrop-filter: blur(16px); border: 1px solid var(--border-color) !important; border-radius: 16px !important; }
 .filter-row { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px; }
 .filter-status { margin-top: 10px; font-size: 12px; color: #f59e0b; }

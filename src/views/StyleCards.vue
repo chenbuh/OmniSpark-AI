@@ -5,6 +5,10 @@
       <p class="subtitle">公共角色卡与风格卡库，保存可复用的角色设定或风格预设，在生图页跨项目一键应用已记录的提示词和参数。</p>
     </div>
 
+    <div class="scope-notice">
+      卡片内容统一保存到公共角色卡/风格卡库，不会绑定到某个项目；如果为卡片选择预览图或上传本地图片，这张图会先进入当前打开项目的资产库，再被公共卡片引用。
+    </div>
+
     <n-card class="glass-card filter-card" :bordered="false">
       <div class="filter-row">
         <n-tabs v-model:value="activeType" type="segment" class="filter-tabs">
@@ -185,10 +189,10 @@
             </div>
             <div class="preview-actions">
               <n-button size="small" secondary @click="openAssetPicker">
-                <template #icon><FolderOpen /></template>从资产库选择
+                <template #icon><FolderOpen /></template>从当前空间资产选择
               </n-button>
               <n-button size="small" secondary :loading="uploading" @click="triggerUpload">
-                <template #icon><Upload /></template>上传本地
+                <template #icon><Upload /></template>上传到当前空间
               </n-button>
               <input ref="uploadInput" type="file" accept="image/*" style="display:none" @change="handleUploadFile" />
             </div>
@@ -207,7 +211,7 @@
     <n-modal
       v-model:show="showAssetPicker"
       preset="card"
-      title="从当前项目资产库选择预览图"
+      title="从当前空间资产库选择预览图"
       style="width: 60vw; max-width: 800px;"
     >
       <div class="assets-picker-grid">
@@ -229,7 +233,7 @@
           正在加载图片资产...
         </div>
         <div v-else-if="imageAssets.length === 0" class="picker-empty">
-          资产库中尚无图片，可先上传本地图片或前往生图页生成。
+          当前空间资产库中尚无图片，可先上传到当前空间，或前往生图页生成。
         </div>
       </div>
     </n-modal>
@@ -716,7 +720,7 @@ function canManage(card: StyleCard) {
 
 async function openAssetPicker() {
   if (!projectStore.activeProjectId) {
-    message.error('请先选择一个项目空间')
+    message.error('请先打开一个项目空间，预览图会先进入该项目资产库')
     return
   }
   await loadAssetLibrary()
@@ -766,7 +770,7 @@ async function handleUploadFile(e: Event) {
   if (!file) return
   const activeProjectId = projectStore.activeProjectId
   if (!activeProjectId) {
-    message.error('请先选择一个项目空间')
+    message.error('请先打开一个项目空间，预览图会先上传到该项目资产库')
     input.value = ''
     return
   }
@@ -1037,6 +1041,16 @@ function handleApply(card: StyleCard) {
 .page-header { margin-bottom: 24px; }
 .page-header h2 { font-size: 24px; font-weight: 700; margin: 0 0 6px 0; color: #fff; }
 .subtitle { font-size: 13px; color: #9ca3af; margin: 0; }
+.scope-notice {
+  margin-bottom: 16px;
+  padding: 12px 14px;
+  border-radius: 14px;
+  border: 1px solid rgba(59, 130, 246, 0.22);
+  background: linear-gradient(135deg, rgba(59, 130, 246, 0.1), rgba(16, 185, 129, 0.08));
+  color: #cbd5e1;
+  font-size: 12px;
+  line-height: 1.65;
+}
 .glass-card { background: rgba(15, 23, 42, 0.4) !important; backdrop-filter: blur(16px); border: 1px solid rgba(255, 255, 255, 0.08) !important; border-radius: 16px !important; }
 .filter-card { margin-bottom: 24px; }
 .filter-row { display: flex; justify-content: space-between; align-items: center; }

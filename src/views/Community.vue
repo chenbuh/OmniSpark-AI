@@ -5,6 +5,10 @@
       <p class="subtitle">浏览其他创作者的提示词与效果图，或分享您的作品给社区。</p>
     </div>
 
+    <div class="scope-notice">
+      社区帖子本身会公开展示给所有用户，不属于某个项目；如果你从资产库选效果图或上传本地封面，这张图会先保存到当前打开项目的资产库，再挂到社区帖子上。
+    </div>
+
     <!-- 分类 + 搜索 + 发布 -->
     <n-card class="glass-card filter-card" :bordered="false">
       <div class="filter-bar">
@@ -141,10 +145,10 @@
             </div>
             <div class="upload-actions">
               <n-button size="small" secondary @click="openAssetPicker">
-                <template #icon><FolderOpen /></template>从资产库选择
+                <template #icon><FolderOpen /></template>从当前空间资产选择
               </n-button>
               <n-button size="small" secondary :loading="uploadingImage" @click="triggerImageUpload">
-                {{ form.imageUrl ? '重新上传' : '上传本地' }}
+                {{ form.imageUrl ? '重新上传到当前空间' : '上传到当前空间' }}
               </n-button>
               <n-button v-if="form.imageUrl" size="small" quaternary @click="clearUploadedImage">
                 移除
@@ -161,11 +165,11 @@
       </template>
     </n-modal>
 
-    <!-- 从当前项目资产库选择效果图 -->
+    <!-- 从当前空间资产库选择效果图 -->
     <n-modal
       v-model:show="showAssetPicker"
       preset="card"
-      title="从当前项目资产库选择效果图"
+      title="从当前空间资产库选择效果图"
       style="width: 60vw; max-width: 800px;"
     >
       <div class="assets-picker-grid">
@@ -181,7 +185,7 @@
           </div>
         </div>
         <div v-if="imageAssets.length === 0" class="picker-empty">
-          资产库中尚无图片，可先上传本地图片或前往生图页生成。
+          当前空间资产库中尚无图片，可先上传到当前空间，或前往生图页生成。
         </div>
       </div>
     </n-modal>
@@ -290,7 +294,7 @@ interface CommunityPostRecord {
   createdAt: string
 }
 
-// 当前项目资产库中的图片资产
+// 当前打开项目资产库中的图片资产，可被选为社区封面
 const imageAssets = computed(() => {
   return assetStore
     .getAssetsByProject(projectStore.activeProjectId)
@@ -567,10 +571,10 @@ function triggerImageUpload() {
   imageUploadInput.value?.click()
 }
 
-// 打开当前项目资产库选择器
+// 打开当前空间资产库选择器
 async function openAssetPicker() {
   if (!projectStore.activeProjectId) {
-    message.error('请先选择一个项目空间')
+    message.error('请先打开一个项目空间，社区封面会从该项目资产库选择')
     return
   }
   showAssetPicker.value = true
@@ -677,7 +681,7 @@ async function handleImageUpload(event: Event) {
   if (!file) return
   const activeProjectId = projectStore.activeProjectId
   if (!activeProjectId) {
-    message.error('请先选择一个项目空间')
+    message.error('请先打开一个项目空间，社区封面会先上传到该项目资产库')
     target.value = ''
     return
   }
@@ -894,6 +898,16 @@ function handleCommunityCommentCountChange(count: number) {
 .page-header { margin-bottom: 24px; }
 .page-header h2 { font-size: 24px; font-weight: 700; margin: 0 0 6px 0; color: var(--text-primary); }
 .subtitle { font-size: 13px; color: var(--text-muted); margin: 0; }
+.scope-notice {
+  margin-bottom: 16px;
+  padding: 12px 14px;
+  border-radius: 14px;
+  border: 1px solid rgba(59, 130, 246, 0.22);
+  background: linear-gradient(135deg, rgba(59, 130, 246, 0.1), rgba(16, 185, 129, 0.08));
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 1.65;
+}
 .glass-card { background: rgba(15,23,42,0.4) !important; backdrop-filter: blur(16px); border: 1px solid var(--border-color) !important; border-radius: 16px !important; }
 .filter-bar { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px; }
 .filter-status { margin-top: 10px; font-size: 12px; color: #f59e0b; }
