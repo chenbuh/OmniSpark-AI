@@ -50,7 +50,7 @@ const search = ref('')
 const lineCount = ref(100)
 const autoRefresh = ref(false)
 const logContainer = ref<HTMLElement | null>(null)
-let timer: any = null
+let timer: ReturnType<typeof setInterval> | null = null
 let inFlight = false
 let errorNotified = false
 const POLL_INTERVAL_MS = 5000
@@ -62,11 +62,22 @@ const lineOptions = [
   { label: '500 行', value: 500 }
 ]
 
-function requireLogLinesResult(value: unknown) {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === 'object' && !Array.isArray(value)
+}
+
+function getResponseData(response: unknown, errorMessage: string): unknown {
+  if (!isPlainObject(response) || !('data' in response)) {
+    throw new Error(errorMessage)
+  }
+  return response.data
+}
+
+function requireLogLinesResult(value: unknown): string[] {
+  if (!isPlainObject(value)) {
     throw new Error('日志数据待确认')
   }
-  const lines = (value as Record<string, unknown>).lines
+  const lines = value.lines
   if (!Array.isArray(lines)) {
     throw new Error('日志数据待确认')
   }
@@ -90,10 +101,10 @@ async function loadLogs() {
   inFlight = true
   loadingLogs.value = true
   try {
-    const params: Record<string, any> = { lines: lineCount.value }
+    const params: Record<string, number | string> = { lines: lineCount.value }
     if (search.value) params.search = search.value
-    const res = await request.get('/api/admin/logs', { params })
-    logs.value = requireLogLinesResult((res as any).data)
+    const res = await request.get<unknown>('/api/admin/logs', { params })
+    logs.value = requireLogLinesResult(getResponseData(res, '日志数据待确认'))
     errorNotified = false
     // 滚动到底部
     setTimeout(() => {
@@ -101,10 +112,10 @@ async function loadLogs() {
         logContainer.value.scrollTop = logContainer.value.scrollHeight
       }
     }, 50)
-  } catch (err: any) {
+  } catch (err: unknown) {
     logs.value = null
     if (!errorNotified) {
-      message.error(err.message || '日志加载失败')
+      message.error(err instanceof Error && err.message ? err.message : '日志加载失败')
       errorNotified = true
     }
   } finally {
@@ -114,16 +125,10 @@ async function loadLogs() {
 }
 
 onMounted(() => { loadLogs() })
-
-watchAutoRefresh()
-
-function watchAutoRefresh() {
-  onUnmounted(() => { if (timer) clearInterval(timer) })
-  // We watch autoRefresh via a setter
-}
+onUnmounted(() => { if (timer !== null) clearInterval(timer) })
 
 watch(() => autoRefresh.value, (val) => {
-  if (timer) { clearInterval(timer); timer = null }
+  if (timer !== null) { clearInterval(timer); timer = null }
   if (val) {
     timer = setInterval(() => {
       if (document.visibilityState === 'visible') {

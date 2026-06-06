@@ -168,9 +168,9 @@ import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useMessage } from 'naive-ui'
 import { useProjectStore } from '@/store/project'
-import { useTaskStore } from '@/store/task'
+import { useTaskStore, type GenerationTask } from '@/store/task'
 import { useModelProviderStore } from '@/store/provider'
-import { useAssetStore } from '@/store/asset'
+import { useAssetStore, type Asset } from '@/store/asset'
 import SkeletonCard from '@/components/SkeletonCard.vue'
 import { Search, ClipboardList, Image, Video, Copy, Eye, RotateCw, FileText, Trash2, RefreshCw } from 'lucide-vue-next'
 
@@ -186,7 +186,7 @@ const statusFilter = ref('all')
 const typeFilter = ref<string | null>(null)
 const searchQuery = ref('')
 const showDetailDrawer = ref(false)
-const selectedTask = ref<any>(null)
+const selectedTask = ref<GenerationTask | null>(null)
 const selectedIds = ref(new Set<number>())
 const tasksReady = ref(false)
 const providerLoadState = ref<'loading' | 'ready' | 'error'>('loading')
@@ -228,10 +228,11 @@ const taskTypeTagType = (taskType: string) => taskType === 'image' ? 'success' :
 const formatTaskProgress = (progress?: number) => typeof progress === 'number' ? `${progress}%` : '-'
 
 function syncSelectedTaskFromStore() {
-  if (!selectedTask.value) {
+  const currentTask = selectedTask.value
+  if (!currentTask) {
     return
   }
-  const refreshed = taskStore.tasks.find(task => task.id === selectedTask.value.id) || null
+  const refreshed = taskStore.tasks.find(task => task.id === currentTask.id) || null
   selectedTask.value = refreshed
   if (!refreshed) {
     showDetailDrawer.value = false
@@ -264,9 +265,9 @@ async function refresh() {
     providerLoadState.value = providersResult.status === 'fulfilled' ? 'ready' : 'error'
     assetLoadState.value = assetsResult.status === 'fulfilled' ? 'ready' : 'error'
     syncSelectedTaskFromStore()
-  } catch (err: any) {
+  } catch (err: unknown) {
     tasksReady.value = false
-    message.error(err.message || '加载任务失败')
+    message.error(err instanceof Error && err.message ? err.message : '加载任务失败')
   } finally {
     isRefreshing = false
     loading.value = false
@@ -281,7 +282,7 @@ const taskCount = computed(() => {
   return { all: all.length, running: all.filter(t => t.status==='running'||t.status==='pending').length, success: all.filter(t => t.status==='success').length, failed: all.filter(t => t.status==='failed').length }
 })
 
-const filteredTasks = computed(() => {
+const filteredTasks = computed<GenerationTask[]>(() => {
   let list = taskStore.getTasksByProject(projectStore.activeProjectId)
   if (statusFilter.value==='running') list = list.filter(t => t.status==='running'||t.status==='pending')
   else if (statusFilter.value==='success') list = list.filter(t => t.status==='success')
@@ -308,12 +309,12 @@ watch(() => projectStore.activeProjectId, () => {
   void refresh()
 })
 
-const handleCopyParams = (task: any) => {
+const handleCopyParams = (task: GenerationTask) => {
   navigator.clipboard.writeText(`Prompt: ${task.prompt}\nModel: ${task.modelName}\nType: ${task.taskType}`)
   message.success('已复制')
 }
 
-const handleViewAsset = (task: any) => {
+const handleViewAsset = (task: GenerationTask) => {
   if (task.resultAssetId) router.push({ path: '/assets', query: { assetId: String(task.resultAssetId) } })
   else message.error('无关联资产')
 }
@@ -352,8 +353,8 @@ const handleRetry = async (id: number) => {
     }
     message.success(retried.status === 'success' ? '任务已重试并完成' : '任务已重新提交')
     return true
-  } catch (err: any) {
-    message.error(err.message || '任务重试失败')
+  } catch (err: unknown) {
+    message.error(err instanceof Error && err.message ? err.message : '任务重试失败')
     return false
   }
 }
@@ -371,20 +372,24 @@ const handleDelete = async (id: number) => {
     }
     message.success('已删除')
     return true
-  } catch (err: any) {
-    message.error(err.message || '删除失败')
+  } catch (err: unknown) {
+    message.error(err instanceof Error && err.message ? err.message : '删除失败')
     return false
   }
 }
 
-const relatedAssets = computed(() => {
-  if (!selectedTask.value?.resultAssetId || assetLoadState.value !== 'ready') return []
-  return assetStore.assets.filter(a => a.taskId === selectedTask.value.id)
+const relatedAssets = computed<Asset[]>(() => {
+  const currentTask = selectedTask.value
+  if (!currentTask?.resultAssetId || assetLoadState.value !== 'ready') return []
+  return assetStore.assets.filter(a => a.taskId === currentTask.id)
 })
 
-const formatJson = (s: string) => { try { return JSON.stringify(JSON.parse(s), null, 2) } catch { return s } }
+const formatJson = (value?: string) => {
+  const source = value || ''
+  try { return JSON.stringify(JSON.parse(source), null, 2) } catch { return source }
+}
 
-const handleOpenDetail = (task: any) => { selectedTask.value = task; showDetailDrawer.value = true }
+const handleOpenDetail = (task: GenerationTask) => { selectedTask.value = task; showDetailDrawer.value = true }
 const handleRetryFromDetail = async () => {
   if (!selectedTask.value) return
   const ok = await handleRetry(selectedTask.value.id)
@@ -400,7 +405,7 @@ const handleDeleteFromDetail = async () => {
     selectedTask.value = null
   }
 }
-const handlePreviewAsset = (asset: any) => { showDetailDrawer.value = false; router.push({ path: '/assets', query: { assetId: String(asset.id) } }) }
+const handlePreviewAsset = (asset: Asset) => { showDetailDrawer.value = false; router.push({ path: '/assets', query: { assetId: String(asset.id) } }) }
 
 const handleBatchDelete = async () => {
   const ids = [...selectedIds.value]
@@ -418,9 +423,9 @@ const handleBatchDelete = async () => {
       selectedTask.value = null
     }
     message.success(`已删除 ${ids.length} 项`)
-  } catch (err: any) {
+  } catch (err: unknown) {
     await refresh()
-    message.error(err.message || '批量删除失败')
+    message.error(err instanceof Error && err.message ? err.message : '批量删除失败')
   }
 }
 
@@ -443,9 +448,9 @@ const handleClearAll = async () => {
       selectedTask.value = null
     }
     message.success('已清空')
-  } catch (err: any) {
+  } catch (err: unknown) {
     await refresh()
-    message.error(err.message || '清空失败')
+    message.error(err instanceof Error && err.message ? err.message : '清空失败')
   }
 }
 </script>

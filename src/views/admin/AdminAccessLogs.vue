@@ -181,7 +181,7 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === 'object' && !Array.isArray(value)
 }
 
-function getResponseData(response: unknown, errorMessage: string) {
+function getResponseData(response: unknown, errorMessage: string): unknown {
   if (!isPlainObject(response) || !('data' in response)) {
     throw new Error(errorMessage)
   }
@@ -313,10 +313,10 @@ async function loadSummary() {
     })
     summary.value = requireAccessLogSummary(getResponseData(response, '访问日志汇总待确认'))
     summaryLoadState.value = 'ready'
-  } catch (err: any) {
+  } catch (err: unknown) {
     summary.value = null
     summaryLoadState.value = 'error'
-    message.error(err.message || '加载访问日志汇总失败')
+    message.error(err instanceof Error && err.message ? err.message : '加载访问日志汇总失败')
   } finally {
     summaryLoading.value = false
   }
@@ -333,10 +333,10 @@ async function loadLogs() {
     const data = requireAccessLogPage(getResponseData(response, '访问日志数据待确认'))
     logs.value = data.records
     total.value = data.total
-  } catch (err: any) {
+  } catch (err: unknown) {
     logs.value = null
     total.value = null
-    message.error(err.message || '加载访问日志失败')
+    message.error(err instanceof Error && err.message ? err.message : '加载访问日志失败')
   } finally {
     loading.value = false
   }
@@ -356,7 +356,7 @@ function resetFilters() {
   reload()
 }
 
-function statusType(status?: number) {
+function statusType(status?: number | null) {
   if (!status) return 'default'
   if (status >= 500) return 'error'
   if (status === 429 || status === 403 || status === 401) return 'warning'
