@@ -562,10 +562,9 @@ function handleApplyTemplate(tpl: PromptTemplate) {
 
 function handleApplyToVideo(tpl: PromptTemplate) {
   const query: Record<string, string> = { prompt: tpl.content }
-  if (tpl.negativePrompt) query.negPrompt = tpl.negativePrompt
   if (tpl.modelName) query.model = tpl.modelName
   router.push({ path: '/generate/video', query })
-  message.success(`已应用「${tpl.name}」到视频面板`)
+  message.success(`已将「${tpl.name}」的提示词与模型带入视频面板`)
 }
 
 async function handleLike(tpl: PromptTemplate) {
