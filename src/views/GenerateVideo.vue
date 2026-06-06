@@ -8,6 +8,9 @@
             <n-tab-pane name="txt2vid" tab="文生视频" />
             <n-tab-pane name="img2vid" tab="图生视频" />
           </n-tabs>
+          <div v-if="sharedProjectNotice" class="scope-notice">
+            {{ sharedProjectNotice }}
+          </div>
 
           <n-scrollbar class="form-scrollbar">
             <n-form label-placement="top" size="medium" style="padding-right: 8px;">
@@ -35,7 +38,7 @@
                 视频模型提供商待确认，请稍后重试。
               </div>
               <div v-else-if="providerLoadState === 'ready' && providerOptions.length === 0" class="form-status">
-                当前项目暂无可用视频提供商，请先前往模型配置。
+                {{ providerEmptyMessage }}
               </div>
               <div v-if="metaLoadState === 'error'" class="form-status form-status--error">
                 视频时长与镜头配置待确认，请稍后重试。
@@ -243,7 +246,7 @@
           <!-- 当前项目视频历史 -->
           <div class="history-section" v-if="historyLoadState === 'ready' && taskHistory.length > 0">
             <div class="history-head">
-              <span class="history-label">当前项目视频历史 ({{ taskHistory.length }})</span>
+              <span class="history-label">{{ historyLabel }} ({{ taskHistory.length }})</span>
               <n-button size="tiny" type="error" tertiary @click="handleBatchClear">清空</n-button>
             </div>
             <n-scrollbar x-scrollable>
@@ -281,7 +284,7 @@
     <n-modal
       v-model:show="showAssetSelectModal"
       preset="card"
-      title="从当前项目资产库选择首帧参考图"
+      title="从当前空间资产库选择参考图"
       style="width: 60vw; max-width: 800px;"
     >
       <div class="assets-picker-grid">
@@ -303,7 +306,7 @@
           正在加载图片资产...
         </div>
         <div v-else-if="imageAssets.length === 0" class="picker-empty">
-          资产库中尚无图片，请先前往生图页生成一些大作！
+          当前空间资产库中尚无图片，请先前往生图页生成一些大作！
         </div>
       </div>
     </n-modal>
@@ -378,6 +381,25 @@ const cameraMotionOptions = computed(() => generationMeta.value.video?.cameraMot
 const defaultVideoDuration = computed(() => generationMeta.value.video?.defaults?.duration || durations.value[0]?.value || '')
 const defaultCameraMotion = computed(() => generationMeta.value.video?.defaults?.cameraMotion || cameraMotionOptions.value[0]?.value || '')
 type VideoHistoryTask = ReturnType<typeof taskStore.normalizeTask>
+const activeProject = computed(() => {
+  return projectStore.projects.find(item => item.id === projectStore.activeProjectId) || null
+})
+const historyLabel = computed(() => activeProject.value?.ownedByCurrentUser === false ? '当前协作项目视频历史' : '当前项目视频历史')
+const providerEmptyMessage = computed(() => {
+  if (activeProject.value?.ownedByCurrentUser === false) {
+    return '当前协作空间暂无可用视频提供商；如需补充，请联系可管理该项目模型配置的成员。'
+  }
+  return '当前项目暂无可用视频提供商，请先前往模型配置。'
+})
+const sharedProjectNotice = computed(() => {
+  if (!activeProject.value || activeProject.value.ownedByCurrentUser) {
+    return ''
+  }
+  if (activeProject.value.accessPermission === 'view') {
+    return '当前打开的是共享查看项目。根据后端真实权限，你仍可在这里直接生成视频、选择项目资产作为首尾帧并清理本项目历史；只有模型配置、工作流等配置页会保持只读。'
+  }
+  return `当前打开的是共享${formatProjectPermissionLabel(activeProject.value.accessPermission)}项目，新的生成结果与视频历史都会直接归档到这个项目。`
+})
 
 function normalizeTaskField(value: unknown) {
   return typeof value === 'string' ? value.trim() : ''
@@ -663,13 +685,30 @@ const emptyStateTitle = computed(() => {
 
 const emptyStateDescription = computed(() => {
   if (generationConfigState.value === 'error') {
-    return '当前项目的视频模型或生成参数暂时无法确认，请稍后重试。'
+    return '当前空间的视频模型或生成参数暂时无法确认，请稍后重试。'
   }
   if (generationConfigState.value === 'empty') {
-    return '当前项目还没有配置与视频生成兼容的提供商，先去模型配置页接入后再开始创作。'
+    return activeProject.value?.ownedByCurrentUser === false
+      ? '当前协作空间还没有配置与视频生成兼容的提供商；如果你当前使用的是共享项目，请联系具备管理权限的成员先在模型配置页接入。'
+      : '当前项目还没有配置与视频生成兼容的提供商，先去模型配置页接入后再开始创作。'
   }
   return '在左侧配置模型并键入您的运动创意，高保真动态视频将在右侧为您流畅播放。'
 })
+
+function formatProjectPermissionLabel(permission: 'owner' | 'admin' | 'edit' | 'view' | null | undefined) {
+  switch (permission) {
+    case 'owner':
+      return '所有者'
+    case 'admin':
+      return '管理'
+    case 'edit':
+      return '编辑'
+    case 'view':
+      return '查看'
+    default:
+      return '未知'
+  }
+}
 
 async function loadProviders() {
   if (!projectStore.activeProjectId) {
@@ -1278,6 +1317,17 @@ onBeforeUnmount(() => {
 
 .mode-tabs {
   margin-bottom: 15px;
+}
+
+.scope-notice {
+  margin-bottom: 12px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  border: 1px solid rgba(59, 130, 246, 0.22);
+  background: linear-gradient(135deg, rgba(59, 130, 246, 0.1), rgba(245, 158, 11, 0.08));
+  color: #cbd5e1;
+  font-size: 12px;
+  line-height: 1.6;
 }
 
 .form-scrollbar {

@@ -10,6 +10,9 @@
             <n-tab-pane name="img2img" tab="图生图" />
             <n-tab-pane name="inpaint" tab="局部重绘" />
           </n-tabs>
+          <div v-if="sharedProjectNotice" class="scope-notice">
+            {{ sharedProjectNotice }}
+          </div>
 
           <n-scrollbar class="form-scrollbar">
             <n-form label-placement="top" size="medium" style="padding-right: 8px;">
@@ -37,7 +40,7 @@
                 模型提供商待确认，请稍后重试。
               </div>
               <div v-else-if="providerLoadState === 'ready' && providerOptions.length === 0" class="form-status">
-                当前项目暂无可用生图提供商，请先前往模型配置。
+                {{ providerEmptyMessage }}
               </div>
               <div v-if="metaLoadState === 'error'" class="form-status form-status--error">
                 生图分辨率与质量配置待确认，请稍后重试。
@@ -382,7 +385,7 @@
           <!-- 历史大图列表 -->
           <div class="history-section" v-if="historyLoadState === 'ready' && taskHistory.length > 0">
             <div class="history-head">
-              <span class="history-label">当前项目生成历史 ({{ taskHistory.length }})</span>
+              <span class="history-label">{{ historyLabel }} ({{ taskHistory.length }})</span>
               <n-space>
                 <n-button size="tiny" quaternary @click="showHistoryModal = true">查看全部</n-button>
                 <n-button size="tiny" type="error" tertiary @click="handleBatchClear">清空</n-button>
@@ -601,6 +604,25 @@ const defaultImageResolution = computed(() => generationMeta.value.image?.defaul
 const defaultImageQuality = computed(() => generationMeta.value.image?.defaults?.quality || qualityOptions.value[0]?.value || '')
 
 const allowedImageProviderTypes = computed(() => generationMeta.value.image?.allowedProviderTypes || [])
+const activeProject = computed(() => {
+  return projectStore.projects.find(item => item.id === projectStore.activeProjectId) || null
+})
+const historyLabel = computed(() => activeProject.value?.ownedByCurrentUser === false ? '当前协作项目生成历史' : '当前项目生成历史')
+const providerEmptyMessage = computed(() => {
+  if (activeProject.value?.ownedByCurrentUser === false) {
+    return '当前协作空间暂无可用生图提供商；如需补充，请联系可管理该项目模型配置的成员。'
+  }
+  return '当前项目暂无可用生图提供商，请先前往模型配置。'
+})
+const sharedProjectNotice = computed(() => {
+  if (!activeProject.value || activeProject.value.ownedByCurrentUser) {
+    return ''
+  }
+  if (activeProject.value.accessPermission === 'view') {
+    return '当前打开的是共享查看项目。根据后端真实权限，你仍可在这里直接生成图片、上传参考图和清理本项目历史；只有模型配置、工作流等配置页会保持只读。'
+  }
+  return `当前打开的是共享${formatProjectPermissionLabel(activeProject.value.accessPermission)}项目，新的生成结果、参考图和历史记录都会直接归档到这个项目。`
+})
 
 const resolutionBaseMap: Record<'1k' | '2k' | '4k', number> = {
   '1k': 1024,
@@ -916,13 +938,30 @@ const emptyStateTitle = computed(() => {
 
 const emptyStateDescription = computed(() => {
   if (generationConfigState.value === 'error') {
-    return '当前项目的生图模型或参数配置暂时无法确认，请稍后重试。'
+    return '当前空间的生图模型或参数配置暂时无法确认，请稍后重试。'
   }
   if (generationConfigState.value === 'empty') {
-    return '当前项目还没有配置与生图兼容的提供商，先去模型配置页接入后再开始创作。'
+    return activeProject.value?.ownedByCurrentUser === false
+      ? '当前协作空间还没有配置与生图兼容的提供商；如果你当前使用的是共享项目，请联系具备管理权限的成员先在模型配置页接入。'
+      : '当前项目还没有配置与生图兼容的提供商，先去模型配置页接入后再开始创作。'
   }
   return '在左侧配置模型并键入您的创意描述，高质感 AI 画面将在此瞬间为您呈现。'
 })
+
+function formatProjectPermissionLabel(permission: 'owner' | 'admin' | 'edit' | 'view' | null | undefined) {
+  switch (permission) {
+    case 'owner':
+      return '所有者'
+    case 'admin':
+      return '管理'
+    case 'edit':
+      return '编辑'
+    case 'view':
+      return '查看'
+    default:
+      return '未知'
+  }
+}
 
 // 清除表单
 const clearForm = () => {
@@ -2744,6 +2783,17 @@ onBeforeUnmount(() => {
 
 .mode-tabs {
   margin-bottom: 15px;
+}
+
+.scope-notice {
+  margin-bottom: 12px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  border: 1px solid rgba(59, 130, 246, 0.22);
+  background: linear-gradient(135deg, rgba(59, 130, 246, 0.1), rgba(16, 185, 129, 0.08));
+  color: #cbd5e1;
+  font-size: 12px;
+  line-height: 1.6;
 }
 
 .form-scrollbar {

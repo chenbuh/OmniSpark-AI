@@ -22,6 +22,10 @@
       <input ref="uploadInput" type="file" class="hidden-input" accept="image/*,video/*" @change="handleUploadChange" />
     </div>
 
+    <div v-if="collaborationNotice" class="scope-notice">
+      {{ collaborationNotice }}
+    </div>
+
     <div class="summary-grid">
       <n-card v-for="item in summaryCards" :key="item.label" class="glass-card summary-card" :bordered="false">
         <span class="summary-label">{{ item.label }}</span>
@@ -52,7 +56,7 @@
       <n-tabs v-model:value="activeTab" type="segment" animated class="filter-tabs">
         <n-tab name="all">全部素材</n-tab>
         <n-tab v-for="item in assetTypeTabs" :key="item.value" :name="item.value">{{ item.label }}</n-tab>
-        <n-tab name="favorite">我的收藏</n-tab>
+        <n-tab name="favorite">收藏素材</n-tab>
       </n-tabs>
       <div v-if="assetTypeItemsLoadState === 'error'" class="filter-status">资产分类待确认，请稍后重试。</div>
       <div v-if="assetStatsLoadState === 'error'" class="filter-status">资产汇总待确认，请稍后重试。</div>
@@ -416,6 +420,10 @@ const sortOptions = [
   { label: '按收藏优先', value: 'favorite' }
 ]
 
+const activeProject = computed(() => {
+  return projectStore.projects.find(item => item.id === projectStore.activeProjectId) || null
+})
+
 const currentProjectName = computed(() => {
   if (assetTab.value === 'shared') {
     return '共享给我'
@@ -425,6 +433,19 @@ const currentProjectName = computed(() => {
 
 const ownAssetTabLabel = computed(() => {
   return projectStore.activeProjectId ? '当前项目' : '所有可访问项目'
+})
+
+const collaborationNotice = computed(() => {
+  if (assetTab.value === 'shared') {
+    return '这里展示团队共享给你的项目资产；上传、删除、字幕和收藏等操作只会作用到你当前切换打开的项目，不会直接写回这个列表里的所有共享项目。'
+  }
+  if (!activeProject.value || activeProject.value.ownedByCurrentUser) {
+    return ''
+  }
+  if (activeProject.value.accessPermission === 'view') {
+    return '当前打开的是共享查看项目。根据后端真实权限，资产上传、删除、收藏、字幕与配音仍会直接作用到这个项目；只有项目配置类页面会保持只读。'
+  }
+  return `当前打开的是共享${formatProjectPermissionLabel(activeProject.value.accessPermission)}项目，资产上传、删除、收藏、字幕与配音都会直接作用到这个项目。`
 })
 
 const currentScopeHint = computed(() => {
@@ -485,8 +506,10 @@ const assetTypeTabs = computed(() => {
 const libraryMetaDesc = computed(() => {
   const suffix = assetTab.value === 'shared'
     ? '（来自已共享项目）'
-    : projectStore.activeProjectId
-      ? '（当前项目）'
+    : activeProject.value
+      ? activeProject.value.ownedByCurrentUser
+        ? '（我创建的项目）'
+        : `（共享项目·${formatProjectPermissionLabel(activeProject.value.accessPermission)}）`
       : '（所有可访问项目）'
   return `当前匹配 ${formatSummaryValue(filteredTotal.value)} / ${formatSummaryValue(assetStats.value.total)} 个资产${suffix}`
 })
@@ -953,7 +976,7 @@ async function handleUploadChange(event: Event) {
       fileType: file.type
     })
     handleOpenDetail(refreshedAsset)
-    message.success(`素材已上传到当前项目资产库: ${file.name}`)
+    message.success(`素材已上传到项目「${activeProject.value?.name || '当前项目'}」: ${file.name}`)
   } catch (err: unknown) {
     message.error(err instanceof Error && err.message ? err.message : '上传失败')
   } finally {
@@ -1306,6 +1329,21 @@ function normalizeOptionalText(value: unknown): string {
   return typeof value === 'string' ? value.trim() : ''
 }
 
+function formatProjectPermissionLabel(permission: 'owner' | 'admin' | 'edit' | 'view' | null | undefined) {
+  switch (permission) {
+    case 'owner':
+      return '所有者'
+    case 'admin':
+      return '管理'
+    case 'edit':
+      return '编辑'
+    case 'view':
+      return '查看'
+    default:
+      return '未知'
+  }
+}
+
 watch(selectedAsset, () => {
   void syncSelectedAssetTask()
   loadSubtitles()
@@ -1409,6 +1447,17 @@ onUnmounted(() => {
 
 .hidden-input {
   display: none;
+}
+
+.scope-notice {
+  margin-bottom: 16px;
+  padding: 12px 14px;
+  border-radius: 14px;
+  border: 1px solid rgba(59, 130, 246, 0.22);
+  background: linear-gradient(135deg, rgba(59, 130, 246, 0.12), rgba(16, 185, 129, 0.08));
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 1.65;
 }
 
 .glass-card {
