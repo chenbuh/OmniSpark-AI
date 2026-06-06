@@ -445,7 +445,7 @@ function findTaskAssets(task: { id: number; resultAssetId?: number }) {
     return linkedAssets
   }
   if (task.resultAssetId) {
-    const exact = assetStore.assets.find(asset => asset.id === task.resultAssetId)
+    const exact = assetStore.assets.find(asset => asset.id === task.resultAssetId && asset.taskId === task.id)
     if (exact) {
       return [exact]
     }
