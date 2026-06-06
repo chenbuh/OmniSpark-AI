@@ -1,6 +1,7 @@
 package com.example.aihub.infrastructure.service;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.example.aihub.common.result.PageResult;
 import com.example.aihub.common.meta.BuildMetadataService;
 import com.example.aihub.common.exception.BusinessException;
 import com.example.aihub.common.util.PagingUtil;
@@ -43,51 +44,33 @@ public class ProjectService {
 
     // ===== 原有 listMine / create / update / delete 保持不变 =====
 
+    public PageResult<ProjectVO> pageMine(long page, long pageSize) {
+        Long userId = SecurityUtil.loginUserId();
+        List<ProjectVO> allProjects = listAccessibleProjects(userId);
+        long total = allProjects.size();
+        long safePage = PagingUtil.normalizePage(page);
+        long safePageSize = PagingUtil.clampPageSize(pageSize, 20);
+        if (total == 0) {
+            return new PageResult<>(0, 0, List.of());
+        }
+        long pages = (total + safePageSize - 1) / safePageSize;
+        long fromIndex = (safePage - 1) * safePageSize;
+        if (fromIndex >= total) {
+            return new PageResult<>(total, pages, List.of());
+        }
+        int start = (int) fromIndex;
+        int end = (int) Math.min(total, fromIndex + safePageSize);
+        return new PageResult<>(total, pages, allProjects.subList(start, end));
+    }
+
     public List<ProjectVO> listMine(int limit) {
         Long userId = SecurityUtil.loginUserId();
         int safeLimit = PagingUtil.clampLimit(limit, 100, 100);
-        List<Project> myProjects = projectMapper.selectList(new LambdaQueryWrapper<Project>()
-                .eq(Project::getUserId, userId)
-                .orderByDesc(Project::getId)
-                .last("LIMIT " + safeLimit));
-        Map<Long, String> sharedPermissionByProjectId = new HashMap<>();
-        List<TeamMember> memberships = teamMemberMapper.selectList(
-                new LambdaQueryWrapper<TeamMember>()
-                        .eq(TeamMember::getUserId, userId)
-                        .eq(TeamMember::getStatus, 1)
-                        .orderByDesc(TeamMember::getId)
-                        .last("LIMIT " + safeLimit));
-        if (!memberships.isEmpty()) {
-            Set<Long> teamIds = memberships.stream().map(TeamMember::getTeamId).collect(Collectors.toSet());
-            List<ProjectShare> shares = shareMapper.selectList(
-                    new LambdaQueryWrapper<ProjectShare>()
-                            .in(ProjectShare::getTeamId, teamIds)
-                            .orderByDesc(ProjectShare::getId)
-                            .last("LIMIT " + safeLimit));
-            if (!shares.isEmpty()) {
-                for (ProjectShare share : shares) {
-                    sharedPermissionByProjectId.merge(
-                            share.getProjectId(),
-                            normalizeSharedPermission(share.getPermission()),
-                            this::higherPermission
-                    );
-                }
-                Set<Long> sharedProjectIds = shares.stream().map(ProjectShare::getProjectId).collect(Collectors.toSet());
-                Set<Long> myProjectIds = myProjects.stream().map(Project::getId).collect(Collectors.toSet());
-                sharedProjectIds.removeAll(myProjectIds);
-                if (!sharedProjectIds.isEmpty()) {
-                    List<Project> sharedProjects = projectMapper.selectList(
-                            new LambdaQueryWrapper<Project>()
-                                    .in(Project::getId, sharedProjectIds)
-                                    .orderByDesc(Project::getId)
-                                    .last("LIMIT " + safeLimit));
-                    myProjects.addAll(sharedProjects);
-                }
-            }
+        List<ProjectVO> accessibleProjects = listAccessibleProjects(userId);
+        if (accessibleProjects.size() <= safeLimit) {
+            return accessibleProjects;
         }
-        return myProjects.stream()
-                .map(item -> toProjectVO(item, userId, sharedPermissionByProjectId.get(item.getId())))
-                .toList();
+        return accessibleProjects.subList(0, safeLimit);
     }
 
     @Transactional(rollbackFor = Exception.class)
@@ -145,6 +128,52 @@ public class ProjectService {
                         .eq(TeamMember::getUserId, userId)
                         .eq(TeamMember::getStatus, 1))
                 .stream().map(TeamMember::getTeamId).toList();
+    }
+
+    private List<ProjectVO> listAccessibleProjects(Long userId) {
+        Map<Long, Project> projectById = new HashMap<>();
+        Map<Long, String> sharedPermissionByProjectId = new HashMap<>();
+
+        List<Project> ownedProjects = projectMapper.selectList(new LambdaQueryWrapper<Project>()
+                .eq(Project::getUserId, userId)
+                .orderByDesc(Project::getId));
+        ownedProjects.forEach(project -> projectById.put(project.getId(), project));
+
+        List<TeamMember> memberships = teamMemberMapper.selectList(
+                new LambdaQueryWrapper<TeamMember>()
+                        .eq(TeamMember::getUserId, userId)
+                        .eq(TeamMember::getStatus, 1)
+                        .orderByDesc(TeamMember::getId));
+        if (!memberships.isEmpty()) {
+            Set<Long> teamIds = memberships.stream().map(TeamMember::getTeamId).collect(Collectors.toSet());
+            List<ProjectShare> shares = shareMapper.selectList(
+                    new LambdaQueryWrapper<ProjectShare>()
+                            .in(ProjectShare::getTeamId, teamIds)
+                            .orderByDesc(ProjectShare::getId));
+            if (!shares.isEmpty()) {
+                Set<Long> missingProjectIds = new LinkedHashSet<>();
+                for (ProjectShare share : shares) {
+                    sharedPermissionByProjectId.merge(
+                            share.getProjectId(),
+                            normalizeSharedPermission(share.getPermission()),
+                            this::higherPermission
+                    );
+                    if (!projectById.containsKey(share.getProjectId())) {
+                        missingProjectIds.add(share.getProjectId());
+                    }
+                }
+                if (!missingProjectIds.isEmpty()) {
+                    projectMapper.selectList(new LambdaQueryWrapper<Project>()
+                                    .in(Project::getId, missingProjectIds))
+                            .forEach(project -> projectById.put(project.getId(), project));
+                }
+            }
+        }
+
+        return projectById.values().stream()
+                .sorted(Comparator.comparing(Project::getId).reversed())
+                .map(item -> toProjectVO(item, userId, sharedPermissionByProjectId.get(item.getId())))
+                .toList();
     }
 
     private ProjectVO toProjectVO(Project project, Long currentUserId, String sharedPermission) {

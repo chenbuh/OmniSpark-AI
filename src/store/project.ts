@@ -63,8 +63,9 @@ export const useProjectStore = defineStore('project', {
     async refresh() {
       this.loadState = 'loading'
       try {
-        const response = await projectApi.getProjects()
-        this.setProjects(getResponseData(response, '项目数据待确认'))
+        const pageSize = 100
+        const projects = await collectAllProjectPages(pageSize, this.normalizeProject)
+        this.setProjects(projects)
         this.loadState = 'ready'
         return this.projects
       } catch (error) {
@@ -160,6 +161,60 @@ function normalizeProjectList(
     ids.add(item.id)
   })
   return normalized
+}
+
+async function collectAllProjectPages(
+  pageSize: number,
+  normalizeProject: (project: unknown) => Project
+): Promise<Project[]> {
+  const allProjects: Project[] = []
+  const seenIds = new Set<number>()
+  let page = 1
+  let total: number | null = null
+
+  while (true) {
+    const response = await projectApi.getProjectsPage({ page, pageSize })
+    const pageData = normalizeProjectPage(getResponseData(response, '项目数据待确认'), normalizeProject)
+    if (total === null) {
+      total = pageData.total
+    } else if (pageData.total !== total) {
+      throw new Error('项目数据待确认')
+    }
+    pageData.records.forEach(project => {
+      if (seenIds.has(project.id)) {
+        throw new Error('项目数据待确认')
+      }
+      seenIds.add(project.id)
+      allProjects.push(project)
+    })
+    if (allProjects.length > pageData.total) {
+      throw new Error('项目数据待确认')
+    }
+    if (allProjects.length >= pageData.total || pageData.records.length === 0) {
+      break
+    }
+    page += 1
+  }
+
+  if ((total ?? 0) !== allProjects.length) {
+    throw new Error('项目数据待确认')
+  }
+  return allProjects
+}
+
+function normalizeProjectPage(
+  value: unknown,
+  normalizeProject: (project: unknown) => Project
+): { total: number; records: Project[] } {
+  if (!isPlainObject(value)) {
+    throw new Error('项目数据待确认')
+  }
+  const total = Number(value.total)
+  const records = normalizeProjectList(value.records, normalizeProject)
+  if (!Number.isFinite(total) || total < 0 || records.length > total) {
+    throw new Error('项目数据待确认')
+  }
+  return { total, records }
 }
 
 function parseOptionalNumber(value: unknown): number | null {

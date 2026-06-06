@@ -411,6 +411,18 @@ function normalizeProjectShareList(value: unknown, expectedProjectId: number) {
   return normalized
 }
 
+function normalizeProjectSharePage(value: unknown, expectedProjectId: number) {
+  if (!isPlainObject(value)) {
+    throw new Error('共享列表待确认')
+  }
+  const total = Number(value.total)
+  const records = normalizeProjectShareList(value.records, expectedProjectId)
+  if (!Number.isFinite(total) || total < 0 || records.length > total) {
+    throw new Error('共享列表待确认')
+  }
+  return { total, records }
+}
+
 function assertShareMatchesTeam(share: ProjectShare, expected: { projectId: number; teamId: number; permission: string }) {
   if (share.projectId !== expected.projectId || share.teamId !== expected.teamId || share.permission !== expected.permission) {
     throw new Error('共享结果待确认')
@@ -880,13 +892,49 @@ const loadShares = async () => {
   sharesLoadState.value = 'loading'
   try {
     const activeProjectId = projectStore.activeProjectId
-    const response = await projectShareApi.getShares(activeProjectId)
-    shares.value = normalizeProjectShareList(getResponseData(response, '共享列表待确认'), activeProjectId)
+    shares.value = await collectAllProjectShares(activeProjectId)
     sharesLoadState.value = 'ready'
   } catch {
     shares.value = null
     sharesLoadState.value = 'error'
   }
+}
+
+async function collectAllProjectShares(projectId: number) {
+  const pageSize = 100
+  const allShares: ProjectShare[] = []
+  const seenIds = new Set<number>()
+  let page = 1
+  let total: number | null = null
+
+  while (true) {
+    const response = await projectShareApi.getSharesPage(projectId, { page, pageSize })
+    const pageData = normalizeProjectSharePage(getResponseData(response, '共享列表待确认'), projectId)
+    if (total === null) {
+      total = pageData.total
+    } else if (pageData.total !== total) {
+      throw new Error('共享列表待确认')
+    }
+    pageData.records.forEach(share => {
+      if (seenIds.has(share.id)) {
+        throw new Error('共享列表待确认')
+      }
+      seenIds.add(share.id)
+      allShares.push(share)
+    })
+    if (allShares.length > pageData.total) {
+      throw new Error('共享列表待确认')
+    }
+    if (allShares.length >= pageData.total || pageData.records.length === 0) {
+      break
+    }
+    page += 1
+  }
+
+  if ((total ?? 0) !== allShares.length) {
+    throw new Error('共享列表待确认')
+  }
+  return allShares
 }
 
 const handleAddShare = async () => {

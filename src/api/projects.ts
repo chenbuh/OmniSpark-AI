@@ -1,9 +1,19 @@
 import request from './request'
 
+export interface ProjectPageResult<T> {
+  total: number
+  pages: number
+  records: T[]
+}
+
 export const projectApi = {
   // 获取项目列表
   async getProjects() {
     return request.get('/api/projects')
+  },
+
+  async getProjectsPage(params: { page: number; pageSize: number }) {
+    return request.get('/api/projects/page', { params })
   },
 
   // 创建项目

@@ -1,7 +1,9 @@
 package com.example.aihub.infrastructure.service;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.example.aihub.common.exception.BusinessException;
+import com.example.aihub.common.result.PageResult;
 import com.example.aihub.common.util.PagingUtil;
 import com.example.aihub.common.util.SecurityUtil;
 import com.example.aihub.common.util.VoMapper;
@@ -20,7 +22,9 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -117,6 +121,20 @@ public class ProjectShareService {
 
     // ===== 共享管理 =====
 
+    public PageResult<ProjectShareVO> pageShares(Long projectId, long page, long pageSize) {
+        requirePermission(projectId, "admin");
+
+        long safePage = PagingUtil.normalizePage(page);
+        long safePageSize = PagingUtil.clampPageSize(pageSize, 20);
+        Page<ProjectShare> result = shareMapper.selectPage(
+                new Page<>(safePage, safePageSize),
+                new LambdaQueryWrapper<ProjectShare>()
+                        .eq(ProjectShare::getProjectId, projectId)
+                        .orderByDesc(ProjectShare::getId)
+        );
+        return new PageResult<>(result.getTotal(), result.getPages(), toShareVOList(result.getRecords()));
+    }
+
     public List<ProjectShareVO> listShares(Long projectId, int limit) {
         // 校验操作者拥有项目 admin 权限
         requirePermission(projectId, "admin");
@@ -126,18 +144,7 @@ public class ProjectShareService {
                         .eq(ProjectShare::getProjectId, projectId)
                         .orderByDesc(ProjectShare::getId)
                         .last("LIMIT " + PagingUtil.clampLimit(limit, 100, 100)));
-        return shares.stream().map(s -> {
-            ProjectShareVO vo = VoMapper.copy(s, ProjectShareVO.class);
-            Project project = projectMapper.selectById(s.getProjectId());
-            if (project != null) {
-                vo.setProjectName(project.getName());
-            }
-            Team team = teamMapper.selectById(s.getTeamId());
-            if (team != null) {
-                vo.setTeamName(team.getName());
-            }
-            return vo;
-        }).toList();
+        return toShareVOList(shares);
     }
 
     @Transactional(rollbackFor = Exception.class)
@@ -217,5 +224,35 @@ public class ProjectShareService {
             case "view" -> 1;
             default -> 0;
         };
+    }
+
+    private List<ProjectShareVO> toShareVOList(List<ProjectShare> shares) {
+        if (shares.isEmpty()) {
+            return List.of();
+        }
+        Set<Long> projectIds = shares.stream().map(ProjectShare::getProjectId).collect(Collectors.toSet());
+        Set<Long> teamIds = shares.stream().map(ProjectShare::getTeamId).collect(Collectors.toSet());
+        Map<Long, Project> projectMap = projectIds.isEmpty()
+                ? Map.of()
+                : projectMapper.selectList(new LambdaQueryWrapper<Project>().in(Project::getId, projectIds))
+                .stream()
+                .collect(Collectors.toMap(Project::getId, project -> project));
+        Map<Long, Team> teamMap = teamIds.isEmpty()
+                ? Map.of()
+                : teamMapper.selectList(new LambdaQueryWrapper<Team>().in(Team::getId, teamIds))
+                .stream()
+                .collect(Collectors.toMap(Team::getId, team -> team, (left, right) -> left, HashMap::new));
+        return shares.stream().map(share -> {
+            ProjectShareVO vo = VoMapper.copy(share, ProjectShareVO.class);
+            Project project = projectMap.get(share.getProjectId());
+            if (project != null) {
+                vo.setProjectName(project.getName());
+            }
+            Team team = teamMap.get(share.getTeamId());
+            if (team != null) {
+                vo.setTeamName(team.getName());
+            }
+            return vo;
+        }).toList();
     }
 }

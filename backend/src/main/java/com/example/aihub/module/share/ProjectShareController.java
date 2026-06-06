@@ -2,6 +2,7 @@ package com.example.aihub.module.share;
 
 import cn.dev33.satoken.annotation.SaCheckLogin;
 import com.example.aihub.common.result.ApiResult;
+import com.example.aihub.common.result.PageResult;
 import com.example.aihub.common.util.PagingUtil;
 import com.example.aihub.infrastructure.dto.ShareSaveDTO;
 import com.example.aihub.infrastructure.service.ProjectShareService;
@@ -23,6 +24,13 @@ public class ProjectShareController {
     public ApiResult<List<ProjectShareVO>> list(@PathVariable Long projectId,
                                                 @RequestParam(defaultValue = "100") int limit) {
         return ApiResult.ok(shareService.listShares(projectId, PagingUtil.clampLimit(limit, 100, 100)));
+    }
+
+    @GetMapping("/{projectId}/page")
+    public ApiResult<PageResult<ProjectShareVO>> page(@PathVariable Long projectId,
+                                                      @RequestParam(defaultValue = "1") long page,
+                                                      @RequestParam(defaultValue = "20") long pageSize) {
+        return ApiResult.ok(shareService.pageShares(projectId, page, pageSize));
     }
 
     @PostMapping

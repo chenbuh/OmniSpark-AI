@@ -68,8 +68,9 @@ export const useTeamStore = defineStore('team', {
       this.currentMembers = normalizeMemberList(data, this.normalizeMember)
     },
     async refresh() {
-      const response = await teamApi.getTeams()
-      this.setTeams(getResponseData(response, '团队数据待确认'))
+      const pageSize = 100
+      const teams = await collectAllTeamPages(pageSize, this.normalizeTeam)
+      this.teams = teams
       return this.teams
     },
     async refreshMembers(teamId: number) {
@@ -148,6 +149,60 @@ function normalizeTeamList(value: unknown, normalizeTeam: (team: unknown) => Tea
     ids.add(item.id)
   })
   return normalized
+}
+
+async function collectAllTeamPages(
+  pageSize: number,
+  normalizeTeam: (team: unknown) => Team
+): Promise<Team[]> {
+  const allTeams: Team[] = []
+  const seenIds = new Set<number>()
+  let page = 1
+  let total: number | null = null
+
+  while (true) {
+    const response = await teamApi.getTeamsPage({ page, pageSize })
+    const pageData = normalizeTeamPage(getResponseData(response, '团队数据待确认'), normalizeTeam)
+    if (total === null) {
+      total = pageData.total
+    } else if (pageData.total !== total) {
+      throw new Error('团队数据待确认')
+    }
+    pageData.records.forEach(team => {
+      if (seenIds.has(team.id)) {
+        throw new Error('团队数据待确认')
+      }
+      seenIds.add(team.id)
+      allTeams.push(team)
+    })
+    if (allTeams.length > pageData.total) {
+      throw new Error('团队数据待确认')
+    }
+    if (allTeams.length >= pageData.total || pageData.records.length === 0) {
+      break
+    }
+    page += 1
+  }
+
+  if ((total ?? 0) !== allTeams.length) {
+    throw new Error('团队数据待确认')
+  }
+  return allTeams
+}
+
+function normalizeTeamPage(
+  value: unknown,
+  normalizeTeam: (team: unknown) => Team
+): { total: number; records: Team[] } {
+  if (!isPlainObject(value)) {
+    throw new Error('团队数据待确认')
+  }
+  const total = Number(value.total)
+  const records = normalizeTeamList(value.records, normalizeTeam)
+  if (!Number.isFinite(total) || total < 0 || records.length > total) {
+    throw new Error('团队数据待确认')
+  }
+  return { total, records }
 }
 
 function normalizeMemberList(

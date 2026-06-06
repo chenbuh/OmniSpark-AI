@@ -10,9 +10,19 @@ export interface ProjectShare {
   createdAt: string
 }
 
+export interface ProjectSharePageResult<T> {
+  total: number
+  pages: number
+  records: T[]
+}
+
 export const projectShareApi = {
   async getShares(projectId: number) {
     return request.get(`/api/project-shares/${projectId}`)
+  },
+
+  async getSharesPage(projectId: number, params: { page: number; pageSize: number }) {
+    return request.get(`/api/project-shares/${projectId}/page`, { params })
   },
 
   async createShare(params: { projectId: number; teamId: number; permission: string }) {
