@@ -413,7 +413,10 @@ interface WorkflowRecord extends WorkflowVO {
   steps: WorkflowStep[]
 }
 
-type RunResult = Record<string, any>
+type RunResult = {
+  stepIndex?: number
+  stepType?: string
+} & Record<string, unknown>
 type LoadState = 'loading' | 'ready' | 'error'
 type EditorStatusTone = 'error' | 'info'
 
@@ -798,10 +801,11 @@ function parseStepsJson(stepsJson: string): WorkflowStep[] {
   try {
     const parsed = JSON.parse(stepsJson)
     if (!Array.isArray(parsed)) return []
-    return parsed.map((item: any) => {
-      const type = typeof item?.type === 'string' ? item.type.trim() : ''
+    return parsed.map((item: unknown) => {
+      const record = isPlainObject(item) ? item : {}
+      const type = typeof record.type === 'string' ? record.type.trim() : ''
       const base = defaultStep(type)
-      return { ...base, ...item, type }
+      return { ...base, ...record, type }
     })
   } catch {
     return []
@@ -874,8 +878,22 @@ function requireStringValue(value: unknown, errorMessage: string) {
   return normalized
 }
 
-function isPlainObject(value: unknown): value is Record<string, any> {
+function isPlainObject(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === 'object' && !Array.isArray(value)
+}
+
+function getResponseData(response: unknown, errorMessage: string): unknown {
+  if (!isPlainObject(response) || !('data' in response)) {
+    throw new Error(errorMessage)
+  }
+  return response.data
+}
+
+function getErrorMessage(error: unknown, fallback: string) {
+  if (error instanceof Error && error.message.trim()) {
+    return error.message
+  }
+  return fallback
 }
 
 function requireWorkflowMetaOptionList(value: unknown, errorMessage: string) {
@@ -1024,7 +1042,7 @@ async function loadGenerationMeta() {
   generationMetaLoadState.value = 'loading'
   try {
     const res = await generationApi.getMeta()
-    generationMeta.value = requireGenerationMeta((res as any).data)
+    generationMeta.value = requireGenerationMeta(getResponseData(res, '图像/视频生成参数待确认'))
     generationMetaLoadState.value = 'ready'
   } catch {
     generationMeta.value = {}
@@ -1036,7 +1054,7 @@ async function loadWorkflowMeta() {
   workflowMetaLoadState.value = 'loading'
   try {
     const res = await workflowApi.meta()
-    workflowMeta.value = requireWorkflowMeta((res as any).data)
+    workflowMeta.value = requireWorkflowMeta(getResponseData(res, '工作流步骤模板待确认'))
     workflowMetaLoadState.value = 'ready'
   } catch {
     workflowMeta.value = emptyWorkflowMeta()
@@ -1072,7 +1090,7 @@ async function loadAssetLibrary() {
 async function loadWorkflows() {
   try {
     const res = await workflowApi.list(projectStore.activeProjectId)
-    const records = normalizeWorkflowList((res as any).data)
+    const records = normalizeWorkflowList(getResponseData(res, '工作流数据待确认'))
     workflows.value = records
     if (selectedWorkflow.value) {
       const next = records.find((item: WorkflowRecord) => item.id === selectedWorkflow.value?.id) || null
@@ -1099,7 +1117,7 @@ async function loadRuns(workflowId: number) {
   runs.value = null
   try {
     const res = await workflowApi.listRuns(workflowId)
-    runs.value = normalizeRunList((res as any).data)
+    runs.value = normalizeRunList(getResponseData(res, '工作流运行记录待确认'))
   } catch {
     runs.value = null
   } finally {
@@ -1254,7 +1272,7 @@ async function handleSave() {
   try {
     if (editorMode.value === 'edit' && editForm.id) {
       const res = await workflowApi.update(editForm.id, payload)
-      const updated = normalizeWorkflow((res as any).data)
+      const updated = normalizeWorkflow(getResponseData(res, '工作流更新结果待确认'))
       const confirmed = await reloadWorkflowById(updated.id, '工作流更新结果待确认')
       assertWorkflowMatchesExpected(confirmed, expectedWorkflow, '工作流更新结果待确认')
       selectedWorkflow.value = confirmed
@@ -1262,7 +1280,7 @@ async function handleSave() {
       message.success('工作流已更新')
     } else {
       const res = await workflowApi.create(payload)
-      const created = normalizeWorkflow((res as any).data)
+      const created = normalizeWorkflow(getResponseData(res, '工作流创建结果待确认'))
       const confirmed = await reloadWorkflowById(created.id, '工作流创建结果待确认')
       assertWorkflowMatchesExpected(confirmed, expectedWorkflow, '工作流创建结果待确认')
       selectedWorkflow.value = confirmed
@@ -1270,8 +1288,8 @@ async function handleSave() {
       message.success('工作流已创建')
     }
     showEditor.value = false
-  } catch (err: any) {
-    message.error(err.message || '保存失败')
+  } catch (err: unknown) {
+    message.error(getErrorMessage(err, '保存失败'))
   }
 }
 
@@ -1283,8 +1301,8 @@ async function handleDelete(id: number) {
       throw new Error('工作流删除结果待确认')
     }
     message.success('工作流已删除')
-  } catch (err: any) {
-    message.error(err.message || '删除失败')
+  } catch (err: unknown) {
+    message.error(getErrorMessage(err, '删除失败'))
   }
 }
 
@@ -1303,14 +1321,14 @@ async function cloneWorkflow(workflow: WorkflowRecord) {
       steps: workflow.steps.map(step => sanitizeStep(step))
     }
     const res = await workflowApi.create(payload)
-    const cloned = normalizeWorkflow((res as any).data)
+    const cloned = normalizeWorkflow(getResponseData(res, '工作流克隆结果待确认'))
     const confirmed = await reloadWorkflowById(cloned.id, '工作流克隆结果待确认')
     assertWorkflowMatchesExpected(confirmed, expectedWorkflow, '工作流克隆结果待确认')
     selectedWorkflow.value = confirmed
     await loadRuns(confirmed.id)
     message.success('工作流已克隆')
-  } catch (err: any) {
-    message.error(err.message || '克隆失败')
+  } catch (err: unknown) {
+    message.error(getErrorMessage(err, '克隆失败'))
   }
 }
 
@@ -1319,7 +1337,7 @@ async function handleExecute() {
   executing.value = true
   try {
     const res = await workflowApi.execute(selectedWorkflow.value.id)
-    const run = normalizeRun((res as any).data)
+    const run = normalizeRun(getResponseData(res, '工作流执行结果待确认'))
     await loadRuns(selectedWorkflow.value.id)
     const confirmed = runs.value?.find(item => item.id === run.id)
     if (!confirmed) {
@@ -1331,8 +1349,8 @@ async function handleExecute() {
     }, '工作流执行结果待确认')
     await loadAssetLibrary()
     message.success(confirmed.status === 'success' ? '工作流执行完成' : '工作流已开始执行')
-  } catch (err: any) {
-    message.error(err.message || '执行失败')
+  } catch (err: unknown) {
+    message.error(getErrorMessage(err, '执行失败'))
     if (selectedWorkflow.value?.id) {
       await loadRuns(selectedWorkflow.value.id)
     }
@@ -1345,7 +1363,16 @@ function parseRunResults(run: WorkflowRunVO): RunResult[] {
   if (!run.stepsResultJson) return []
   try {
     const parsed = JSON.parse(run.stepsResultJson)
-    return Array.isArray(parsed) ? parsed : []
+    if (!Array.isArray(parsed)) {
+      return []
+    }
+    return parsed
+      .filter((item: unknown): item is Record<string, unknown> => isPlainObject(item))
+      .map((item) => ({
+        ...item,
+        stepIndex: typeof item.stepIndex === 'number' ? item.stepIndex : undefined,
+        stepType: typeof item.stepType === 'string' ? item.stepType : undefined
+      }))
   } catch {
     return []
   }

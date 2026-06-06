@@ -372,6 +372,13 @@ function getResponseData(response: unknown, errorMessage: string) {
   return response.data
 }
 
+function getErrorMessage(error: unknown, fallback: string) {
+  if (error instanceof Error && error.message.trim()) {
+    return error.message
+  }
+  return fallback
+}
+
 function requireStringValue(value: unknown, errorMessage: string) {
   const normalized = typeof value === 'string' ? value.trim() : ''
   if (!normalized) {
@@ -884,9 +891,9 @@ const startTaskPolling = (taskId: number) => {
     taskSyncing = true
     try {
       await syncTaskStatus(taskId)
-    } catch (err: any) {
+    } catch (err: unknown) {
       finishGeneratingState()
-      message.error(err.message || '同步视频任务状态失败')
+      message.error(getErrorMessage(err, '同步视频任务状态失败'))
     } finally {
       taskSyncing = false
     }
@@ -1032,8 +1039,8 @@ const handleStartGenerate = async () => {
       message.info('视频任务已提交，正在持续获取最新生成进度...')
       startTaskPolling(task.id)
     }
-  } catch (err: any) {
-    message.error(err.message || '生成失败')
+  } catch (err: unknown) {
+    message.error(getErrorMessage(err, '生成失败'))
   } finally {
     generating.value = false
   }
@@ -1056,8 +1063,8 @@ const handleDeleteTask = async (taskId: number) => {
     if (activeTaskId.value === taskId) { activeTaskId.value = null }
     ensureVideoHistoryTasksRemoved([taskId])
     message.success('已删除')
-  } catch (err: any) {
-    message.error(err.message || '删除失败')
+  } catch (err: unknown) {
+    message.error(getErrorMessage(err, '删除失败'))
   }
 }
 
@@ -1074,8 +1081,8 @@ const handleBatchClear = async () => {
     activeTaskId.value = null
     ensureVideoHistoryTasksRemoved(ids)
     message.success('历史记录已清空')
-  } catch (err: any) {
-    message.error(err.message || '清空失败')
+  } catch (err: unknown) {
+    message.error(getErrorMessage(err, '清空失败'))
   }
 }
 
@@ -1091,8 +1098,8 @@ const handleInspectHistoryTask = async (task: VideoHistoryTask) => {
   try {
     await ensureTaskResultAssetLoaded(task)
     handleSelectHistory(task)
-  } catch (err: any) {
-    message.error(err.message || '该任务的视频结果待确认')
+  } catch (err: unknown) {
+    message.error(getErrorMessage(err, '该任务的视频结果待确认'))
   }
 }
 
@@ -1106,8 +1113,8 @@ const handleToggleFavorite = async () => {
         throw new Error('收藏状态待确认')
       }
       message.success(confirmed.favorite ? '视频已收藏！' : '已取消收藏')
-    } catch (err: any) {
-      message.error(err.message || '收藏状态更新失败')
+    } catch (err: unknown) {
+      message.error(getErrorMessage(err, '收藏状态更新失败'))
     }
   }
 }
