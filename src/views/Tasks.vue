@@ -206,7 +206,7 @@ const collaborationNotice = computed(() => {
     return ''
   }
   if (activeProject.value.accessPermission === 'view') {
-    return '当前打开的是共享查看项目。根据后端真实权限，你仍可在这里查看、重试、删除当前项目任务并查看其产出；只有模型配置、工作流等配置页会保持只读。'
+    return '当前打开的是共享查看项目。根据后端真实权限，你仍可在这里查看、重试、删除当前项目任务并查看其产出；只有模型配置等少数项目级配置页会保持只读。'
   }
   return `当前打开的是共享${formatProjectPermissionLabel(activeProject.value.accessPermission)}项目，这里的任务列表、重试、删除和产出查看都会直接作用到该项目。`
 })
