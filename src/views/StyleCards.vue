@@ -2,7 +2,7 @@
   <div class="stylecards-container">
     <div class="page-header">
       <h2>角色卡 / 风格卡 (Character & Style Cards)</h2>
-      <p class="subtitle">保存可复用的角色设定或风格预设，在生图页一键应用已记录的提示词和参数。</p>
+      <p class="subtitle">公共角色卡与风格卡库，保存可复用的角色设定或风格预设，在生图页跨项目一键应用已记录的提示词和参数。</p>
     </div>
 
     <n-card class="glass-card filter-card" :bordered="false">
@@ -207,7 +207,7 @@
     <n-modal
       v-model:show="showAssetPicker"
       preset="card"
-      title="从共享资产库选择预览图"
+      title="从当前项目资产库选择预览图"
       style="width: 60vw; max-width: 800px;"
     >
       <div class="assets-picker-grid">
@@ -291,6 +291,7 @@ const styleCardTags = ref<string[]>([])
 const assetLibraryLoadState = ref<'loading' | 'ready' | 'error'>('loading')
 const tagLoadState = ref<'loading' | 'ready' | 'error'>('loading')
 let searchTimer: ReturnType<typeof setTimeout> | null = null
+const PUBLIC_STYLE_CARD_LIBRARY_PROJECT_ID = 0
 
 const imageAssets = computed(() => {
   return assetStore
@@ -457,7 +458,7 @@ function normalizeOptionalNumber(value: unknown) {
 
 function normalizeRequiredPositiveNumber(value: unknown, action: 'create' | 'update') {
   const parsed = Number(value)
-  if (!Number.isFinite(parsed) || parsed <= 0) {
+  if (!Number.isFinite(parsed) || parsed < PUBLIC_STYLE_CARD_LIBRARY_PROJECT_ID) {
     throw new Error(action === 'create' ? '卡片创建结果待确认' : '卡片更新结果待确认')
   }
   return parsed
@@ -617,7 +618,6 @@ async function loadCards() {
   loadingCards.value = true
   try {
     const res = await styleCardApi.list({
-      projectId: projectStore.activeProjectId,
       type: activeType.value !== 'all' ? activeType.value : undefined,
       search: searchQuery.value.trim() || undefined,
       sort: sortBy.value,
@@ -636,6 +636,10 @@ async function loadCards() {
 }
 
 async function loadAssetLibrary() {
+  if (!projectStore.activeProjectId) {
+    assetLibraryLoadState.value = 'ready'
+    return
+  }
   assetLibraryLoadState.value = 'loading'
   try {
     await assetStore.refresh({ projectId: projectStore.activeProjectId })
@@ -679,12 +683,11 @@ onBeforeUnmount(() => {
     clearTimeout(searchTimer)
   }
 })
-watch([activeType, sortBy, searchQuery, () => projectStore.activeProjectId], () => {
+watch([activeType, sortBy, searchQuery], () => {
   page.value = 1
   scheduleLoadCards()
 })
 watch(() => projectStore.activeProjectId, () => {
-  void loadStyleCardTags()
   void loadAssetLibrary()
 })
 watch([page, pageSize], () => {
@@ -712,6 +715,10 @@ function canManage(card: StyleCard) {
 }
 
 async function openAssetPicker() {
+  if (!projectStore.activeProjectId) {
+    message.error('请先选择一个项目空间')
+    return
+  }
   await loadAssetLibrary()
   showAssetPicker.value = true
 }
@@ -836,7 +843,7 @@ async function handleSave() {
     return
   }
   const payload = {
-    projectId: projectStore.activeProjectId,
+    projectId: projectStore.activeProjectId ?? PUBLIC_STYLE_CARD_LIBRARY_PROJECT_ID,
     name: form.name,
     type: form.type,
     content: form.content,
