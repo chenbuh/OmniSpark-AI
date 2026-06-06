@@ -9,6 +9,8 @@ import com.example.aihub.infrastructure.service.WebhookService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.List;
+
 @RestController
 @RequiredArgsConstructor
 @RequestMapping("/api/admin/webhooks")
