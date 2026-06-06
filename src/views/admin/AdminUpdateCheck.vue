@@ -109,6 +109,70 @@
         </n-card>
       </n-col>
     </n-row>
+
+    <n-row :gutter="20" style="margin-top: 20px;">
+      <n-col :span="24">
+        <n-card title="最近更新动态" class="glass-card" :bordered="false">
+          <template #header-extra>
+            <n-button size="small" tertiary type="primary" @click="loadUpdateHistory(true)" :loading="historyChecking">
+              <template #icon><RefreshCw /></template>刷新动态
+            </n-button>
+          </template>
+
+          <div v-if="historyLoadState === 'error'" class="check-placeholder">
+            <p>更新动态待确认，请稍后重试。</p>
+            <n-button type="primary" @click="loadUpdateHistory(true)" :loading="historyChecking">
+              <template #icon><RefreshCw /></template>重新加载
+            </n-button>
+          </div>
+
+          <div v-else-if="historyLoadState === 'loading'" class="check-placeholder">
+            <p>正在读取最近更新动态...</p>
+          </div>
+
+          <div v-else-if="updateHistory?.items.length" class="history-wrap">
+            <div class="history-summary">
+              <span>{{ updateHistory.sourceLabel || '更新记录' }}</span>
+              <span>共 {{ updateHistory.total }} 条</span>
+              <span>更新时间 {{ formatDateTime(updateHistory.checkTime) }}</span>
+            </div>
+
+            <div class="history-list">
+              <div v-for="(item, index) in updateHistory.items" :key="`${item.sourceType}-${item.version || item.shortSha || index}`" class="history-item">
+                <div class="history-item-head">
+                  <div class="history-title-row">
+                    <n-tag v-if="item.latest" size="small" type="error">最新</n-tag>
+                    <n-tag v-else-if="item.installed" size="small" type="success">当前</n-tag>
+                    <n-tag v-if="item.prerelease" size="small" type="warning">预发布</n-tag>
+                    <n-tag v-if="item.draft" size="small">草稿</n-tag>
+                    <strong class="history-title">{{ formatHistoryTitle(item) }}</strong>
+                  </div>
+                  <div class="action-row">
+                    <n-button v-if="item.downloadUrl" size="tiny" type="primary" @click="openUrl(item.downloadUrl)">下载</n-button>
+                    <n-button size="tiny" tertiary type="primary" @click="openUrl(item.url || updateHistory?.repositoryUrl)">查看详情</n-button>
+                  </div>
+                </div>
+
+                <div class="history-meta">
+                  <span>{{ formatDateTime(item.publishedAt) }}</span>
+                  <span v-if="item.author">作者 {{ item.author }}</span>
+                  <span v-if="item.refName">分支 {{ item.refName }}</span>
+                </div>
+
+                <div v-if="formatHistorySubtitle(item)" class="history-subtitle">{{ formatHistorySubtitle(item) }}</div>
+                <div v-if="formatHistoryBody(item)" class="notes-text history-body">{{ formatHistoryBody(item) }}</div>
+              </div>
+            </div>
+
+            <n-alert v-if="updateHistory.error" type="info" style="margin-top:12px;">
+              {{ updateHistory.error }}
+            </n-alert>
+          </div>
+
+          <n-empty v-else description="暂无可读取的更新动态" style="padding: 16px 0;" />
+        </n-card>
+      </n-col>
+    </n-row>
   </div>
 </template>
 
@@ -157,12 +221,45 @@ interface UpdateCheckInfo {
   error: string
 }
 
+interface UpdateHistoryItem {
+  sourceType: UpdateSourceType
+  version: string
+  rawTag: string
+  name: string
+  publishedAt: string
+  url: string
+  notes: string
+  draft: boolean
+  prerelease: boolean
+  downloadUrl: string
+  refName: string
+  sha: string
+  shortSha: string
+  message: string
+  author: string
+  installed: boolean
+  latest: boolean
+}
+
+interface UpdateHistoryInfo {
+  sourceType: UpdateSourceType
+  sourceLabel: string
+  checkTime: string
+  repositoryUrl: string
+  total: number
+  items: UpdateHistoryItem[]
+  error: string
+}
+
 const message = useMessage()
 const version = ref<VersionInfo | null>(null)
 const updateCheck = ref<UpdateCheckInfo | null>(null)
 const checking = ref(false)
+const historyChecking = ref(false)
 const versionLoadState = ref<'loading' | 'ready' | 'error'>('loading')
 const updateCheckLoadState = ref<'loading' | 'ready' | 'error'>('loading')
+const updateHistory = ref<UpdateHistoryInfo | null>(null)
+const historyLoadState = ref<'loading' | 'ready' | 'error'>('loading')
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === 'object' && !Array.isArray(value)
@@ -225,6 +322,24 @@ async function checkUpdate() {
   }
 }
 
+async function loadUpdateHistory(refresh = false) {
+  historyChecking.value = refresh
+  historyLoadState.value = 'loading'
+  try {
+    const response = await request.get<unknown>('/api/admin/version/history', {
+      params: { refresh, limit: 6 }
+    })
+    updateHistory.value = normalizeUpdateHistoryInfo(getResponseData(response, '更新动态待确认'))
+    historyLoadState.value = 'ready'
+  } catch (err: unknown) {
+    updateHistory.value = null
+    historyLoadState.value = 'error'
+    message.error(getErrorMessage(err, '更新动态待确认'))
+  } finally {
+    historyChecking.value = false
+  }
+}
+
 function openUrl(url?: string) {
   if (url) {
     window.open(url, '_blank', 'noopener,noreferrer')
@@ -235,6 +350,34 @@ function formatDateTime(value?: string) {
   if (!value) return '-'
   const date = new Date(value)
   return Number.isNaN(date.getTime()) ? value : date.toLocaleString()
+}
+
+function formatHistoryTitle(item: UpdateHistoryItem) {
+  if (item.sourceType === 'release') {
+    return item.version || item.rawTag || item.name || '未命名发布'
+  }
+  return item.shortSha || item.sha || '提交待确认'
+}
+
+function formatHistorySubtitle(item: UpdateHistoryItem) {
+  if (item.sourceType === 'release') {
+    return item.name && item.name !== formatHistoryTitle(item) ? item.name : ''
+  }
+  return item.message.split('\n')[0]?.trim() || ''
+}
+
+function formatHistoryBody(item: UpdateHistoryItem) {
+  if (item.sourceType === 'release') {
+    return item.notes
+  }
+  const lines = item.message
+    .split('\n')
+    .map(line => line.trim())
+    .filter(Boolean)
+  if (lines.length <= 1) {
+    return ''
+  }
+  return lines.slice(1).join('\n')
 }
 
 function normalizeVersionInfo(payload: unknown): VersionInfo {
@@ -303,9 +446,62 @@ function normalizeUpdateCheckInfo(payload: unknown): UpdateCheckInfo {
   }
 }
 
+function normalizeUpdateHistoryInfo(payload: unknown): UpdateHistoryInfo {
+  if (!isPlainObject(payload)) {
+    throw new Error('更新动态待确认')
+  }
+  const sourceType = normalizeSourceType(payload.sourceType)
+  const sourceLabel = normalizeOptionalText(payload.sourceLabel)
+  const checkTime = normalizeOptionalText(payload.checkTime)
+  if (!sourceLabel || !checkTime) {
+    throw new Error('更新动态待确认')
+  }
+
+  const rawItems = Array.isArray(payload.items) ? payload.items : []
+  const items = rawItems
+    .map(item => normalizeUpdateHistoryItem(item))
+    .filter((item): item is UpdateHistoryItem => item !== null)
+
+  return {
+    sourceType,
+    sourceLabel,
+    checkTime,
+    repositoryUrl: normalizeOptionalText(payload.repositoryUrl),
+    total: typeof payload.total === 'number' && payload.total >= 0 ? payload.total : items.length,
+    items,
+    error: normalizeOptionalText(payload.error)
+  }
+}
+
+function normalizeUpdateHistoryItem(payload: unknown): UpdateHistoryItem | null {
+  if (!isPlainObject(payload)) {
+    return null
+  }
+  return {
+    sourceType: normalizeSourceType(payload.sourceType),
+    version: normalizeOptionalText(payload.version),
+    rawTag: normalizeOptionalText(payload.rawTag),
+    name: normalizeOptionalText(payload.name),
+    publishedAt: normalizeOptionalText(payload.publishedAt),
+    url: normalizeOptionalText(payload.url),
+    notes: normalizeOptionalText(payload.notes),
+    draft: payload.draft === true,
+    prerelease: payload.prerelease === true,
+    downloadUrl: normalizeOptionalText(payload.downloadUrl),
+    refName: normalizeOptionalText(payload.refName),
+    sha: normalizeOptionalText(payload.sha),
+    shortSha: normalizeOptionalText(payload.shortSha),
+    message: normalizeOptionalText(payload.message),
+    author: normalizeOptionalText(payload.author),
+    installed: payload.installed === true,
+    latest: payload.latest === true
+  }
+}
+
 onMounted(() => {
   void loadVersion()
   void checkUpdate()
+  void loadUpdateHistory()
 })
 </script>
 
@@ -314,13 +510,23 @@ onMounted(() => {
 .page-header { margin-bottom: 24px; }
 .page-header h2 { font-size: 24px; font-weight: 700; margin: 0 0 6px 0; color: var(--text-primary); }
 .subtitle { font-size: 13px; color: var(--text-muted); margin: 0; }
-.glass-card { background: rgba(15,23,42,0.4) !important; backdrop-filter: blur(16px); border: 1px solid rgba(255,255,255,0.08) !important; border-radius: 16px !important; }
-.check-placeholder { text-align: center; padding: 20px; color: #9ca3af; display: flex; flex-direction: column; align-items: center; gap: 16px; }
-.status-note { font-size: 12px; color: #fca5a5; }
+.glass-card { background: var(--card-color) !important; backdrop-filter: blur(16px); border: 1px solid var(--border-color) !important; border-radius: 16px !important; }
+.check-placeholder { text-align: center; padding: 20px; color: var(--text-muted); display: flex; flex-direction: column; align-items: center; gap: 16px; }
+.status-note { font-size: 12px; color: #ef4444; }
 .update-result { display: flex; flex-direction: column; gap: 8px; }
 .notes-text { font-size: 12px; line-height: 1.7; margin-bottom: 10px; white-space: pre-wrap; }
 .action-row { display: flex; flex-wrap: wrap; gap: 8px; }
 .link-text { color: #10b981; text-decoration: none; }
 .link-text:hover { text-decoration: underline; }
 .mono { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; }
+.history-wrap { display: flex; flex-direction: column; gap: 14px; }
+.history-summary { display: flex; flex-wrap: wrap; gap: 16px; font-size: 12px; color: var(--text-muted); }
+.history-list { display: flex; flex-direction: column; gap: 12px; }
+.history-item { border: 1px solid var(--border-color); border-radius: 14px; padding: 14px; background: color-mix(in srgb, var(--card-color) 88%, transparent); }
+.history-item-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; margin-bottom: 8px; }
+.history-title-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.history-title { font-size: 14px; color: var(--text-primary); }
+.history-meta { display: flex; flex-wrap: wrap; gap: 16px; font-size: 12px; color: var(--text-muted); margin-bottom: 8px; }
+.history-subtitle { font-size: 13px; font-weight: 600; color: var(--text-secondary); margin-bottom: 6px; }
+.history-body { margin-bottom: 0; color: var(--text-secondary); }
 </style>

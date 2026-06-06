@@ -20,7 +20,9 @@ import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 
 @RestController
@@ -62,6 +64,9 @@ public class VersionController {
 
     private volatile Map<String, Object> cachedCheckResult;
     private volatile long cachedCheckAt = 0L;
+    private volatile Map<String, Object> cachedHistoryResult;
+    private volatile long cachedHistoryAt = 0L;
+    private volatile int cachedHistoryLimit = 0;
 
     public VersionController(ObjectMapper objectMapper, BuildMetadataService buildMetadataService) {
         this.objectMapper = objectMapper;
@@ -95,7 +100,7 @@ public class VersionController {
     @GetMapping("/check")
     public ApiResult<Map<String, Object>> checkUpdate(@RequestParam(defaultValue = "false") boolean refresh) {
         long ttlMs = Math.max(cacheTtlMinutes, 1) * 60_000L;
-        if (!refresh && cachedCheckResult != null && System.currentTimeMillis() - cachedCheckAt < ttlMs) {
+        if (!refresh && cachedCheckResult != null && isCacheValid(cachedCheckAt, ttlMs)) {
             return ApiResult.ok(cachedCheckResult);
         }
 
@@ -119,9 +124,47 @@ public class VersionController {
         return cacheAndReturn(result);
     }
 
+    @GetMapping("/history")
+    public ApiResult<Map<String, Object>> history(@RequestParam(defaultValue = "false") boolean refresh,
+                                                  @RequestParam(defaultValue = "6") int limit) {
+        int safeLimit = Math.max(1, Math.min(limit, 20));
+        long ttlMs = Math.max(cacheTtlMinutes, 1) * 60_000L;
+        if (!refresh
+                && cachedHistoryResult != null
+                && cachedHistoryLimit == safeLimit
+                && isCacheValid(cachedHistoryAt, ttlMs)) {
+            return ApiResult.ok(cachedHistoryResult);
+        }
+
+        Map<String, Object> result = baseHistoryResult();
+        try {
+            if (preferRelease && tryFillHistoryFromRelease(result, safeLimit)) {
+                return cacheAndReturnHistory(result, safeLimit);
+            }
+            if (tryFillHistoryFromCommit(result, safeLimit)) {
+                return cacheAndReturnHistory(result, safeLimit);
+            }
+            result.put("items", new ArrayList<>());
+            result.put("total", 0);
+            result.put("error", "远程仓库暂无可读取的更新记录");
+        } catch (Exception e) {
+            result.put("items", new ArrayList<>());
+            result.put("total", 0);
+            result.put("error", "无法读取更新历史：" + safeMessage(e));
+        }
+        return cacheAndReturnHistory(result, safeLimit);
+    }
+
     private ApiResult<Map<String, Object>> cacheAndReturn(Map<String, Object> result) {
         cachedCheckResult = result;
         cachedCheckAt = System.currentTimeMillis();
+        return ApiResult.ok(result);
+    }
+
+    private ApiResult<Map<String, Object>> cacheAndReturnHistory(Map<String, Object> result, int limit) {
+        cachedHistoryResult = result;
+        cachedHistoryAt = System.currentTimeMillis();
+        cachedHistoryLimit = limit;
         return ApiResult.ok(result);
     }
 
@@ -139,6 +182,23 @@ public class VersionController {
         result.put("repositoryUrl", buildRepoUrl());
         result.put("defaultBranch", defaultBranch);
         result.put("latestRefName", defaultBranch);
+        return result;
+    }
+
+    private Map<String, Object> baseHistoryResult() {
+        Map<String, Object> result = new LinkedHashMap<>();
+        String currentCommitSha = displayCurrentCommitSha();
+        result.put("currentVersion", displayCurrentVersion());
+        result.put("currentBranch", displayCurrentBranch());
+        result.put("currentCommitSha", currentCommitSha);
+        result.put("currentCommitShortSha", abbreviateSha(currentCommitSha));
+        result.put("defaultBranch", effectiveGithubBranch());
+        result.put("repositoryUrl", buildRepoUrl());
+        result.put("checkTime", LocalDateTime.now().toString());
+        result.put("sourceType", "unknown");
+        result.put("sourceLabel", "未知来源");
+        result.put("items", new ArrayList<>());
+        result.put("total", 0);
         return result;
     }
 
@@ -246,6 +306,104 @@ public class VersionController {
         return true;
     }
 
+    private boolean tryFillHistoryFromRelease(Map<String, Object> result, int limit) throws Exception {
+        HttpResponse<String> response = sendGithubGet("/repos/" + encodedRepoPath() + "/releases?per_page=" + limit);
+        ensureSuccess(response, "Release history");
+
+        JsonNode releases = objectMapper.readTree(response.body());
+        if (!releases.isArray() || releases.isEmpty()) {
+            return false;
+        }
+
+        String currentVersion = comparisonCurrentVersion();
+        List<Map<String, Object>> items = new ArrayList<>();
+        for (JsonNode releaseNode : releases) {
+            String rawTag = releaseNode.path("tag_name").asText("");
+            String normalizedVersion = normalizeVersion(rawTag);
+            Map<String, Object> item = new LinkedHashMap<>();
+            item.put("sourceType", "release");
+            item.put("version", normalizedVersion);
+            item.put("rawTag", rawTag);
+            item.put("name", releaseNode.path("name").asText(""));
+            item.put("publishedAt", releaseNode.path("published_at").asText(""));
+            item.put("url", releaseNode.path("html_url").asText(buildRepoUrl()));
+            item.put("notes", truncate(releaseNode.path("body").asText(""), 1200));
+            item.put("draft", releaseNode.path("draft").asBoolean(false));
+            item.put("prerelease", releaseNode.path("prerelease").asBoolean(false));
+            item.put("latest", items.isEmpty());
+            item.put("installed", !currentVersion.isBlank()
+                    && !normalizedVersion.isBlank()
+                    && normalizeVersion(currentVersion).equalsIgnoreCase(normalizedVersion));
+
+            JsonNode assets = releaseNode.path("assets");
+            if (assets.isArray() && !assets.isEmpty()) {
+                JsonNode firstAsset = assets.get(0);
+                item.put("downloadUrl", firstAsset.path("browser_download_url").asText(""));
+            } else {
+                item.put("downloadUrl", "");
+            }
+            items.add(item);
+        }
+
+        if (items.isEmpty()) {
+            return false;
+        }
+
+        result.put("sourceType", "release");
+        result.put("sourceLabel", "GitHub Releases");
+        result.put("items", items);
+        result.put("total", items.size());
+        return true;
+    }
+
+    private boolean tryFillHistoryFromCommit(Map<String, Object> result, int limit) throws Exception {
+        String branchName = effectiveGithubBranch();
+        HttpResponse<String> response = sendGithubGet("/repos/" + encodedRepoPath()
+                + "/commits?sha=" + encodePathSegment(branchName)
+                + "&per_page=" + limit);
+        ensureSuccess(response, "Commit history");
+
+        JsonNode commits = objectMapper.readTree(response.body());
+        if (!commits.isArray() || commits.isEmpty()) {
+            return false;
+        }
+
+        String currentCommitSha = displayCurrentCommitSha();
+        List<Map<String, Object>> items = new ArrayList<>();
+        for (JsonNode commitNode : commits) {
+            String sha = commitNode.path("sha").asText("");
+            if (sha.isBlank()) {
+                continue;
+            }
+            JsonNode detailNode = commitNode.path("commit");
+            Map<String, Object> item = new LinkedHashMap<>();
+            item.put("sourceType", "commit");
+            item.put("refName", branchName);
+            item.put("sha", sha);
+            item.put("shortSha", abbreviateSha(sha));
+            item.put("message", truncate(detailNode.path("message").asText(""), 500));
+            item.put("publishedAt", detailNode.path("committer").path("date").asText(""));
+            item.put("author", firstNonBlank(
+                    detailNode.path("author").path("name").asText(""),
+                    commitNode.path("author").path("login").asText(""),
+                    ""));
+            item.put("url", commitNode.path("html_url").asText(buildRepoUrl()));
+            item.put("latest", items.isEmpty());
+            item.put("installed", !currentCommitSha.isBlank() && sha.equalsIgnoreCase(currentCommitSha));
+            items.add(item);
+        }
+
+        if (items.isEmpty()) {
+            return false;
+        }
+
+        result.put("sourceType", "commit");
+        result.put("sourceLabel", "GitHub 提交记录");
+        result.put("items", items);
+        result.put("total", items.size());
+        return true;
+    }
+
     private HttpResponse<String> sendGithubGet(String path) throws Exception {
         if (effectiveGithubOwner().isBlank() || effectiveGithubRepo().isBlank()) {
             throw new IllegalStateException("当前仓库远端待确认，无法检查 GitHub 更新");
@@ -266,6 +424,10 @@ public class VersionController {
             return;
         }
         throw new IllegalStateException(sourceName + " API 返回 " + response.statusCode());
+    }
+
+    private boolean isCacheValid(long cachedAt, long ttlMs) {
+        return cachedAt > 0 && System.currentTimeMillis() - cachedAt < ttlMs;
     }
 
     private boolean hasVersionUpdate(String current, String latest) {
