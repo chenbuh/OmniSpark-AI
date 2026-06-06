@@ -10,4 +10,6 @@ public class ProjectVO {
     private String description;
     private Integer status;
     private java.time.LocalDateTime createdAt;
+    private String accessPermission;
+    private Boolean ownedByCurrentUser;
 }

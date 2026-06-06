@@ -1,6 +1,8 @@
 import { defineStore } from 'pinia'
 import { projectApi } from '@/api/projects'
 
+export type ProjectAccessPermission = 'owner' | 'admin' | 'edit' | 'view'
+
 export interface Project {
   id: number
   userId: number
@@ -8,6 +10,8 @@ export interface Project {
   description?: string
   status: number | null
   createdAt: string
+  accessPermission: ProjectAccessPermission
+  ownedByCurrentUser: boolean
 }
 
 export const useProjectStore = defineStore('project', {
@@ -26,7 +30,12 @@ export const useProjectStore = defineStore('project', {
       const name = normalizeRequiredText(project?.name, '项目数据待确认')
       const status = parseOptionalNumber(project.status)
       const createdAt = normalizeRequiredDateTime(project.createdAt, '项目数据待确认')
+      const ownedByCurrentUser = parseBoolean(project.ownedByCurrentUser)
+      const accessPermission = normalizeProjectAccessPermission(project.accessPermission)
       if (status != null && status < 0) {
+        throw new Error('项目数据待确认')
+      }
+      if ((ownedByCurrentUser && accessPermission !== 'owner') || (!ownedByCurrentUser && accessPermission === 'owner')) {
         throw new Error('项目数据待确认')
       }
       return {
@@ -35,7 +44,9 @@ export const useProjectStore = defineStore('project', {
         name,
         description: normalizeOptionalText(project?.description),
         status,
-        createdAt
+        createdAt,
+        accessPermission,
+        ownedByCurrentUser
       }
     },
     setProjects(projects: unknown) {
@@ -190,4 +201,21 @@ function normalizeRequiredDateTime(value: unknown, errorMessage: string): string
     throw new Error(errorMessage)
   }
   return normalized
+}
+
+function normalizeProjectAccessPermission(value: unknown): ProjectAccessPermission {
+  if (value === 'owner' || value === 'admin' || value === 'edit' || value === 'view') {
+    return value
+  }
+  throw new Error('项目数据待确认')
+}
+
+function parseBoolean(value: unknown): boolean {
+  if (value === true || value === 'true' || value === 1 || value === '1') {
+    return true
+  }
+  if (value === false || value === 'false' || value === 0 || value === '0') {
+    return false
+  }
+  throw new Error('项目数据待确认')
 }

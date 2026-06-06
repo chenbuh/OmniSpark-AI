@@ -57,7 +57,7 @@
             </template>
             新建项目
           </n-button>
-          <n-button type="primary" size="medium" secondary class="share-proj-btn" @click="showShareModal = true" :disabled="!projectStore.activeProjectId">
+          <n-button type="primary" size="medium" secondary class="share-proj-btn" @click="handleOpenShareModal" :disabled="!canManageProjectShares">
             <template #icon>
               <Share2 />
             </template>
@@ -162,46 +162,52 @@
         <div class="share-info-line">
           <span>当前项目:</span>
           <n-tag type="info" size="small">{{ currentProjectName }}</n-tag>
+          <n-tag size="small" :type="canManageProjectShares ? 'success' : 'warning'">{{ currentProjectPermissionLabel }}</n-tag>
         </div>
-        <div v-if="sharesLoadState === 'error'" class="share-status-note">共享列表待确认，请稍后重试。</div>
-        <div v-if="teamsLoadState === 'error'" class="share-status-note">团队选项待确认，请稍后重试。</div>
+        <div v-if="!canManageProjectShares" class="share-status-note">
+          当前项目对你是{{ currentProjectPermissionLabel }}权限。只有项目所有者或具备共享管理权限的成员才能调整团队共享。
+        </div>
+        <template v-else>
+          <div v-if="sharesLoadState === 'error'" class="share-status-note">共享列表待确认，请稍后重试。</div>
+          <div v-if="teamsLoadState === 'error'" class="share-status-note">团队选项待确认，请稍后重试。</div>
 
-        <!-- 已有共享列表 -->
-        <div class="share-list" v-if="shares && shares.length > 0">
-          <div class="share-item" v-for="s in shares" :key="s.id">
-            <span class="share-team-name">{{ s.teamName }}</span>
-            <n-select
-              :value="s.permission"
-              :options="permissionOptions"
-              size="small"
-              style="width: 110px;"
-              @update:value="(val: string) => handleUpdateShare(s.id, val)"
-            />
-            <n-button size="tiny" type="error" tertiary @click="handleRemoveShare(s.id)">
-              取消共享
-            </n-button>
+          <!-- 已有共享列表 -->
+          <div class="share-list" v-if="shares && shares.length > 0">
+            <div class="share-item" v-for="s in shares" :key="s.id">
+              <span class="share-team-name">{{ s.teamName }}</span>
+              <n-select
+                :value="s.permission"
+                :options="permissionOptions"
+                size="small"
+                style="width: 110px;"
+                @update:value="(val: string) => handleUpdateShare(s.id, val)"
+              />
+              <n-button size="tiny" type="error" tertiary @click="handleRemoveShare(s.id)">
+                取消共享
+              </n-button>
+            </div>
           </div>
-        </div>
-        <n-empty v-else-if="shares !== null" description="暂无共享" style="padding: 16px 0;" />
-        <n-empty v-else description="共享列表待确认，请稍后重试。" style="padding: 16px 0;" />
+          <n-empty v-else-if="shares !== null" description="暂无共享" style="padding: 16px 0;" />
+          <n-empty v-else description="共享列表待确认，请稍后重试。" style="padding: 16px 0;" />
 
-        <!-- 添加共享 -->
-        <n-divider />
-        <div class="add-share-row">
-          <n-select
-            v-model:value="newShareTeamId"
-            :options="teamOptions"
-            :placeholder="shareTeamPlaceholder"
-            :disabled="teamsLoadState === 'error' || teamOptions.length === 0"
-            style="flex: 1;"
-          />
-          <n-select
-            v-model:value="newSharePermission"
-            :options="permissionOptions"
-            style="width: 110px;"
-          />
-          <n-button type="primary" size="small" @click="handleAddShare">添加</n-button>
-        </div>
+          <!-- 添加共享 -->
+          <n-divider />
+          <div class="add-share-row">
+            <n-select
+              v-model:value="newShareTeamId"
+              :options="teamOptions"
+              :placeholder="shareTeamPlaceholder"
+              :disabled="teamsLoadState === 'error' || teamOptions.length === 0"
+              style="flex: 1;"
+            />
+            <n-select
+              v-model:value="newSharePermission"
+              :options="permissionOptions"
+              style="width: 110px;"
+            />
+            <n-button type="primary" size="small" @click="handleAddShare">添加</n-button>
+          </div>
+        </template>
       </div>
     </n-modal>
 
@@ -296,10 +302,15 @@ const permissionOptions = [
 ]
 const ALLOWED_SHARE_PERMISSIONS = new Set(permissionOptions.map(item => item.value))
 
-const currentProjectName = computed(() => {
-  const p = projectStore.projects.find(p => p.id === projectStore.activeProjectId)
-  return p?.name || ''
-})
+const currentProject = computed(() =>
+  projectStore.projects.find(project => project.id === projectStore.activeProjectId) || null
+)
+const currentProjectName = computed(() => currentProject.value?.name || '')
+const currentProjectPermissionLabel = computed(() => formatProjectPermissionLabel(currentProject.value?.accessPermission))
+const canManageProjectShares = computed(() =>
+  !!currentProject.value && (currentProject.value.accessPermission === 'owner' || currentProject.value.accessPermission === 'admin')
+)
+const canDeleteProject = computed(() => currentProject.value?.ownedByCurrentUser === true)
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === 'object' && !Array.isArray(value)
@@ -321,6 +332,20 @@ function getErrorMessage(error: unknown, fallback: string) {
 
 function normalizeOptionalText(value: unknown) {
   return typeof value === 'string' ? value.trim() : ''
+}
+
+function formatProjectPermissionLabel(permission?: string) {
+  if (permission === 'owner') return '所有者'
+  if (permission === 'admin') return '管理'
+  if (permission === 'edit') return '编辑'
+  return '查看'
+}
+
+function formatProjectOptionLabel(project: { name: string; ownedByCurrentUser: boolean; accessPermission: string }) {
+  if (project.ownedByCurrentUser) {
+    return project.name
+  }
+  return `${project.name}（共享·${formatProjectPermissionLabel(project.accessPermission)}）`
 }
 
 function requireProjectShare(value: unknown) {
@@ -691,7 +716,7 @@ const activeKey = computed(() => {
 // 项目下拉列表
 const projectOptions = computed(() => {
   return projectStore.projects.map(p => ({
-    label: p.name,
+    label: formatProjectOptionLabel(p),
     value: p.id
   }))
 })
@@ -716,6 +741,15 @@ const projectSelectorStatusText = computed(() => {
   }
   if (projectStore.loadState === 'ready' && projectOptions.value.length === 0) {
     return '暂无项目空间'
+  }
+  if (currentProject.value && !currentProject.value.ownedByCurrentUser) {
+    if (currentProject.value.accessPermission === 'admin') {
+      return '当前为共享项目（管理权限）'
+    }
+    if (currentProject.value.accessPermission === 'edit') {
+      return '当前为共享项目（编辑权限）'
+    }
+    return '当前为共享项目（查看权限）'
   }
   return ''
 })
@@ -792,6 +826,18 @@ const handleProjectChange = (val: number) => {
   message.info(`已切换至空间: ${proj?.name}`)
 }
 
+const handleOpenShareModal = () => {
+  if (!projectStore.activeProjectId || !currentProject.value) {
+    message.error('请先选择一个项目')
+    return
+  }
+  if (!canManageProjectShares.value) {
+    message.error(`当前项目仅有${currentProjectPermissionLabel.value}权限，暂不能调整共享设置`)
+    return
+  }
+  showShareModal.value = true
+}
+
 // 新建项目
 const handleAddProject = async () => {
   if (!addProjectForm.name) {
@@ -849,6 +895,11 @@ const loadShares = async () => {
     sharesLoadState.value = 'ready'
     return
   }
+  if (!canManageProjectShares.value) {
+    shares.value = []
+    sharesLoadState.value = 'ready'
+    return
+  }
   sharesLoadState.value = 'loading'
   try {
     const activeProjectId = projectStore.activeProjectId
@@ -862,6 +913,10 @@ const loadShares = async () => {
 }
 
 const handleAddShare = async () => {
+  if (!canManageProjectShares.value) {
+    message.error('只有项目所有者或共享管理权限成员才能添加共享')
+    return
+  }
   if (teamsLoadState.value === 'error') {
     message.error('团队选项待确认，请稍后重试')
     return
@@ -904,6 +959,10 @@ const handleAddShare = async () => {
 }
 
 const handleUpdateShare = async (shareId: number, permission: string) => {
+  if (!canManageProjectShares.value) {
+    message.error('只有项目所有者或共享管理权限成员才能修改共享')
+    return
+  }
   try {
     const currentShare = shares.value?.find(share => Number(share.id) === shareId)
     const expectedProjectId = Number(currentShare?.projectId || projectStore.activeProjectId)
@@ -931,6 +990,10 @@ const handleUpdateShare = async (shareId: number, permission: string) => {
 }
 
 const handleRemoveShare = async (shareId: number) => {
+  if (!canManageProjectShares.value) {
+    message.error('只有项目所有者或共享管理权限成员才能取消共享')
+    return
+  }
   try {
     const previousShare = shares.value?.find(share => Number(share.id) === shareId)
     const previousShareCount = shares.value?.length
@@ -959,11 +1022,16 @@ const handleRemoveShare = async (shareId: number) => {
 }
 
 // ===== 项目操作菜单 =====
-const projectActionOptions = [
-  { label: '📤 导出项目数据', key: 'export' },
-  { label: '📥 导入项目数据', key: 'import' },
-  { label: '🗑 删除项目空间', key: 'delete' }
-]
+const projectActionOptions = computed(() => {
+  const options = [
+    { label: '📤 导出项目数据', key: 'export' },
+    { label: '📥 导入项目数据', key: 'import' }
+  ]
+  if (canDeleteProject.value) {
+    options.push({ label: '🗑 删除项目空间', key: 'delete' })
+  }
+  return options
+})
 
 const handleProjectAction = async (key: string) => {
   if (key === 'export') {
@@ -971,6 +1039,10 @@ const handleProjectAction = async (key: string) => {
   } else if (key === 'delete') {
     if (!projectStore.activeProjectId) {
       message.error('请先选择一个项目')
+      return
+    }
+    if (!canDeleteProject.value) {
+      message.error('只有项目所有者才能删除项目')
       return
     }
     showDeleteProjectModal.value = true
@@ -1020,6 +1092,10 @@ const handleProjectAction = async (key: string) => {
 const handleDeleteProject = async () => {
   if (!projectStore.activeProjectId) {
     message.error('请先选择一个项目')
+    return false
+  }
+  if (!canDeleteProject.value) {
+    message.error('只有项目所有者才能删除项目')
     return false
   }
   try {

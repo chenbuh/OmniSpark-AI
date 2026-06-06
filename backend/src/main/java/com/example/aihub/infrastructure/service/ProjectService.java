@@ -44,13 +44,13 @@ public class ProjectService {
     // ===== 原有 listMine / create / update / delete 保持不变 =====
 
     public List<ProjectVO> listMine(int limit) {
-        // ... (existing code)
         Long userId = SecurityUtil.loginUserId();
         int safeLimit = PagingUtil.clampLimit(limit, 100, 100);
         List<Project> myProjects = projectMapper.selectList(new LambdaQueryWrapper<Project>()
                 .eq(Project::getUserId, userId)
                 .orderByDesc(Project::getId)
                 .last("LIMIT " + safeLimit));
+        Map<Long, String> sharedPermissionByProjectId = new HashMap<>();
         List<TeamMember> memberships = teamMemberMapper.selectList(
                 new LambdaQueryWrapper<TeamMember>()
                         .eq(TeamMember::getUserId, userId)
@@ -65,6 +65,13 @@ public class ProjectService {
                             .orderByDesc(ProjectShare::getId)
                             .last("LIMIT " + safeLimit));
             if (!shares.isEmpty()) {
+                for (ProjectShare share : shares) {
+                    sharedPermissionByProjectId.merge(
+                            share.getProjectId(),
+                            normalizeSharedPermission(share.getPermission()),
+                            this::higherPermission
+                    );
+                }
                 Set<Long> sharedProjectIds = shares.stream().map(ProjectShare::getProjectId).collect(Collectors.toSet());
                 Set<Long> myProjectIds = myProjects.stream().map(Project::getId).collect(Collectors.toSet());
                 sharedProjectIds.removeAll(myProjectIds);
@@ -78,7 +85,9 @@ public class ProjectService {
                 }
             }
         }
-        return myProjects.stream().map(item -> VoMapper.copy(item, ProjectVO.class)).toList();
+        return myProjects.stream()
+                .map(item -> toProjectVO(item, userId, sharedPermissionByProjectId.get(item.getId())))
+                .toList();
     }
 
     @Transactional(rollbackFor = Exception.class)
@@ -89,7 +98,7 @@ public class ProjectService {
         project.setDescription(dto.getDescription());
         project.setStatus(1);
         projectMapper.insert(project);
-        return VoMapper.copy(project, ProjectVO.class);
+        return toProjectVO(project, SecurityUtil.loginUserId(), null);
     }
 
     @Transactional(rollbackFor = Exception.class)
@@ -107,7 +116,7 @@ public class ProjectService {
         project.setName(dto.getName());
         project.setDescription(dto.getDescription());
         projectMapper.updateById(project);
-        return VoMapper.copy(project, ProjectVO.class);
+        return toProjectVO(project, userId, null);
     }
 
     @Transactional(rollbackFor = Exception.class)
@@ -136,6 +145,51 @@ public class ProjectService {
                         .eq(TeamMember::getUserId, userId)
                         .eq(TeamMember::getStatus, 1))
                 .stream().map(TeamMember::getTeamId).toList();
+    }
+
+    private ProjectVO toProjectVO(Project project, Long currentUserId, String sharedPermission) {
+        ProjectVO vo = VoMapper.copy(project, ProjectVO.class);
+        boolean ownedByCurrentUser = project.getUserId() != null && project.getUserId().equals(currentUserId);
+        vo.setOwnedByCurrentUser(ownedByCurrentUser);
+        vo.setAccessPermission(ownedByCurrentUser ? "owner" : resolveSharedPermission(project.getId(), currentUserId, sharedPermission));
+        return vo;
+    }
+
+    private String resolveSharedPermission(Long projectId, Long userId, String preferredPermission) {
+        String normalizedPreferredPermission = normalizeOptionalText(preferredPermission).toLowerCase(Locale.ROOT);
+        if (!normalizedPreferredPermission.isBlank()) {
+            return normalizeSharedPermission(normalizedPreferredPermission);
+        }
+        List<Long> teamIds = getMyTeamIds(userId);
+        if (teamIds.isEmpty()) {
+            return "view";
+        }
+        return shareMapper.selectList(new LambdaQueryWrapper<ProjectShare>()
+                        .eq(ProjectShare::getProjectId, projectId)
+                        .in(ProjectShare::getTeamId, teamIds))
+                .stream()
+                .map(ProjectShare::getPermission)
+                .reduce("view", this::higherPermission);
+    }
+
+    private String normalizeSharedPermission(String permission) {
+        String normalized = normalizeOptionalText(permission).toLowerCase(Locale.ROOT);
+        if (normalized.equals("admin") || normalized.equals("edit")) {
+            return normalized;
+        }
+        return "view";
+    }
+
+    private String higherPermission(String left, String right) {
+        return permissionLevel(left) >= permissionLevel(right) ? normalizeSharedPermission(left) : normalizeSharedPermission(right);
+    }
+
+    private int permissionLevel(String permission) {
+        return switch (normalizeSharedPermission(permission)) {
+            case "admin" -> 3;
+            case "edit" -> 2;
+            default -> 1;
+        };
     }
 
     // ===== 导出/导入 =====
