@@ -2,6 +2,7 @@ package com.example.aihub.module.team;
 
 import cn.dev33.satoken.annotation.SaCheckLogin;
 import com.example.aihub.common.result.ApiResult;
+import com.example.aihub.common.result.PageResult;
 import com.example.aihub.common.util.PagingUtil;
 import com.example.aihub.infrastructure.dto.TeamMemberInviteDTO;
 import com.example.aihub.infrastructure.dto.TeamSaveDTO;
@@ -24,6 +25,12 @@ public class TeamController {
     @GetMapping
     public ApiResult<List<TeamVO>> list(@RequestParam(defaultValue = "100") int limit) {
         return ApiResult.ok(teamService.listMyTeams(PagingUtil.clampLimit(limit, 100, 100)));
+    }
+
+    @GetMapping("/page")
+    public ApiResult<PageResult<TeamVO>> page(@RequestParam(defaultValue = "1") long page,
+                                              @RequestParam(defaultValue = "20") long pageSize) {
+        return ApiResult.ok(teamService.pageMyTeams(page, pageSize));
     }
 
     @GetMapping("/{id}")
@@ -53,6 +60,18 @@ public class TeamController {
     public ApiResult<List<TeamMemberVO>> listMembers(@PathVariable Long id,
                                                      @RequestParam(defaultValue = "100") int limit) {
         return ApiResult.ok(teamService.listMembers(id, PagingUtil.clampLimit(limit, 100, 100)));
+    }
+
+    @GetMapping("/{id}/members/page")
+    public ApiResult<PageResult<TeamMemberVO>> pageMembers(@PathVariable Long id,
+                                                           @RequestParam(defaultValue = "1") long page,
+                                                           @RequestParam(defaultValue = "20") long pageSize) {
+        return ApiResult.ok(teamService.pageMembers(id, page, pageSize));
+    }
+
+    @GetMapping("/{teamId}/members/{userId}")
+    public ApiResult<TeamMemberVO> getMember(@PathVariable Long teamId, @PathVariable Long userId) {
+        return ApiResult.ok(teamService.getMember(teamId, userId));
     }
 
     @PostMapping("/members/invite")

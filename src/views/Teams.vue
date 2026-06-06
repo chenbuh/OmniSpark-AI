@@ -21,9 +21,9 @@
           <div v-if="teamsLoading && !teamsReady" class="loading-box">
             <n-spin size="small" />
           </div>
-          <div class="team-list" v-else-if="teamsReady && teamStore.teams.length > 0">
+          <div class="team-list" v-else-if="teamsReady && (teams?.length || 0) > 0">
             <div
-              v-for="team in pagedTeams"
+              v-for="team in teams || []"
               :key="team.id"
               class="team-card"
               :class="{ 'active-team': selectedTeam?.id === team.id }"
@@ -45,8 +45,8 @@
           </div>
           <n-empty v-else-if="teamsReady" description="暂无团队，点击右上角创建" />
           <n-empty v-else description="团队数据待确认，请稍后重试。" />
-          <div class="pager" v-if="teamsReady && teamStore.teams.length > pageSize">
-            <n-pagination v-model:page="page" :page-size="pageSize" :item-count="teamStore.teams.length" simple />
+          <div class="pager" v-if="teamsReady && (teamsTotal ?? 0) > pageSize">
+            <n-pagination v-model:page="page" :page-size="pageSize" :item-count="teamsTotal" @update:page="loadTeams" simple />
           </div>
         </n-card>
       </n-col>
@@ -93,6 +93,9 @@
             </div>
             <n-empty v-if="membersReady && filteredMembers.length===0" description="无匹配成员" style="padding:20px 0;" />
             <n-empty v-else-if="!membersReady" description="成员数据待确认，请稍后重试。" style="padding:20px 0;" />
+          </div>
+          <div class="pager" v-if="membersReady && (membersTotal ?? 0) > memberPageSize">
+            <n-pagination v-model:page="memberPage" :page-size="memberPageSize" :item-count="membersTotal" @update:page="() => selectedTeam && loadMembers(selectedTeam.id)" simple />
           </div>
         </n-card>
         <n-card class="glass-card" :bordered="false" v-else>
@@ -176,20 +179,22 @@ const teamsLoading = ref(true)
 const teamsReady = ref(false)
 const membersLoading = ref(false)
 const membersReady = ref(false)
+const teams = ref<Team[] | null>(null)
+const members = ref<TeamMember[] | null>(null)
+const teamsTotal = ref<number | null>(null)
+const membersTotal = ref<number | null>(null)
+const currentMembership = ref<TeamMember | null>(null)
 
 const createForm = ref({ name: '', description: '' })
 const editForm = ref({ id: 0, name: '', description: '' })
 const inviteForm = ref({ username: '', role: 'member' })
-const teamsCountDisplay = computed(() => teamsReady.value ? teamStore.teams.length : '-')
-const membersCountDisplay = computed(() => membersReady.value ? teamStore.currentMembers.length : '-')
+const teamsCountDisplay = computed(() => teamsTotal.value == null ? '-' : teamsTotal.value)
+const membersCountDisplay = computed(() => membersTotal.value == null ? '-' : membersTotal.value)
 
-// 前端分页(teamStore 全量不动)
 const page = ref(1)
 const pageSize = 10
-const pagedTeams = computed(() => {
-  const start = (page.value - 1) * pageSize
-  return teamStore.teams.slice(start, start + pageSize)
-})
+const memberPage = ref(1)
+const memberPageSize = 10
 
 const teamActions = [
   { label: '编辑团队', key: 'edit', icon: () => Edit3 },
@@ -197,9 +202,10 @@ const teamActions = [
 ]
 
 const filteredMembers = computed(() => {
-  if (!memberSearch.value) return teamStore.currentMembers
+  const source = members.value || []
+  if (!memberSearch.value) return source
   const q = memberSearch.value.toLowerCase()
-  return teamStore.currentMembers.filter(m =>
+  return source.filter(m =>
     memberDisplayName(m).toLowerCase().includes(q) || m.username?.toLowerCase().includes(q)
   )
 })
@@ -208,10 +214,10 @@ const currentUserId = computed(() => {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : null
 })
 const selectedTeamMembership = computed(() => {
-  if (!selectedTeam.value || currentUserId.value == null) {
+  if (!selectedTeam.value || currentUserId.value == null || !currentMembership.value) {
     return null
   }
-  return teamStore.currentMembers.find(member => member.userId === currentUserId.value) || null
+  return currentMembership.value.teamId === selectedTeam.value.id ? currentMembership.value : null
 })
 const selectedTeamRole = computed(() => {
   if (selectedTeamMembership.value?.role) {
@@ -299,14 +305,58 @@ function requireMemberRecord(value: unknown, errorMessage: string) {
   return member
 }
 
+function requireTeamPage(value: unknown) {
+  if (!isPlainObject(value) || !Array.isArray(value.records)) {
+    throw new Error('团队数据待确认')
+  }
+  const total = Number(value.total)
+  if (!Number.isFinite(total) || total < 0) {
+    throw new Error('团队数据待确认')
+  }
+  const records = value.records.map((item: unknown) => requireTeamRecord(item, '团队数据待确认'))
+  const ids = new Set<number>()
+  records.forEach((item) => {
+    if (ids.has(item.id)) {
+      throw new Error('团队数据待确认')
+    }
+    ids.add(item.id)
+  })
+  if (records.length > total) {
+    throw new Error('团队数据待确认')
+  }
+  return { records, total }
+}
+
+function requireMemberPage(value: unknown) {
+  if (!isPlainObject(value) || !Array.isArray(value.records)) {
+    throw new Error('成员数据待确认')
+  }
+  const total = Number(value.total)
+  if (!Number.isFinite(total) || total < 0) {
+    throw new Error('成员数据待确认')
+  }
+  const records = value.records.map((item: unknown) => requireMemberRecord(item, '成员数据待确认'))
+  const ids = new Set<number>()
+  records.forEach((item) => {
+    if (ids.has(item.id)) {
+      throw new Error('成员数据待确认')
+    }
+    ids.add(item.id)
+  })
+  if (records.length > total) {
+    throw new Error('成员数据待确认')
+  }
+  return { records, total }
+}
+
 function assertMembersMatchTeam(teamId: number, expectedMemberCount?: number) {
-  for (const member of teamStore.currentMembers) {
+  for (const member of members.value || []) {
     const normalizedMember = requireMemberRecord(member, '成员数据待确认')
     if (normalizedMember.teamId !== teamId) {
       throw new Error('成员数据待确认')
     }
   }
-  if (typeof expectedMemberCount === 'number' && teamStore.currentMembers.length !== expectedMemberCount) {
+  if (typeof expectedMemberCount === 'number' && membersTotal.value !== expectedMemberCount) {
     throw new Error('成员数据待确认')
   }
 }
@@ -314,9 +364,14 @@ function assertMembersMatchTeam(teamId: number, expectedMemberCount?: number) {
 async function loadTeams() {
   teamsLoading.value = true
   try {
-    await teamStore.refresh()
+    const response = await teamApi.getTeamsPage({ page: page.value, pageSize })
+    const data = requireTeamPage(getResponseData(response, '团队数据待确认'))
+    teams.value = data.records
+    teamsTotal.value = data.total
     teamsReady.value = true
   } catch (err: unknown) {
+    teams.value = null
+    teamsTotal.value = null
     teamsReady.value = false
     message.error(err instanceof Error && err.message ? err.message : '加载团队失败')
   } finally {
@@ -324,22 +379,39 @@ async function loadTeams() {
   }
 }
 
-function syncSelectedTeamFromStore() {
+async function refreshSelectedTeam() {
   if (!selectedTeam.value) {
     return
   }
-  const refreshed = teamStore.teams.find(team => team.id === selectedTeam.value?.id) || null
-  selectedTeam.value = refreshed
+  const response = await teamApi.getTeam(selectedTeam.value.id)
+  selectedTeam.value = requireTeamRecord(getResponseData(response, '团队数据待确认'), '团队数据待确认')
 }
 
 async function loadMembers(teamId: number) {
   membersLoading.value = true
   membersReady.value = false
   try {
-    await teamStore.refreshMembers(teamId)
+    const [membersResponse, currentMemberResponse] = await Promise.all([
+      teamApi.getMembersPage(teamId, { page: memberPage.value, pageSize: memberPageSize }),
+      currentUserId.value == null
+        ? Promise.resolve(null)
+        : teamApi.getMember(teamId, currentUserId.value).catch(() => null)
+    ])
+    const data = requireMemberPage(getResponseData(membersResponse, '成员数据待确认'))
+    members.value = data.records
+    membersTotal.value = data.total
+    currentMembership.value = currentMemberResponse == null
+      ? null
+      : requireMemberRecord(getResponseData(currentMemberResponse, '成员数据待确认'), '成员数据待确认')
+    if (!currentMembership.value && !isTeamOwner(selectedTeam.value)) {
+      throw new Error('成员数据待确认')
+    }
     assertMembersMatchTeam(teamId)
     membersReady.value = true
   } catch (err: unknown) {
+    members.value = null
+    membersTotal.value = null
+    currentMembership.value = null
     membersReady.value = false
     message.error(err instanceof Error && err.message ? err.message : '加载团队成员失败')
   } finally {
@@ -351,7 +423,15 @@ onMounted(async () => { await loadTeams() })
 
 const handleSelectTeam = async (team: Team) => {
   selectedTeam.value = team
+  memberPage.value = 1
   await loadMembers(team.id)
+}
+
+async function ensureMemberAbsent(teamId: number, userId: number, errorMessage: string) {
+  const stillExists = await teamApi.getMember(teamId, userId).then(() => true).catch(() => false)
+  if (stillExists) {
+    throw new Error(errorMessage)
+  }
 }
 
 const handleCreateTeam = async () => {
@@ -360,7 +440,9 @@ const handleCreateTeam = async () => {
   try {
     const expectedName = createForm.value.name.trim()
     const expectedDescription = (createForm.value.description || '').trim()
-    const createdTeam = await teamStore.createTeam(createForm.value.name, createForm.value.description)
+    const previousTotal = teamsTotal.value
+    const createResponse = await teamApi.createTeam({ name: createForm.value.name, description: createForm.value.description })
+    const createdTeam = requireTeamRecord(getResponseData(createResponse, '团队创建结果待确认'), '团队创建结果待确认')
     const teamDetail = requireTeamRecord(
       getResponseData(await teamApi.getTeam(createdTeam.id), '团队创建结果待确认'),
       '团队创建结果待确认'
@@ -376,6 +458,19 @@ const handleCreateTeam = async () => {
     ) {
       throw new Error('团队创建结果待确认')
     }
+    page.value = 1
+    await loadTeams()
+    if (typeof previousTotal === 'number' && teamsTotal.value !== previousTotal + 1) {
+      throw new Error('团队创建结果待确认')
+    }
+    const createdInPage = teams.value?.find(team => team.id === createdTeam.id)
+    if (!createdInPage || normalizeOptionalText(createdInPage.name) !== expectedName) {
+      throw new Error('团队创建结果待确认')
+    }
+    selectedTeam.value = teamDetail
+    memberPage.value = 1
+    await loadMembers(teamDetail.id)
+    void teamStore.refresh().catch(() => {})
     teamsReady.value = true
     createForm.value = { name: '', description: '' }
     showCreateModal.value = false
@@ -399,12 +494,24 @@ const handleTeamAction = (key: string, team: Team) => {
       onPositiveClick: async () => {
         try {
           const deletingTeamId = team.id
-          await teamStore.deleteTeam(team.id)
+          const previousTotal = teamsTotal.value
+          await teamApi.deleteTeam(team.id)
+          if ((teams.value?.length || 0) === 1 && page.value > 1) {
+            page.value--
+          }
+          await loadTeams()
           if (selectedTeam.value?.id === deletingTeamId) selectedTeam.value = null
           membersReady.value = false
-          if (teamStore.teams.some(item => item.id === deletingTeamId)) {
+          members.value = []
+          membersTotal.value = 0
+          currentMembership.value = null
+          if (teams.value?.some(item => item.id === deletingTeamId)) {
             throw new Error('团队解散结果待确认')
           }
+          if (typeof previousTotal === 'number' && teamsTotal.value !== Math.max(0, previousTotal - 1)) {
+            throw new Error('团队解散结果待确认')
+          }
+          void teamStore.refresh().catch(() => {})
           message.success('团队已解散')
         } catch (err: unknown) {
           message.error(err instanceof Error && err.message ? err.message : '解散失败')
@@ -420,25 +527,21 @@ const handleEditTeam = async () => {
     const expectedDescription = normalizeOptionalText(editForm.value.description)
     await teamApi.updateTeam(editForm.value.id, { name: editForm.value.name, description: editForm.value.description })
     await loadTeams()
-    const refreshedTeam = requireTeamRecord(teamStore.teams.find(t => t.id === editForm.value.id), '团队更新结果待确认')
-    const teamDetail = requireTeamRecord(
+    const refreshedTeam = requireTeamRecord(
       getResponseData(await teamApi.getTeam(editForm.value.id), '团队更新结果待确认'),
       '团队更新结果待确认'
     )
     if (
       normalizeOptionalText(refreshedTeam.name) !== expectedName
       || normalizeOptionalText(refreshedTeam.description) !== expectedDescription
-      || teamDetail.id !== refreshedTeam.id
-      || normalizeOptionalText(teamDetail.name) !== expectedName
-      || normalizeOptionalText(teamDetail.description) !== expectedDescription
-      || teamDetail.ownerId !== refreshedTeam.ownerId
-      || teamDetail.memberCount !== refreshedTeam.memberCount
+      || !hasValidTeamId(refreshedTeam)
     ) {
       throw new Error('团队更新结果待确认')
     }
     if (selectedTeam.value?.id === editForm.value.id) {
       selectedTeam.value = refreshedTeam
     }
+    void teamStore.refresh().catch(() => {})
     showEditModal.value = false
     message.success('已更新')
   } catch (err: unknown) {
@@ -457,7 +560,7 @@ const handleInviteMember = async () => {
     const invitedUsername = inviteForm.value.username.trim()
     const invitedRole = inviteForm.value.role
     const selectedTeamId = selectedTeam.value.id
-    const previousMemberCount = teamStore.teams.find(team => team.id === selectedTeamId)?.memberCount
+    const previousMemberCount = membersTotal.value
     const invitedRes = await teamApi.inviteMember({ teamId: selectedTeam.value.id, username: invitedUsername, role: inviteForm.value.role })
     const invitedMember = requireMemberRecord(getResponseData(invitedRes, '邀请结果待确认'), '邀请结果待确认')
     if (
@@ -467,14 +570,13 @@ const handleInviteMember = async () => {
     ) {
       throw new Error('邀请结果待确认')
     }
-    await Promise.all([loadMembers(selectedTeamId), loadTeams()])
-    const matchedMember = teamStore.currentMembers.find(member => member.userId === invitedMember.userId)
-      || teamStore.currentMembers.find(member => normalizeOptionalText(member.username) === invitedUsername)
-    if (!matchedMember) {
-      throw new Error('邀请结果待确认')
-    }
-    const confirmedMember = requireMemberRecord(matchedMember, '邀请结果待确认')
-    const refreshedTeam = requireTeamRecord(teamStore.teams.find(team => team.id === selectedTeamId), '邀请结果待确认')
+    memberPage.value = 1
+    await Promise.all([loadMembers(selectedTeamId), refreshSelectedTeam(), loadTeams()])
+    const confirmedMember = requireMemberRecord(
+      getResponseData(await teamApi.getMember(selectedTeamId, invitedMember.userId), '邀请结果待确认'),
+      '邀请结果待确认'
+    )
+    const refreshedTeam = requireTeamRecord(selectedTeam.value, '邀请结果待确认')
     assertMembersMatchTeam(selectedTeamId, refreshedTeam.memberCount)
     if (
       confirmedMember.teamId !== selectedTeamId
@@ -486,12 +588,11 @@ const handleInviteMember = async () => {
     }
     if (
       typeof previousMemberCount === 'number'
-      && typeof refreshedTeam.memberCount === 'number'
-      && refreshedTeam.memberCount !== previousMemberCount + 1
+      && membersTotal.value !== previousMemberCount + 1
     ) {
       throw new Error('邀请结果待确认')
     }
-    syncSelectedTeamFromStore()
+    void teamStore.refresh().catch(() => {})
     inviteForm.value = { username: '', role: 'member' }
     showInviteModal.value = false
     message.success('邀请成功！')
@@ -510,19 +611,25 @@ const handleLeaveTeam = async () => {
   const teamName = selectedTeam.value.name
   leaving.value = true
   try {
-    const previousCount = teamStore.teams.length
+    const previousCount = teamsTotal.value
     await teamApi.leaveTeam(teamId)
+    if ((teams.value?.length || 0) === 1 && page.value > 1) {
+      page.value--
+    }
     await loadTeams()
     selectedTeam.value = null
-    teamStore.currentMembers = []
+    members.value = []
+    membersTotal.value = 0
     membersReady.value = false
+    currentMembership.value = null
     memberSearch.value = ''
-    if (teamStore.teams.some(team => team.id === teamId)) {
+    if (teams.value?.some(team => team.id === teamId)) {
       throw new Error('退出团队结果待确认')
     }
-    if (teamStore.teams.length > Math.max(0, previousCount - 1)) {
+    if (typeof previousCount === 'number' && teamsTotal.value !== Math.max(0, previousCount - 1)) {
       throw new Error('退出团队结果待确认')
     }
+    void teamStore.refresh().catch(() => {})
     message.success(`已退出团队「${teamName}」`)
   } catch (err: unknown) {
     message.error(err instanceof Error && err.message ? err.message : '退出团队失败')
@@ -545,23 +652,26 @@ const handleRemoveMember = async (member: TeamMember) => {
     onPositiveClick: async () => {
       try {
         const selectedTeamId = selectedTeam.value!.id
-        const previousMemberCount = teamStore.teams.find(team => team.id === selectedTeamId)?.memberCount
+        const previousMemberCount = membersTotal.value
         const removingMember = requireMemberRecord(member, '成员移除结果待确认')
         await teamApi.removeMember(selectedTeamId, member.userId)
-        await Promise.all([loadMembers(selectedTeamId), loadTeams()])
-        if (teamStore.currentMembers.some(item => item.userId === removingMember.userId || item.id === removingMember.id)) {
+        if ((members.value?.length || 0) === 1 && memberPage.value > 1) {
+          memberPage.value--
+        }
+        await Promise.all([loadMembers(selectedTeamId), refreshSelectedTeam(), loadTeams()])
+        if (members.value?.some(item => item.userId === removingMember.userId || item.id === removingMember.id)) {
           throw new Error('成员移除结果待确认')
         }
-        const refreshedTeam = requireTeamRecord(teamStore.teams.find(team => team.id === selectedTeamId), '成员移除结果待确认')
+        const refreshedTeam = requireTeamRecord(selectedTeam.value, '成员移除结果待确认')
         assertMembersMatchTeam(selectedTeamId, refreshedTeam.memberCount)
         if (
           typeof previousMemberCount === 'number'
-          && typeof refreshedTeam.memberCount === 'number'
-          && refreshedTeam.memberCount !== Math.max(0, previousMemberCount - 1)
+          && membersTotal.value !== Math.max(0, previousMemberCount - 1)
         ) {
           throw new Error('成员移除结果待确认')
         }
-        syncSelectedTeamFromStore()
+        await ensureMemberAbsent(selectedTeamId, removingMember.userId, '成员移除结果待确认')
+        void teamStore.refresh().catch(() => {})
         message.success(`已移除 ${memberDisplayName(member)}`)
       } catch (err: unknown) {
         message.error(err instanceof Error && err.message ? err.message : '移除失败')

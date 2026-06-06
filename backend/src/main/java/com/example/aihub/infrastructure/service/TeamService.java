@@ -1,7 +1,9 @@
 package com.example.aihub.infrastructure.service;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.example.aihub.common.exception.BusinessException;
+import com.example.aihub.common.result.PageResult;
 import com.example.aihub.common.util.PagingUtil;
 import com.example.aihub.common.util.SecurityUtil;
 import com.example.aihub.common.util.VoMapper;
@@ -20,7 +22,10 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.Comparator;
 import java.util.List;
+import java.util.Map;
+import java.util.function.Function;
 
 @Service
 @RequiredArgsConstructor
@@ -31,6 +36,37 @@ public class TeamService {
     private final NotificationService notificationService;
 
     // ===== 团队 CRUD =====
+
+    public PageResult<TeamVO> pageMyTeams(long page, long pageSize) {
+        Long userId = SecurityUtil.loginUserId();
+        long safePage = PagingUtil.normalizePage(page);
+        long safePageSize = PagingUtil.clampPageSize(pageSize, 20);
+        Page<TeamMember> memberPage = memberMapper.selectPage(
+                new Page<>(safePage, safePageSize),
+                new LambdaQueryWrapper<TeamMember>()
+                        .eq(TeamMember::getUserId, userId)
+                        .eq(TeamMember::getStatus, 1)
+                        .orderByDesc(TeamMember::getId)
+        );
+        List<Long> teamIds = memberPage.getRecords().stream().map(TeamMember::getTeamId).toList();
+        if (teamIds.isEmpty()) {
+            return new PageResult<>(memberPage.getTotal(), memberPage.getPages(), List.of());
+        }
+        Map<Long, Team> teamMap = teamMapper.selectList(new LambdaQueryWrapper<Team>()
+                        .in(Team::getId, teamIds)
+                        .eq(Team::getStatus, 1))
+                .stream()
+                .collect(java.util.stream.Collectors.toMap(Team::getId, Function.identity()));
+        Map<Long, Integer> orderMap = new java.util.HashMap<>();
+        for (int i = 0; i < teamIds.size(); i++) {
+            orderMap.put(teamIds.get(i), i);
+        }
+        List<TeamVO> records = teamMap.values().stream()
+                .sorted(Comparator.comparingInt(team -> orderMap.getOrDefault(team.getId(), Integer.MAX_VALUE)))
+                .map(this::toTeamVO)
+                .toList();
+        return new PageResult<>(memberPage.getTotal(), memberPage.getPages(), records);
+    }
 
     public List<TeamVO> listMyTeams(int limit) {
         Long userId = SecurityUtil.loginUserId();
@@ -106,6 +142,21 @@ public class TeamService {
 
     // ===== 成员管理 =====
 
+    public PageResult<TeamMemberVO> pageMembers(Long teamId, long page, long pageSize) {
+        Team team = requireTeam(teamId);
+        requireTeamMember(team);
+        long safePage = PagingUtil.normalizePage(page);
+        long safePageSize = PagingUtil.clampPageSize(pageSize, 20);
+        Page<TeamMember> result = memberMapper.selectPage(
+                new Page<>(safePage, safePageSize),
+                new LambdaQueryWrapper<TeamMember>()
+                        .eq(TeamMember::getTeamId, teamId)
+                        .eq(TeamMember::getStatus, 1)
+                        .orderByDesc(TeamMember::getId)
+        );
+        return new PageResult<>(result.getTotal(), result.getPages(), result.getRecords().stream().map(this::toTeamMemberVO).toList());
+    }
+
     public List<TeamMemberVO> listMembers(Long teamId, int limit) {
         Team team = requireTeam(teamId);
         requireTeamMember(team);
@@ -115,16 +166,20 @@ public class TeamService {
                         .eq(TeamMember::getStatus, 1)
                         .orderByDesc(TeamMember::getId)
                         .last("LIMIT " + PagingUtil.clampLimit(limit, 100, 100)));
-        return members.stream().map(m -> {
-            TeamMemberVO vo = VoMapper.copy(m, TeamMemberVO.class);
-            User user = userMapper.selectById(m.getUserId());
-            if (user != null) {
-                vo.setUsername(user.getUsername());
-                vo.setNickname(user.getNickname());
-                vo.setAvatar(user.getAvatar());
-            }
-            return vo;
-        }).toList();
+        return members.stream().map(this::toTeamMemberVO).toList();
+    }
+
+    public TeamMemberVO getMember(Long teamId, Long userId) {
+        Team team = requireTeam(teamId);
+        requireTeamMember(team);
+        TeamMember member = memberMapper.selectOne(new LambdaQueryWrapper<TeamMember>()
+                .eq(TeamMember::getTeamId, teamId)
+                .eq(TeamMember::getUserId, userId)
+                .eq(TeamMember::getStatus, 1));
+        if (member == null) {
+            throw new BusinessException("团队成员不存在");
+        }
+        return toTeamMemberVO(member);
     }
 
     @Transactional(rollbackFor = Exception.class)
@@ -277,6 +332,17 @@ public class TeamService {
                 .eq(TeamMember::getTeamId, team.getId())
                 .eq(TeamMember::getStatus, 1));
         vo.setMemberCount(count != null ? count.intValue() : 0);
+        return vo;
+    }
+
+    private TeamMemberVO toTeamMemberVO(TeamMember member) {
+        TeamMemberVO vo = VoMapper.copy(member, TeamMemberVO.class);
+        User user = userMapper.selectById(member.getUserId());
+        if (user != null) {
+            vo.setUsername(user.getUsername());
+            vo.setNickname(user.getNickname());
+            vo.setAvatar(user.getAvatar());
+        }
         return vo;
     }
 }

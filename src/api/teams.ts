@@ -24,9 +24,19 @@ export interface TeamMember {
   createdAt: string
 }
 
+export interface PageResult<T> {
+  total: number
+  pages: number
+  records: T[]
+}
+
 export const teamApi = {
   async getTeams() {
     return request.get('/api/teams')
+  },
+
+  async getTeamsPage(params: { page: number; pageSize: number }) {
+    return request.get('/api/teams/page', { params })
   },
 
   async getTeam(id: number) {
@@ -47,6 +57,14 @@ export const teamApi = {
 
   async getMembers(teamId: number) {
     return request.get(`/api/teams/${teamId}/members`)
+  },
+
+  async getMembersPage(teamId: number, params: { page: number; pageSize: number }) {
+    return request.get(`/api/teams/${teamId}/members/page`, { params })
+  },
+
+  async getMember(teamId: number, userId: number) {
+    return request.get(`/api/teams/${teamId}/members/${userId}`)
   },
 
   async inviteMember(params: { teamId: number; username: string; role?: string }) {
