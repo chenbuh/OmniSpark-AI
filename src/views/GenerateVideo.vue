@@ -721,8 +721,38 @@ async function loadPageContext() {
 
 onMounted(async () => {
   await loadPageContext()
-  
-  // 处理从生图页“一键转视频”带入的参数
+
+  if (route.query.providerId) {
+    const providerId = Number(route.query.providerId)
+    const provider = providerStore
+      .getProvidersByProject(projectStore.activeProjectId)
+      .find(item => item.id === providerId && allowedVideoProviderTypes.value.includes(item.type))
+    if (provider) {
+      form.providerId = provider.id
+      handleProviderChange(provider.id)
+    }
+  }
+
+  if (route.query.prompt) {
+    form.prompt = route.query.prompt as string
+  }
+  if (route.query.model) {
+    form.modelName = route.query.model as string
+  }
+  if (route.query.duration) {
+    form.duration = route.query.duration as string
+  }
+  if (route.query.cameraMotion) {
+    form.cameraMotion = route.query.cameraMotion as string
+  }
+  if (route.query.motionSpeed) {
+    const motionSpeed = Number(route.query.motionSpeed)
+    if (Number.isFinite(motionSpeed)) {
+      form.motionSpeed = motionSpeed
+    }
+  }
+
+  // 处理外部跳转携带的真实首帧/尾帧素材
   if (route.query.sourceAssetId) {
     const id = Number(route.query.sourceAssetId)
     const asset = assetStore.assets.find(a => a.id === id)
@@ -730,12 +760,16 @@ onMounted(async () => {
       videoMode.value = 'img2vid'
       selectedImageAsset.value = asset
     } else if (asset) {
-      message.warning('当前仅支持图片作为首帧参考，已仅带入提示词与模型')
+      message.warning('当前仅支持图片作为首帧参考，已仅带入真实提示词与模型参数')
     }
   }
-  
-  if (route.query.prompt) {
-    form.prompt = route.query.prompt as string
+  if (route.query.endAssetId) {
+    const id = Number(route.query.endAssetId)
+    const asset = assetStore.assets.find(a => a.id === id)
+    if (asset && (asset.assetType === 'image' || asset.assetType === 'reference')) {
+      videoMode.value = 'img2vid'
+      selectedEndAsset.value = asset
+    }
   }
 })
 

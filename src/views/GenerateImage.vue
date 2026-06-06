@@ -1495,6 +1495,17 @@ const uploadInpaintMask = async (): Promise<number | null> => {
 onMounted(async () => {
   await loadPageContext()
 
+  if (route.query.providerId) {
+    const providerId = Number(route.query.providerId)
+    const provider = providerStore
+      .getProvidersByProject(projectStore.activeProjectId)
+      .find(item => item.id === providerId && allowedImageProviderTypes.value.includes(item.type))
+    if (provider) {
+      form.providerId = provider.id
+      handleProviderChange(provider.id)
+    }
+  }
+
   if (route.query.sourceAssetId) {
     const id = Number(route.query.sourceAssetId)
     const asset = assetStore.assets.find(a => a.id === id)
@@ -1513,6 +1524,33 @@ onMounted(async () => {
   }
   if (route.query.model) {
     form.modelName = route.query.model as string
+  }
+  if (route.query.count) {
+    const count = parseInt(route.query.count as string)
+    if (Number.isFinite(count) && count > 0) {
+      form.count = count
+    }
+  }
+  if (route.query.resolution) {
+    form.resolution = route.query.resolution as string
+  }
+  if (route.query.quality) {
+    form.quality = route.query.quality as string
+  }
+  if (route.query.aspectRatio) {
+    form.aspectRatio = route.query.aspectRatio as string
+  }
+  if (route.query.aspectWidth) {
+    const aspectWidth = parseInt(route.query.aspectWidth as string)
+    if (Number.isFinite(aspectWidth) && aspectWidth > 0) {
+      form.ratioWidth = aspectWidth
+    }
+  }
+  if (route.query.aspectHeight) {
+    const aspectHeight = parseInt(route.query.aspectHeight as string)
+    if (Number.isFinite(aspectHeight) && aspectHeight > 0) {
+      form.ratioHeight = aspectHeight
+    }
   }
   if (route.query.cfg) {
     form.cfg = parseFloat(route.query.cfg as string)

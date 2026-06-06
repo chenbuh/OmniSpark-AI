@@ -329,9 +329,12 @@ import { useRoute, useRouter } from 'vue-router'
 import { useMessage } from 'naive-ui'
 import { assetApi } from '@/api/assets'
 import { dictApi, type DataDictItem } from '@/api/dicts'
+import { taskApi } from '@/api/tasks'
 import { subtitleApi, type SubtitleVO } from '@/api/subtitles'
 import { useAssetStore, type Asset, resolveAssetUrl } from '@/store/asset'
 import { useProjectStore } from '@/store/project'
+import { useTaskStore } from '@/store/task'
+import { buildGenerationReuseLocation } from '@/utils/generationReuse'
 import {
   Library,
   RefreshCw,
@@ -367,6 +370,7 @@ const message = useMessage()
 
 const projectStore = useProjectStore()
 const assetStore = useAssetStore()
+const taskStore = useTaskStore()
 
 const loading = ref(false)
 const uploading = ref(false)
@@ -934,52 +938,92 @@ async function handleCopyPrompt() {
   }
 }
 
-function handleReusePrompt() {
+async function loadAssetTask(asset: Asset) {
+  if (!asset.taskId) {
+    return null
+  }
+  const cachedTask = taskStore.tasks.find(task => task.id === asset.taskId) || null
+  if (cachedTask) {
+    return cachedTask.projectId === asset.projectId ? cachedTask : null
+  }
+  const response = await taskApi.getTask(asset.taskId)
+  const task = taskStore.normalizeTask(getResponseData(response, '资产关联任务待确认'))
+  if (task.projectId !== asset.projectId) {
+    throw new Error('资产关联任务待确认')
+  }
+  return task
+}
+
+async function handleReusePrompt() {
   const asset = selectedAsset.value
   if (!asset) return
-  if (!asset.prompt) {
+  if (!asset.prompt && !asset.taskId) {
     message.warning('该资产暂无提示词，暂时无法复用')
     return
   }
-  if (asset.assetType === 'video') {
-    router.push({
-      path: '/generate/video',
-      query: { prompt: asset.prompt, model: asset.modelName }
-    })
-  } else {
-    router.push({
-      path: '/generate/image',
-      query: { prompt: asset.prompt, model: asset.modelName }
-    })
+  try {
+    const linkedTask = await loadAssetTask(asset)
+    if (linkedTask) {
+      router.push(buildGenerationReuseLocation(linkedTask))
+    } else if (asset.assetType === 'video') {
+      router.push({
+        path: '/generate/video',
+        query: { prompt: asset.prompt || '', model: asset.modelName || '' }
+      })
+    } else {
+      router.push({
+        path: '/generate/image',
+        query: { prompt: asset.prompt || '', model: asset.modelName || '' }
+      })
+    }
+    showDetailDrawer.value = false
+  } catch (err: unknown) {
+    message.error(err instanceof Error && err.message ? err.message : '复用参数失败')
+    return
   }
-  showDetailDrawer.value = false
 }
 
-function handleApplyAsReference() {
+async function handleApplyAsReference() {
   const asset = selectedAsset.value
   if (!asset) return
 
-  if (asset.assetType === 'video') {
-    router.push({
-      path: '/generate/video',
-      query: {
-        prompt: asset.prompt || '',
-        model: asset.modelName || ''
+  try {
+    const linkedTask = await loadAssetTask(asset)
+    if (asset.assetType === 'video') {
+      if (linkedTask) {
+        router.push(buildGenerationReuseLocation(linkedTask))
+      } else {
+        router.push({
+          path: '/generate/video',
+          query: {
+            prompt: asset.prompt || '',
+            model: asset.modelName || ''
+          }
+        })
       }
-    })
-    message.success('已将该视频的提示词与模型带入视频工作台')
-  } else {
-    router.push({
-      path: '/generate/image',
-      query: {
-        sourceAssetId: String(asset.id),
-        prompt: asset.prompt || '',
-        model: asset.modelName || ''
+      message.success('已将该视频的真实生成参数带入视频工作台')
+    } else {
+      if (linkedTask && linkedTask.taskType === 'image') {
+        router.push(buildGenerationReuseLocation(linkedTask, {
+          overrideSourceAssetId: asset.id
+        }))
+      } else {
+        router.push({
+          path: '/generate/image',
+          query: {
+            sourceAssetId: String(asset.id),
+            prompt: asset.prompt || '',
+            model: asset.modelName || ''
+          }
+        })
       }
-    })
-    message.success('已将该素材设为图生图参考图')
+      message.success('已将该素材设为图生图参考图，并带入真实生成参数')
+    }
+    showDetailDrawer.value = false
+  } catch (err: unknown) {
+    message.error(err instanceof Error && err.message ? err.message : '带入参考素材失败')
+    return
   }
-  showDetailDrawer.value = false
 }
 
 function handleSwitchVersion(asset: Asset) {

@@ -215,6 +215,7 @@ import { useTaskStore } from '@/store/task'
 import { useAssetStore } from '@/store/asset'
 import type { PromptTemplate } from '@/api/templates'
 import type { GenerationTask } from '@/store/task'
+import { buildGenerationReuseLocation } from '@/utils/generationReuse'
 import SkeletonCard from '@/components/SkeletonCard.vue'
 import request from '@/api/request'
 import {
@@ -830,17 +831,7 @@ watch(
 
 // 复用提示词
 const handleReuse = (task: GenerationTask) => {
-  if (task.taskType === 'image') {
-    router.push({
-      path: '/generate/image',
-      query: { prompt: task.prompt, negPrompt: task.negativePrompt, model: task.modelName }
-    })
-  } else {
-    router.push({
-      path: '/generate/video',
-      query: { prompt: task.prompt, model: task.modelName }
-    })
-  }
+  router.push(buildGenerationReuseLocation(task))
   message.success('已将参数复用至生成面板！')
 }
 
