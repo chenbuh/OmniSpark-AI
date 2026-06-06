@@ -56,17 +56,41 @@ import { ref, computed } from 'vue'
 import { useMessage } from 'naive-ui'
 import request from '@/api/request'
 
+type CleanupMetricKey = 'oldTasks' | 'oldAssets' | 'oldAuditLogs' | 'oldLoginLogs'
+type CleanupResultMetricKey = 'deletedOldTasks' | 'deletedOldAssets' | 'deletedOldAuditLogs' | 'deletedOldLoginLogs'
+
+interface CleanupPreviewPayload {
+  daysOld: number
+  oldTasks: number
+  oldAssets: number
+  oldAuditLogs: number
+  oldLoginLogs: number
+}
+
+interface CleanupResultPayload {
+  deletedOldTasks: number
+  deletedOldAssets: number
+  deletedOldAuditLogs: number
+  deletedOldLoginLogs: number
+}
+
+interface CleanupItem {
+  key: CleanupMetricKey
+  label: string
+  color: string
+}
+
 const message = useMessage()
 const daysOld = ref(30)
-const preview = ref<any>(null)
-const result = ref<any>(null)
+const preview = ref<CleanupPreviewPayload | null>(null)
+const result = ref<CleanupResultPayload | null>(null)
 const previewing = ref(false)
 const cleaning = ref(false)
 const previewLoadState = ref<'idle' | 'loading' | 'ready' | 'error'>('idle')
 const resultLoadState = ref<'idle' | 'ready' | 'error'>('idle')
 const NO_CACHE_HEADERS = { 'X-No-Cache': '1' }
 
-const cleanupItems = [
+const cleanupItems: CleanupItem[] = [
   { key: 'oldTasks', label: '过期任务', color: '#f59e0b' },
   { key: 'oldAssets', label: '过期资产', color: '#8b5cf6' },
   { key: 'oldAuditLogs', label: '审计日志', color: '#3b82f6' },
@@ -74,41 +98,79 @@ const cleanupItems = [
 ]
 
 const totalDeletable = computed(() => {
-  if (!preview.value) return 0
-  return cleanupItems.reduce((sum, item) => sum + (toOptionalNumber(preview.value[item.key]) ?? 0), 0)
+  const previewPayload = preview.value
+  if (!previewPayload) return 0
+  return cleanupItems.reduce((sum, item) => sum + (toOptionalNumber(previewPayload[item.key]) ?? 0), 0)
 })
 
-function isPlainObject(value: unknown): value is Record<string, any> {
+function isPlainObject(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === 'object' && !Array.isArray(value)
 }
 
-function normalizeCleanupPayload(payload: unknown, metricKeys: string[], requireDaysOld = false) {
+function getResponseData(response: unknown, errorMessage: string): unknown {
+  if (!isPlainObject(response) || !('data' in response)) {
+    throw new Error(errorMessage)
+  }
+  return response.data
+}
+
+function normalizeCleanupPreview(payload: unknown): CleanupPreviewPayload {
+  if (!isPlainObject(payload)) {
+    throw new Error('清理预览待确认')
+  }
+  const daysOldValue = toOptionalNumber(payload.daysOld)
+  const metrics = cleanupItems.reduce<Record<CleanupMetricKey, number>>((acc, item) => {
+    const normalized = toOptionalNumber(payload[item.key])
+    if (normalized == null || normalized < 0) {
+      throw new Error('清理预览待确认')
+    }
+    acc[item.key] = normalized
+    return acc
+  }, {} as Record<CleanupMetricKey, number>)
+  if (daysOldValue == null || daysOldValue < 1) {
+    throw new Error('清理预览待确认')
+  }
+  return {
+    daysOld: daysOldValue,
+    ...metrics
+  }
+}
+
+function normalizeCleanupResult(payload: unknown): CleanupResultPayload {
   if (!isPlainObject(payload)) {
     throw new Error('清理结果待确认')
   }
-  if (requireDaysOld && toOptionalNumber(payload.daysOld) === null) {
-    throw new Error('清理预览待确认')
-  }
-  if (metricKeys.some((key) => toOptionalNumber(payload[key]) === null)) {
-    throw new Error(requireDaysOld ? '清理预览待确认' : '清理结果待确认')
-  }
-  return payload
+  const keys: CleanupResultMetricKey[] = cleanupItems.map(item => cleanupResultKey(item.key))
+  return keys.reduce<CleanupResultPayload>((acc, key) => {
+    const normalized = toOptionalNumber(payload[key])
+    if (normalized == null || normalized < 0) {
+      throw new Error('清理结果待确认')
+    }
+    acc[key] = normalized
+    return acc
+  }, {
+    deletedOldTasks: 0,
+    deletedOldAssets: 0,
+    deletedOldAuditLogs: 0,
+    deletedOldLoginLogs: 0
+  })
 }
 
-function cleanupResultKey(metricKey: string) {
-  return `deleted${metricKey.charAt(0).toUpperCase()}${metricKey.slice(1)}`
+function cleanupResultKey(metricKey: CleanupMetricKey): CleanupResultMetricKey {
+  return `deleted${metricKey.charAt(0).toUpperCase()}${metricKey.slice(1)}` as CleanupResultMetricKey
 }
 
-function snapshotCleanupMetrics(source: any, keys: string[]) {
-  return Object.fromEntries(keys.map((key) => [key, toOptionalNumber(source?.[key]) ?? 0])) as Record<string, number>
+function snapshotCleanupMetrics<T extends string>(source: Record<T, unknown> | null, keys: readonly T[]) {
+  return Object.fromEntries(keys.map((key) => [key, source ? toOptionalNumber(source[key]) ?? 0 : 0])) as Record<T, number>
 }
 
 function requireCleanupExecutionConfirmed(
-  resultPayload: any,
-  previewSnapshot: Record<string, number> | null,
-  confirmedPreviewSnapshot: Record<string, number> | null
+  resultPayload: CleanupResultPayload,
+  previewSnapshot: Record<CleanupMetricKey, number> | null,
+  confirmedPreviewSnapshot: Record<CleanupMetricKey, number> | null
 ) {
-  const deletedMetrics = snapshotCleanupMetrics(resultPayload, cleanupItems.map(item => cleanupResultKey(item.key)))
+  const deletedMetricKeys = cleanupItems.map(item => cleanupResultKey(item.key))
+  const deletedMetrics = snapshotCleanupMetrics(resultPayload as Record<CleanupResultMetricKey, unknown>, deletedMetricKeys)
   const deletedTotal = Object.values(deletedMetrics).reduce((sum, value) => sum + value, 0)
   if (previewSnapshot) {
     const previewTotal = Object.values(previewSnapshot).reduce((sum, value) => sum + value, 0)
@@ -147,11 +209,11 @@ function requireCleanupExecutionConfirmed(
 }
 
 async function fetchCleanupPreview(noCache = false) {
-  const res = await request.get('/api/admin/cleanup/preview', {
+  const res = await request.get<unknown>('/api/admin/cleanup/preview', {
     params: { daysOld: daysOld.value },
     headers: noCache ? NO_CACHE_HEADERS : undefined
   })
-  return normalizeCleanupPayload((res as any).data, cleanupItems.map(item => item.key), true)
+  return normalizeCleanupPreview(getResponseData(res, '清理预览待确认'))
 }
 
 async function handlePreview() {
@@ -162,10 +224,10 @@ async function handlePreview() {
     previewLoadState.value = 'loading'
     preview.value = await fetchCleanupPreview(true)
     previewLoadState.value = 'ready'
-  } catch (err: any) {
+  } catch (err: unknown) {
     preview.value = null
     previewLoadState.value = 'error'
-    message.error(err.message || '预览失败')
+    message.error(err instanceof Error && err.message ? err.message : '预览失败')
   }
   finally { previewing.value = false }
 }
@@ -174,30 +236,27 @@ async function handleExecute() {
   cleaning.value = true
   try {
     const previewPayload = preview.value ?? await fetchCleanupPreview(true)
-    const previewSnapshot = snapshotCleanupMetrics(previewPayload, cleanupItems.map(item => item.key))
-    const res = await request.delete('/api/admin/cleanup/execute', { params: { daysOld: daysOld.value } })
-    const normalizedResult = normalizeCleanupPayload(
-      (res as any).data,
-      cleanupItems.map(item => cleanupResultKey(item.key))
-    )
+    const previewSnapshot = snapshotCleanupMetrics(previewPayload as Record<CleanupMetricKey, unknown>, cleanupItems.map(item => item.key))
+    const res = await request.delete<unknown>('/api/admin/cleanup/execute', { params: { daysOld: daysOld.value } })
+    const normalizedResult = normalizeCleanupResult(getResponseData(res, '清理结果待确认'))
     const confirmedPreview = await fetchCleanupPreview(true)
-    const confirmedPreviewSnapshot = snapshotCleanupMetrics(confirmedPreview, cleanupItems.map(item => item.key))
+    const confirmedPreviewSnapshot = snapshotCleanupMetrics(confirmedPreview as Record<CleanupMetricKey, unknown>, cleanupItems.map(item => item.key))
     requireCleanupExecutionConfirmed(normalizedResult, previewSnapshot, confirmedPreviewSnapshot)
     result.value = normalizedResult
     resultLoadState.value = 'ready'
     preview.value = confirmedPreview
     previewLoadState.value = 'ready'
     message.success('清理完成！')
-  } catch (err: any) {
+  } catch (err: unknown) {
     result.value = null
     resultLoadState.value = 'error'
-    message.error(err.message || '清理失败')
+    message.error(err instanceof Error && err.message ? err.message : '清理失败')
   }
   finally { cleaning.value = false }
 }
 
-function displayCleanupMetric(source: any, key: string) {
-  const normalized = toOptionalNumber(source?.[key])
+function displayCleanupMetric(source: Record<string, unknown> | null, key: string) {
+  const normalized = source ? toOptionalNumber(source[key]) : null
   return normalized == null ? '-' : normalized
 }
 

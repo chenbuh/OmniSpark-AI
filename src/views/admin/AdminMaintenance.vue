@@ -43,6 +43,18 @@ import { computed, reactive, onMounted, ref } from 'vue'
 import { useMessage } from 'naive-ui'
 import request from '@/api/request'
 
+interface MaintenanceStatus {
+  enabled: boolean
+  message: string
+}
+
+interface MaintenanceConfigItem {
+  id: number
+  configKey: string
+  configValue: string
+  configGroup: string
+}
+
 const message = useMessage()
 const loading = ref(true)
 const status = reactive<{ enabled: boolean | null; message: string }>({ enabled: null, message: '' })
@@ -63,12 +75,23 @@ const statusTagLabel = computed(() => {
 
 onMounted(load)
 
-function normalizeMaintenanceStatus(value: unknown) {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === 'object' && !Array.isArray(value)
+}
+
+function getResponseData(response: unknown, errorMessage: string): unknown {
+  if (!isPlainObject(response) || !('data' in response)) {
+    throw new Error(errorMessage)
+  }
+  return response.data
+}
+
+function normalizeMaintenanceStatus(value: unknown): MaintenanceStatus {
+  if (!isPlainObject(value)) {
     throw new Error('维护模式状态待确认')
   }
-  const enabled = (value as any).enabled
-  const message = (value as any).message
+  const enabled = value.enabled
+  const message = value.message
   if (typeof enabled !== 'boolean' || typeof message !== 'string') {
     throw new Error('维护模式状态待确认')
   }
@@ -78,14 +101,14 @@ function normalizeMaintenanceStatus(value: unknown) {
   }
 }
 
-function normalizeConfigItem(value: unknown) {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+function normalizeConfigItem(value: unknown): MaintenanceConfigItem {
+  if (!isPlainObject(value)) {
     throw new Error('维护模式配置待确认')
   }
-  const id = Number((value as any).id)
-  const configKey = typeof (value as any).configKey === 'string' ? (value as any).configKey.trim() : ''
-  const configValue = typeof (value as any).configValue === 'string' ? (value as any).configValue : ''
-  const configGroup = typeof (value as any).configGroup === 'string' ? (value as any).configGroup.trim() : ''
+  const id = Number(value.id)
+  const configKey = typeof value.configKey === 'string' ? value.configKey.trim() : ''
+  const configValue = typeof value.configValue === 'string' ? value.configValue : ''
+  const configGroup = typeof value.configGroup === 'string' ? value.configGroup.trim() : ''
   if (!Number.isFinite(id) || id <= 0 || !configKey || !configGroup) {
     throw new Error('维护模式配置待确认')
   }
@@ -97,7 +120,7 @@ function normalizeConfigItem(value: unknown) {
   }
 }
 
-function normalizeConfigList(value: unknown) {
+function normalizeConfigList(value: unknown): MaintenanceConfigItem[] {
   if (!Array.isArray(value)) {
     throw new Error('维护模式配置待确认')
   }
@@ -114,19 +137,19 @@ function normalizeConfigList(value: unknown) {
   return normalized
 }
 
-async function fetchMaintenanceStatus(noCache = false) {
-  const res = await request.get('/api/admin/maintenance', {
+async function fetchMaintenanceStatus(noCache = false): Promise<MaintenanceStatus> {
+  const res = await request.get<unknown>('/api/admin/maintenance', {
     headers: noCache ? NO_CACHE_HEADERS : undefined
   })
-  return normalizeMaintenanceStatus((res as any).data)
+  return normalizeMaintenanceStatus(getResponseData(res, '维护模式状态待确认'))
 }
 
-async function fetchMaintenanceConfigs() {
-  const res = await request.get('/api/admin/config', {
+async function fetchMaintenanceConfigs(): Promise<MaintenanceConfigItem[]> {
+  const res = await request.get<unknown>('/api/admin/config', {
     params: { group: 'maintenance' },
     headers: NO_CACHE_HEADERS
   })
-  return normalizeConfigList((res as any).data)
+  return normalizeConfigList(getResponseData(res, '维护模式配置待确认'))
 }
 
 async function requireMaintenanceConfigConfirmed(expected: { enabled: boolean; message: string }) {
@@ -153,11 +176,11 @@ async function load() {
     status.enabled = data.enabled
     status.message = data.message
     statusLoadState.value = 'ready'
-  } catch (err: any) {
+  } catch (err: unknown) {
     status.enabled = null
     status.message = ''
     statusLoadState.value = 'error'
-    message.error(err.message || '加载维护模式状态失败')
+    message.error(err instanceof Error && err.message ? err.message : '加载维护模式状态失败')
   } finally {
     loading.value = false
   }
@@ -178,8 +201,8 @@ async function handleToggle() {
       throw new Error('维护模式更新结果待确认')
     }
     message.success(status.enabled ? '维护模式已开启' : '维护模式已关闭')
-  } catch (err: any) {
-    message.error(err.message || '操作失败')
+  } catch (err: unknown) {
+    message.error(err instanceof Error && err.message ? err.message : '操作失败')
   }
 }
 
@@ -198,8 +221,8 @@ async function handleSaveMessage() {
       throw new Error('维护消息保存结果待确认')
     }
     message.success('消息已保存')
-  } catch (err: any) {
-    message.error(err.message || '保存失败')
+  } catch (err: unknown) {
+    message.error(err instanceof Error && err.message ? err.message : '保存失败')
   }
 }
 </script>

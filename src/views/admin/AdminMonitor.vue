@@ -109,6 +109,28 @@ import { computed, ref, onMounted, onUnmounted } from 'vue'
 import { useMessage } from 'naive-ui'
 import request from '@/api/request'
 
+interface MonitorCpuData {
+  systemLoadAverage: number | null
+  availableProcessors: number
+  osName: string
+  osArch: string
+}
+
+interface MonitorMemoryData {
+  heapUsed: number
+  heapMax: number
+  heapUsedReadable: string
+  heapMaxReadable: string
+  heapUsagePercent: number | null
+  nonHeapUsed: number | null
+}
+
+interface MonitorJvmData {
+  uptimeReadable: string
+  vmName: string
+  vmVersion: string
+}
+
 interface MonitorDiskRow {
   path: string
   total: number
@@ -121,9 +143,9 @@ interface MonitorDiskRow {
 }
 
 interface MonitorData {
-  cpu: Record<string, unknown>
-  memory: Record<string, unknown>
-  jvm: Record<string, unknown>
+  cpu: MonitorCpuData
+  memory: MonitorMemoryData
+  jvm: MonitorJvmData
   disks: MonitorDiskRow[]
   processCpuUsage?: number | null
   diskTotal?: number | null
@@ -140,7 +162,7 @@ const monitorLoadState = ref<'loading' | 'ready' | 'error'>('loading')
 const circum = 2 * Math.PI * 50 // 314.16
 const diskRows = computed(() => data.value.disks)
 
-let autoTimer: any = null
+let autoTimer: ReturnType<typeof setInterval> | null = null
 let inFlight = false
 let errorNotified = false
 const POLL_INTERVAL_MS = 5000
@@ -154,17 +176,40 @@ onMounted(() => {
   }, POLL_INTERVAL_MS)
 })
 
-onUnmounted(() => { if (autoTimer) clearInterval(autoTimer) })
+onUnmounted(() => { if (autoTimer !== null) clearInterval(autoTimer) })
 
-function isPlainObject(value: unknown): value is Record<string, any> {
+function isPlainObject(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === 'object' && !Array.isArray(value)
+}
+
+function getResponseData(response: unknown, errorMessage: string): unknown {
+  if (!isPlainObject(response) || !('data' in response)) {
+    throw new Error(errorMessage)
+  }
+  return response.data
 }
 
 function emptyMonitorData(): MonitorData {
   return {
-    cpu: {},
-    memory: {},
-    jvm: {},
+    cpu: {
+      systemLoadAverage: null,
+      availableProcessors: 0,
+      osName: '',
+      osArch: ''
+    },
+    memory: {
+      heapUsed: 0,
+      heapMax: 0,
+      heapUsedReadable: '',
+      heapMaxReadable: '',
+      heapUsagePercent: null,
+      nonHeapUsed: null
+    },
+    jvm: {
+      uptimeReadable: '',
+      vmName: '',
+      vmVersion: ''
+    },
     disks: [],
     processCpuUsage: null,
     diskTotal: null,
@@ -174,7 +219,7 @@ function emptyMonitorData(): MonitorData {
   }
 }
 
-function requireDiskItem(value: unknown) {
+function requireDiskItem(value: unknown): MonitorDiskRow {
   if (!isPlainObject(value) || typeof value.path !== 'string') {
     throw new Error('监控数据待确认')
   }
@@ -189,8 +234,12 @@ function requireDiskItem(value: unknown) {
   ) {
     throw new Error('监控数据待确认')
   }
+  const path = value.path.trim()
+  if (!path) {
+    throw new Error('监控数据待确认')
+  }
   return {
-    path: value.path.trim(),
+    path,
     total,
     free,
     used,
@@ -208,13 +257,28 @@ function requireMonitorData(value: unknown): MonitorData {
   const cpu = value.cpu
   const memory = value.memory
   const jvm = value.jvm
-  if (toOptionalNumber(cpu.availableProcessors) == null || typeof cpu.osName !== 'string' || typeof cpu.osArch !== 'string') {
+  const availableProcessors = toOptionalNumber(cpu.availableProcessors)
+  if (availableProcessors == null || availableProcessors < 0 || typeof cpu.osName !== 'string' || typeof cpu.osArch !== 'string') {
     throw new Error('监控数据待确认')
   }
-  if (toOptionalNumber(memory.heapUsed) == null || toOptionalNumber(memory.heapMax) == null || typeof memory.heapUsedReadable !== 'string' || typeof memory.heapMaxReadable !== 'string') {
+  const systemLoadAverage = toOptionalNumber(cpu.systemLoadAverage)
+  const heapUsed = toOptionalNumber(memory.heapUsed)
+  const heapMax = toOptionalNumber(memory.heapMax)
+  const heapUsagePercent = toOptionalNumber(memory.heapUsagePercent)
+  const nonHeapUsed = toOptionalNumber(memory.nonHeapUsed)
+  if (
+    heapUsed == null || heapMax == null || heapUsed < 0 || heapMax < 0 || heapUsed > heapMax
+    || typeof memory.heapUsedReadable !== 'string' || typeof memory.heapMaxReadable !== 'string'
+    || (heapUsagePercent != null && (heapUsagePercent < 0 || heapUsagePercent > 100))
+    || (nonHeapUsed != null && nonHeapUsed < 0)
+  ) {
     throw new Error('监控数据待确认')
   }
-  if (typeof jvm.uptimeReadable !== 'string' || typeof jvm.vmName !== 'string' || typeof jvm.vmVersion !== 'string') {
+  if (
+    typeof jvm.uptimeReadable !== 'string' || !jvm.uptimeReadable.trim()
+    || typeof jvm.vmName !== 'string' || !jvm.vmName.trim()
+    || typeof jvm.vmVersion !== 'string' || !jvm.vmVersion.trim()
+  ) {
     throw new Error('监控数据待确认')
   }
   const processCpuUsage = toOptionalNumber(value.processCpuUsage)
@@ -231,10 +295,32 @@ function requireMonitorData(value: unknown): MonitorData {
   ) {
     throw new Error('监控数据待确认')
   }
+  if (
+    diskTotal != null && diskUsed != null && diskUsed > diskTotal
+    || diskTotal != null && diskFree != null && diskFree > diskTotal
+  ) {
+    throw new Error('监控数据待确认')
+  }
   return {
-    cpu,
-    memory,
-    jvm,
+    cpu: {
+      systemLoadAverage,
+      availableProcessors,
+      osName: cpu.osName.trim(),
+      osArch: cpu.osArch.trim()
+    },
+    memory: {
+      heapUsed,
+      heapMax,
+      heapUsedReadable: memory.heapUsedReadable,
+      heapMaxReadable: memory.heapMaxReadable,
+      heapUsagePercent,
+      nonHeapUsed
+    },
+    jvm: {
+      uptimeReadable: jvm.uptimeReadable.trim(),
+      vmName: jvm.vmName.trim(),
+      vmVersion: jvm.vmVersion.trim()
+    },
     processCpuUsage,
     diskTotal,
     diskUsed,
@@ -252,16 +338,16 @@ async function loadData() {
     monitorLoadState.value = 'loading'
   }
   try {
-    const res = await request.get('/api/admin/monitor')
-    data.value = requireMonitorData((res as any).data)
+    const res = await request.get<unknown>('/api/admin/monitor')
+    data.value = requireMonitorData(getResponseData(res, '监控数据待确认'))
     monitorLoadState.value = 'ready'
     errorNotified = false
-  } catch (err: any) {
+  } catch (err: unknown) {
     data.value = emptyMonitorData()
     monitorLoadState.value = 'error'
     // 5 秒轮询,仅首次失败提示,避免重复弹窗刷屏
     if (!errorNotified) {
-      message.error(err.message || '加载监控数据失败')
+      message.error(err instanceof Error && err.message ? err.message : '加载监控数据失败')
       errorNotified = true
     }
   } finally {
@@ -276,10 +362,13 @@ const gaugeDashOffset = (value: unknown) => {
   return normalized == null ? circum : gaugeOffset(normalized)
 }
 const hasGaugeValue = (value: unknown) => toOptionalNumber(value) != null
-const formatPercent = (v: any) => (v != null ? Math.round(v * 10) / 10 + '%' : '-')
-const formatBytes = (v: any) => {
-  if (!v) return '-'
-  const b = Number(v)
+const formatPercent = (value: unknown) => {
+  const normalized = toOptionalNumber(value)
+  return normalized != null ? Math.round(normalized * 10) / 10 + '%' : '-'
+}
+const formatBytes = (value: unknown) => {
+  const b = toOptionalNumber(value)
+  if (b == null || b < 0) return '-'
   if (b < 1024) return b + ' B'
   if (b < 1024 * 1024) return (b / 1024).toFixed(1) + ' KB'
   if (b < 1024 * 1024 * 1024) return (b / (1024 * 1024)).toFixed(1) + ' MB'
@@ -291,7 +380,7 @@ function toOptionalNumber(value: unknown): number | null {
     return null
   }
   const normalized = Number(value)
-  return Number.isNaN(normalized) ? null : normalized
+  return Number.isFinite(normalized) ? normalized : null
 }
 </script>
 
