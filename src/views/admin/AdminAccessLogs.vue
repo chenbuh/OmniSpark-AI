@@ -188,6 +188,16 @@ function getResponseData(response: unknown, errorMessage: string): unknown {
   return response.data
 }
 
+function normalizeSummaryName(value: unknown): string {
+  if (typeof value === 'string') {
+    return value.trim()
+  }
+  if (typeof value === 'number' || typeof value === 'boolean') {
+    return String(value)
+  }
+  return ''
+}
+
 function normalizeSummaryRows(value: unknown): AccessLogSummaryRow[] {
   if (!Array.isArray(value)) {
     throw new Error('访问日志汇总待确认')
@@ -201,7 +211,7 @@ function normalizeSummaryRows(value: unknown): AccessLogSummaryRow[] {
       throw new Error('访问日志汇总待确认')
     }
     return {
-      name: typeof item.name === 'string' ? item.name.trim() : '',
+      name: normalizeSummaryName(item.name),
       count
     }
   })
