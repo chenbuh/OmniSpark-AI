@@ -163,16 +163,16 @@ watch(commentEndpoint, async () => {
 
 try {
   const info = JSON.parse(localStorage.getItem('userInfo') || '{}')
-  currentUserId.value = info.id || null
+  currentUserId.value = toPositiveNumberOrNull(info?.id)
 } catch {}
 
 function requireCreatedCommentResult(value: unknown) {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+  if (!isPlainObject(value)) {
     throw new Error('评论结果待确认')
   }
-  const id = Number((value as any).id)
-  const content = typeof (value as any).content === 'string' ? (value as any).content.trim() : ''
-  if (!Number.isFinite(id) || id <= 0 || !content) {
+  const id = requirePositiveNumber(value.id, '评论结果待确认')
+  const content = normalizeRequiredText(value.content, '评论结果待确认')
+  if (!content) {
     throw new Error('评论结果待确认')
   }
   return {
@@ -189,6 +189,95 @@ function requireDeletedCommentCount(value: unknown) {
   return parsed
 }
 
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === 'object' && !Array.isArray(value)
+}
+
+function normalizeOptionalText(value: unknown) {
+  return typeof value === 'string' ? value.trim() : ''
+}
+
+function normalizeRequiredText(value: unknown, errorMessage: string) {
+  const normalized = normalizeOptionalText(value)
+  if (!normalized) {
+    throw new Error(errorMessage)
+  }
+  return normalized
+}
+
+function toPositiveNumberOrNull(value: unknown) {
+  if (value == null || value === '') {
+    return null
+  }
+  const parsed = Number(value)
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : null
+}
+
+function requirePositiveNumber(value: unknown, errorMessage: string) {
+  const parsed = toPositiveNumberOrNull(value)
+  if (parsed == null) {
+    throw new Error(errorMessage)
+  }
+  return parsed
+}
+
+function normalizeParentId(value: unknown) {
+  if (value == null || value === '' || value === 0 || value === '0') {
+    return null
+  }
+  return requirePositiveNumber(value, '评论数据待确认')
+}
+
+function normalizeCreatedAt(value: unknown) {
+  return normalizeRequiredText(value, '评论数据待确认').replace('T', ' ').substring(0, 19)
+}
+
+function normalizeCommentTree(
+  value: unknown,
+  seenIds: Set<number>,
+  errorMessage: string
+): PublicComment {
+  if (!isPlainObject(value)) {
+    throw new Error(errorMessage)
+  }
+  const id = requirePositiveNumber(value.id, errorMessage)
+  if (seenIds.has(id)) {
+    throw new Error(errorMessage)
+  }
+  seenIds.add(id)
+  const userId = requirePositiveNumber(value.userId, errorMessage)
+  const content = normalizeRequiredText(value.content, errorMessage)
+  const repliesValue = value.replies
+  const replies = repliesValue == null
+    ? undefined
+    : requireCommentList(repliesValue, seenIds, errorMessage)
+
+  return {
+    id,
+    parentId: normalizeParentId(value.parentId),
+    userId,
+    username: normalizeOptionalText(value.username) || undefined,
+    nickname: normalizeOptionalText(value.nickname) || undefined,
+    avatar: normalizeOptionalText(value.avatar) || undefined,
+    replyToUsername: normalizeOptionalText(value.replyToUsername) || undefined,
+    replyToNickname: normalizeOptionalText(value.replyToNickname) || undefined,
+    content,
+    createdAt: normalizeCreatedAt(value.createdAt),
+    replies
+  }
+}
+
+function requireCommentList(
+  value: unknown,
+  seenIds = new Set<number>(),
+  errorMessage = '评论数据待确认'
+): PublicComment[] {
+  if (!Array.isArray(value)) {
+    throw new Error(errorMessage)
+  }
+  return value.map(item => normalizeCommentTree(item, seenIds, errorMessage))
+}
+
 async function loadComments(silent = false): Promise<PublicComment[] | null> {
   if (!commentEndpoint.value) {
     comments.value = []
@@ -198,10 +287,7 @@ async function loadComments(silent = false): Promise<PublicComment[] | null> {
   loading.value = true
   try {
     const res = await request.get(commentEndpoint.value)
-    if (!Array.isArray((res as any).data)) {
-      throw new Error('评论数据待确认')
-    }
-    const loadedComments = (res as any).data as PublicComment[]
+    const loadedComments = requireCommentList((res as any).data)
     comments.value = loadedComments
     emit('countChange', totalComments(loadedComments))
     return loadedComments
@@ -233,8 +319,8 @@ function formatTime(value?: string) {
   return String(value).replace('T', ' ').slice(0, 16)
 }
 
-function totalComments(items: PublicComment[]) {
-  return items.reduce((sum, item) => sum + 1 + (item.replies?.length || 0), 0)
+function totalComments(items: PublicComment[]): number {
+  return items.reduce((sum, item) => sum + 1 + totalComments(item.replies || []), 0)
 }
 
 function findCommentById(items: PublicComment[], id: number): PublicComment | null {
@@ -242,9 +328,11 @@ function findCommentById(items: PublicComment[], id: number): PublicComment | nu
     if (item.id === id) {
       return item
     }
-    const reply = item.replies?.find(child => child.id === id)
-    if (reply) {
-      return reply
+    if (item.replies?.length) {
+      const reply = findCommentById(item.replies, id)
+      if (reply) {
+        return reply
+      }
     }
   }
   return null

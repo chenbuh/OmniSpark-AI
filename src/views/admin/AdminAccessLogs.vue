@@ -112,12 +112,48 @@ import { computed, onMounted, reactive, ref } from 'vue'
 import { useMessage } from 'naive-ui'
 import request from '@/api/request'
 
+interface AccessLogSummaryRow {
+  name: string
+  count: number
+}
+
+interface AccessLogSummary {
+  windowMinutes: number
+  total: number
+  rateLimited: number
+  riskHits: number
+  topIps: AccessLogSummaryRow[]
+  topPaths: AccessLogSummaryRow[]
+  statusCodes: AccessLogSummaryRow[]
+}
+
+interface AccessLogRecord {
+  id: number
+  userId: number | null
+  apiKeyId: number | null
+  clientIp: string
+  userAgent: string
+  method: string
+  path: string
+  queryString: string
+  statusCode: number
+  durationMs: number
+  rateLimited: number
+  riskReason: string
+  createdAt: string
+}
+
+interface AccessLogPage {
+  records: AccessLogRecord[]
+  total: number
+}
+
 const message = useMessage()
 const loading = ref(false)
 const summaryLoading = ref(false)
 const summaryLoadState = ref<'loading' | 'ready' | 'error'>('loading')
-const logs = ref<any[] | null>(null)
-const summary = ref<Record<string, any>>({})
+const logs = ref<AccessLogRecord[] | null>(null)
+const summary = ref<AccessLogSummary | null>(null)
 const total = ref<number | null>(null)
 const page = ref(1)
 const pageSize = 20
@@ -131,21 +167,21 @@ const filters = reactive({
 })
 
 const summaryCards = computed(() => [
-  { label: '窗口', value: formatSummaryWindow(summary.value.windowMinutes) },
-  { label: '总请求', value: formatSummaryMetric(summary.value.total) },
-  { label: '限流命中', value: formatSummaryMetric(summary.value.rateLimited) },
-  { label: '风险命中', value: formatSummaryMetric(summary.value.riskHits) }
+  { label: '窗口', value: formatSummaryWindow(summary.value?.windowMinutes) },
+  { label: '总请求', value: formatSummaryMetric(summary.value?.total) },
+  { label: '限流命中', value: formatSummaryMetric(summary.value?.rateLimited) },
+  { label: '风险命中', value: formatSummaryMetric(summary.value?.riskHits) }
 ])
 const totalDisplay = computed(() => total.value == null ? '-' : total.value)
-const summaryTopIps = computed(() => Array.isArray(summary.value.topIps) ? summary.value.topIps : [])
-const summaryTopPaths = computed(() => Array.isArray(summary.value.topPaths) ? summary.value.topPaths : [])
-const summaryStatusCodes = computed(() => Array.isArray(summary.value.statusCodes) ? summary.value.statusCodes : [])
+const summaryTopIps = computed(() => summary.value?.topIps || [])
+const summaryTopPaths = computed(() => summary.value?.topPaths || [])
+const summaryStatusCodes = computed(() => summary.value?.statusCodes || [])
 
 function isPlainObject(value: unknown): value is Record<string, any> {
   return !!value && typeof value === 'object' && !Array.isArray(value)
 }
 
-function normalizeSummaryRows(value: unknown) {
+function normalizeSummaryRows(value: unknown): AccessLogSummaryRow[] {
   if (!Array.isArray(value)) {
     throw new Error('访问日志汇总待确认')
   }
@@ -173,7 +209,7 @@ function normalizeSummaryRows(value: unknown) {
   return normalized
 }
 
-function normalizeAccessLogRecord(value: unknown) {
+function normalizeAccessLogRecord(value: unknown): AccessLogRecord {
   if (!isPlainObject(value)) {
     throw new Error('访问日志数据待确认')
   }
@@ -213,13 +249,35 @@ function normalizeAccessLogRecord(value: unknown) {
   }
 }
 
-function requireAccessLogPage(value: unknown) {
+function requireAccessLogSummary(value: unknown): AccessLogSummary {
+  if (!isPlainObject(value)) {
+    throw new Error('访问日志汇总待确认')
+  }
+  const windowMinutes = requirePositiveNumber(value.windowMinutes, '访问日志汇总待确认')
+  const totalRequests = requireNonNegativeNumber(value.total, '访问日志汇总待确认')
+  const rateLimited = requireNonNegativeNumber(value.rateLimited, '访问日志汇总待确认')
+  const riskHits = requireNonNegativeNumber(value.riskHits, '访问日志汇总待确认')
+  if (rateLimited > totalRequests || riskHits > totalRequests) {
+    throw new Error('访问日志汇总待确认')
+  }
+  return {
+    windowMinutes,
+    total: totalRequests,
+    rateLimited,
+    riskHits,
+    topIps: normalizeSummaryRows(value.topIps),
+    topPaths: normalizeSummaryRows(value.topPaths),
+    statusCodes: normalizeSummaryRows(value.statusCodes)
+  }
+}
+
+function requireAccessLogPage(value: unknown): AccessLogPage {
   if (!isPlainObject(value)) {
     throw new Error('访问日志数据待确认')
   }
   const records = value.records
-  const count = toOptionalNumber(value.total)
-  if (!Array.isArray(records) || count == null || count < 0) {
+  const count = requireNonNegativeNumber(value.total, '访问日志数据待确认')
+  if (!Array.isArray(records)) {
     throw new Error('访问日志数据待确认')
   }
   const normalizedRecords = records.map(item => normalizeAccessLogRecord(item))
@@ -247,33 +305,10 @@ async function loadSummary() {
       params: { minutes: 60 },
       headers: NO_CACHE_HEADERS
     })
-    const data = (res as any).data
-    if (!isPlainObject(data)) {
-      throw new Error('访问日志汇总待确认')
-    }
-    const windowMinutes = toOptionalNumber(data.windowMinutes)
-    const totalRequests = toOptionalNumber(data.total)
-    const rateLimited = toOptionalNumber(data.rateLimited)
-    const riskHits = toOptionalNumber(data.riskHits)
-    if (
-      windowMinutes == null || totalRequests == null || rateLimited == null || riskHits == null
-      || windowMinutes <= 0 || totalRequests < 0 || rateLimited < 0 || riskHits < 0
-      || rateLimited > totalRequests || riskHits > totalRequests
-    ) {
-      throw new Error('访问日志汇总待确认')
-    }
-    summary.value = {
-      windowMinutes,
-      total: totalRequests,
-      rateLimited,
-      riskHits,
-      topIps: normalizeSummaryRows(data.topIps),
-      topPaths: normalizeSummaryRows(data.topPaths),
-      statusCodes: normalizeSummaryRows(data.statusCodes)
-    }
+    summary.value = requireAccessLogSummary((res as any).data)
     summaryLoadState.value = 'ready'
   } catch (err: any) {
-    summary.value = {}
+    summary.value = null
     summaryLoadState.value = 'error'
     message.error(err.message || '加载访问日志汇总失败')
   } finally {

@@ -17,11 +17,16 @@ export const useProjectStore = defineStore('project', {
     loadState: 'idle' as 'idle' | 'loading' | 'ready' | 'error'
   }),
   actions: {
-    normalizeProject(project: any): Project {
+    normalizeProject(project: unknown): Project {
+      if (!isPlainObject(project)) {
+        throw new Error('项目数据待确认')
+      }
       const id = parseRequiredProjectNumber(project?.id)
       const userId = parseRequiredProjectNumber(project?.userId)
-      const name = normalizeOptionalText(project?.name)
-      if (!name) {
+      const name = normalizeRequiredText(project?.name, '项目数据待确认')
+      const status = parseOptionalNumber(project.status)
+      const createdAt = normalizeRequiredDateTime(project.createdAt, '项目数据待确认')
+      if (status != null && status < 0) {
         throw new Error('项目数据待确认')
       }
       return {
@@ -29,12 +34,12 @@ export const useProjectStore = defineStore('project', {
         userId,
         name,
         description: normalizeOptionalText(project?.description),
-        status: parseOptionalNumber(project.status),
-        createdAt: String(project.createdAt || '').replace('T', ' ').substring(0, 19)
+        status,
+        createdAt
       }
     },
-    setProjects(projects: any[]) {
-      this.projects = projects.map(item => this.normalizeProject(item))
+    setProjects(projects: unknown) {
+      this.projects = normalizeProjectList(projects, this.normalizeProject)
       if (this.projects.length > 0) {
         const exists = this.projects.some(item => item.id === this.activeProjectId)
         if (!exists) {
@@ -48,9 +53,6 @@ export const useProjectStore = defineStore('project', {
       this.loadState = 'loading'
       try {
         const res = await projectApi.getProjects()
-        if (!Array.isArray(res.data)) {
-          throw new Error('项目数据待确认')
-        }
         this.setProjects(res.data)
         this.loadState = 'ready'
         return this.projects
@@ -119,6 +121,28 @@ export const useProjectStore = defineStore('project', {
   }
 })
 
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === 'object' && !Array.isArray(value)
+}
+
+function normalizeProjectList(
+  value: unknown,
+  normalizeProject: (project: unknown) => Project
+): Project[] {
+  if (!Array.isArray(value)) {
+    throw new Error('项目数据待确认')
+  }
+  const normalized = value.map(item => normalizeProject(item))
+  const ids = new Set<number>()
+  normalized.forEach(item => {
+    if (ids.has(item.id)) {
+      throw new Error('项目数据待确认')
+    }
+    ids.add(item.id)
+  })
+  return normalized
+}
+
 function parseOptionalNumber(value: unknown): number | null {
   if (value == null || value === '') {
     return null
@@ -142,4 +166,20 @@ function parseRequiredProjectNumber(value: unknown): number {
 
 function normalizeOptionalText(value: unknown): string {
   return typeof value === 'string' ? value.trim() : ''
+}
+
+function normalizeRequiredText(value: unknown, errorMessage: string): string {
+  const normalized = normalizeOptionalText(value)
+  if (!normalized) {
+    throw new Error(errorMessage)
+  }
+  return normalized
+}
+
+function normalizeRequiredDateTime(value: unknown, errorMessage: string): string {
+  const normalized = normalizeOptionalText(value).replace('T', ' ').substring(0, 19)
+  if (!normalized) {
+    throw new Error(errorMessage)
+  }
+  return normalized
 }

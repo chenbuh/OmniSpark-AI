@@ -18,8 +18,9 @@ export const useTeamStore = defineStore('team', {
       if (!name) {
         throw new Error('团队数据待确认')
       }
+      const status = parseOptionalNumber(record.status)
       const memberCountValue = parseOptionalNumber(record.memberCount)
-      if (memberCountValue != null && memberCountValue < 0) {
+      if ((status != null && status < 0) || (memberCountValue != null && memberCountValue < 0)) {
         throw new Error('团队数据待确认')
       }
       return {
@@ -29,9 +30,9 @@ export const useTeamStore = defineStore('team', {
         ownerId,
         ownerName: normalizeOptionalText(record.ownerName) || undefined,
         avatar: normalizeOptionalText(record.avatar) || undefined,
-        status: parseOptionalNumber(record.status),
+        status,
         memberCount: memberCountValue ?? undefined,
-        createdAt: normalizeDateTime(record.createdAt)
+        createdAt: normalizeRequiredDateTime(record.createdAt, '团队数据待确认')
       }
     },
     normalizeMember(m: unknown): TeamMember {
@@ -44,7 +45,8 @@ export const useTeamStore = defineStore('team', {
       const userId = parseRequiredPositiveNumber(record.userId, '成员数据待确认')
       const username = normalizeOptionalText(record.username)
       const role = normalizeOptionalText(record.role)
-      if (!username || !role) {
+      const status = parseOptionalNumber(record.status)
+      if (!username || !role || (status != null && status < 0)) {
         throw new Error('成员数据待确认')
       }
       return {
@@ -55,45 +57,23 @@ export const useTeamStore = defineStore('team', {
         nickname: normalizeOptionalText(record.nickname) || undefined,
         avatar: normalizeOptionalText(record.avatar) || undefined,
         role,
-        status: parseOptionalNumber(record.status),
-        createdAt: normalizeDateTime(record.createdAt)
+        status,
+        createdAt: normalizeRequiredDateTime(record.createdAt, '成员数据待确认')
       }
     },
-    setTeams(data: any[]) {
-      const normalized = data.map(item => this.normalizeTeam(item))
-      const ids = new Set<number>()
-      normalized.forEach(item => {
-        if (ids.has(item.id)) {
-          throw new Error('团队数据待确认')
-        }
-        ids.add(item.id)
-      })
-      this.teams = normalized
+    setTeams(data: unknown) {
+      this.teams = normalizeTeamList(data, this.normalizeTeam)
     },
-    setMembers(data: any[]) {
-      const normalized = data.map(item => this.normalizeMember(item))
-      const ids = new Set<number>()
-      normalized.forEach(item => {
-        if (ids.has(item.id)) {
-          throw new Error('成员数据待确认')
-        }
-        ids.add(item.id)
-      })
-      this.currentMembers = normalized
+    setMembers(data: unknown) {
+      this.currentMembers = normalizeMemberList(data, this.normalizeMember)
     },
     async refresh() {
       const res = await teamApi.getTeams()
-      if (!Array.isArray(res.data)) {
-        throw new Error('团队数据待确认')
-      }
       this.setTeams(res.data)
       return this.teams
     },
     async refreshMembers(teamId: number) {
       const res = await teamApi.getMembers(teamId)
-      if (!Array.isArray(res.data)) {
-        throw new Error('成员数据待确认')
-      }
       this.setMembers(res.data)
       if (this.currentMembers.some(item => item.teamId !== teamId)) {
         throw new Error('成员数据待确认')
@@ -143,6 +123,39 @@ export const useTeamStore = defineStore('team', {
   }
 })
 
+function normalizeTeamList(value: unknown, normalizeTeam: (team: unknown) => Team): Team[] {
+  if (!Array.isArray(value)) {
+    throw new Error('团队数据待确认')
+  }
+  const normalized = value.map(item => normalizeTeam(item))
+  const ids = new Set<number>()
+  normalized.forEach(item => {
+    if (ids.has(item.id)) {
+      throw new Error('团队数据待确认')
+    }
+    ids.add(item.id)
+  })
+  return normalized
+}
+
+function normalizeMemberList(
+  value: unknown,
+  normalizeMember: (member: unknown) => TeamMember
+): TeamMember[] {
+  if (!Array.isArray(value)) {
+    throw new Error('成员数据待确认')
+  }
+  const normalized = value.map(item => normalizeMember(item))
+  const ids = new Set<number>()
+  normalized.forEach(item => {
+    if (ids.has(item.id)) {
+      throw new Error('成员数据待确认')
+    }
+    ids.add(item.id)
+  })
+  return normalized
+}
+
 function parseOptionalNumber(value: unknown): number | null {
   if (value == null || value === '') {
     return null
@@ -171,6 +184,10 @@ function parseRequiredPositiveNumber(value: unknown, errorMessage: string): numb
   return parsed
 }
 
-function normalizeDateTime(value: unknown): string {
-  return String(value || '').replace('T', ' ').substring(0, 19)
+function normalizeRequiredDateTime(value: unknown, errorMessage: string): string {
+  const normalized = normalizeOptionalText(value).replace('T', ' ').substring(0, 19)
+  if (!normalized) {
+    throw new Error(errorMessage)
+  }
+  return normalized
 }

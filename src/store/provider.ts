@@ -19,29 +19,41 @@ export const useModelProviderStore = defineStore('modelProvider', {
     providers: [] as ModelProvider[]
   }),
   actions: {
-    normalizeProvider(provider: any): ModelProvider {
+    normalizeProvider(provider: unknown): ModelProvider {
+      if (!isPlainObject(provider)) {
+        throw new Error('模型提供商数据待确认')
+      }
+      const id = parseRequiredPositiveNumber(provider.id, '模型提供商数据待确认')
+      const projectId = parseRequiredNonNegativeNumber(provider.projectId, '模型提供商数据待确认')
+      const name = normalizeRequiredText(provider.name, '模型提供商数据待确认')
+      const type = normalizeRequiredText(provider.type, '模型提供商数据待确认')
+      const baseUrl = normalizeRequiredText(provider.baseUrl, '模型提供商数据待确认')
+      const modelName = normalizeRequiredText(provider.modelName, '模型提供商数据待确认')
       return {
-        id: Number(provider.id),
-        projectId: Number(provider.projectId),
-        name: provider.name || '',
-        type: provider.type || '',
-        baseUrl: provider.baseUrl || '',
-        apiKey: provider.apiKey || '',
-        modelName: provider.modelName || '',
+        id,
+        projectId,
+        name,
+        type,
+        baseUrl,
+        apiKey: normalizeOptionalText(provider.apiKey),
+        modelName,
         enabled: parseOptionalBoolean(provider.enabled),
         isDefault: parseOptionalBoolean(provider.isDefault),
-        configJson: provider.configJson || ''
+        configJson: normalizeOptionalText(provider.configJson)
       }
     },
-    setProviders(providers: any[]) {
-      this.providers = providers.map(item => this.normalizeProvider(item))
+    setProviders(providers: unknown) {
+      this.providers = normalizeProviderList(providers, this.normalizeProvider)
     },
     async refresh(projectId?: number) {
       const res = await providerApi.getProviders(projectId)
-      if (!Array.isArray(res.data)) {
+      this.setProviders(res.data)
+      if (
+        typeof projectId === 'number'
+        && this.providers.some(item => item.projectId !== 0 && item.projectId !== projectId)
+      ) {
         throw new Error('模型提供商数据待确认')
       }
-      this.setProviders(res.data)
       return this.providers
     },
     getProvidersByProject(projectId: number) {
@@ -151,6 +163,28 @@ export const useModelProviderStore = defineStore('modelProvider', {
   }
 })
 
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === 'object' && !Array.isArray(value)
+}
+
+function normalizeProviderList(
+  value: unknown,
+  normalizeProvider: (provider: unknown) => ModelProvider
+): ModelProvider[] {
+  if (!Array.isArray(value)) {
+    throw new Error('模型提供商数据待确认')
+  }
+  const normalized = value.map(item => normalizeProvider(item))
+  const ids = new Set<number>()
+  normalized.forEach(item => {
+    if (ids.has(item.id)) {
+      throw new Error('模型提供商数据待确认')
+    }
+    ids.add(item.id)
+  })
+  return normalized
+}
+
 function assertProviderMatchesExpected(
   provider: ModelProvider,
   expected: {
@@ -201,6 +235,22 @@ function parseRequiredProviderId(value: unknown): number | null {
   return parsed
 }
 
+function parseRequiredPositiveNumber(value: unknown, errorMessage: string): number {
+  const parsed = parseRequiredProviderId(value)
+  if (parsed == null) {
+    throw new Error(errorMessage)
+  }
+  return parsed
+}
+
+function parseRequiredNonNegativeNumber(value: unknown, errorMessage: string): number {
+  const parsed = Number(value)
+  if (!Number.isFinite(parsed) || parsed < 0) {
+    throw new Error(errorMessage)
+  }
+  return parsed
+}
+
 function parseOptionalBoolean(value: unknown): boolean | null {
   if (value == null || value === '') {
     return null
@@ -226,4 +276,12 @@ function parseOptionalBoolean(value: unknown): boolean | null {
 
 function normalizeOptionalText(value: unknown): string {
   return typeof value === 'string' ? value.trim() : ''
+}
+
+function normalizeRequiredText(value: unknown, errorMessage: string): string {
+  const normalized = normalizeOptionalText(value)
+  if (!normalized) {
+    throw new Error(errorMessage)
+  }
+  return normalized
 }
