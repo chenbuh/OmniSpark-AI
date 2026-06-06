@@ -764,7 +764,7 @@ onMounted(async () => {
       videoMode.value = 'img2vid'
       selectedImageAsset.value = asset
     } else if (asset) {
-      message.warning('当前仅支持图片作为首帧参考，已仅带入真实提示词与模型参数')
+      message.warning('当前仅支持图片作为首帧参考，已仅保留可兼容的视频参数')
     }
   }
   if (route.query.endAssetId) {

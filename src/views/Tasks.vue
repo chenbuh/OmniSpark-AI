@@ -326,7 +326,7 @@ function buildTaskParameterCopyText(task: GenerationTask) {
 const handleCopyParams = async (task: GenerationTask) => {
   try {
     await navigator.clipboard.writeText(buildTaskParameterCopyText(task))
-    message.success('真实请求参数已复制')
+    message.success(task.requestJson ? '真实请求参数已复制' : '已复制当前任务已记录的参数摘要')
   } catch {
     message.error('复制失败，请稍后再试')
   }
