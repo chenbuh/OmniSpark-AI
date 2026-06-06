@@ -1241,9 +1241,8 @@ const hasUnreadNotifications = computed(() => (unreadCount.value ?? 0) > 0)
 
 const loadNotifications = async () => {
   try {
-    const [unreadRes, allRes] = await Promise.all([
-      request.get<unknown>('/api/notifications/unread', {
-        params: { limit: 50 },
+    const [countRes, allRes] = await Promise.all([
+      request.get<unknown>('/api/notifications/count', {
         headers: NOTIFICATION_HEADERS
       }),
       request.get<unknown>('/api/notifications', {
@@ -1251,9 +1250,9 @@ const loadNotifications = async () => {
         headers: NOTIFICATION_HEADERS
       })
     ])
-    const unreadItems = normalizeNotificationList(getResponseData(unreadRes, '通知数据待确认'))
+    const unreadTotal = requireUnreadCount(getResponseData(countRes, '通知数据待确认'))
     const allItems = normalizeNotificationList(getResponseData(allRes, '通知数据待确认'))
-    unreadCount.value = unreadItems.length
+    unreadCount.value = unreadTotal
     notifications.value = allItems
     notificationErrorNotified = false
   } catch (err: unknown) {
@@ -1264,6 +1263,14 @@ const loadNotifications = async () => {
       notificationErrorNotified = true
     }
   }
+}
+
+function requireUnreadCount(value: unknown) {
+  const total = Number(value)
+  if (!Number.isFinite(total) || total < 0) {
+    throw new Error('通知数据待确认')
+  }
+  return total
 }
 
 function normalizeNotificationReadFlag(value: unknown): boolean | null {
