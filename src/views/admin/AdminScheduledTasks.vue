@@ -97,8 +97,8 @@
           <n-button size="tiny" quaternary @click="form.cron = '0 0 12 * * ?'">每天12点</n-button>
         </div>
         <n-form-item v-if="form.taskType === 'cleanup'" label="保留天数">
-          <n-input-number v-model:value="cleanupDays" :min="1" :max="365" style="width:100%;" />
-          <div class="cron-hint" style="margin-top:4px;">超过此天数的数据将被清理</div>
+          <n-input-number v-model:value="cleanupDays" :min="7" :max="365" style="width:100%;" />
+          <div class="cron-hint" style="margin-top:4px;">超过此天数的数据将被清理。真实执行下限为 7 天，避免误删近期数据。</div>
         </n-form-item>
       </n-form>
       <template #footer>
@@ -151,6 +151,7 @@ const tasksCountDisplay = computed(() => tasks.value === null ? '-' : tasks.valu
 const typeOptions = [
   { label: '数据清理', value: 'cleanup' as ScheduledTaskType }
 ]
+const CLEANUP_MIN_DAYS = 7
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === 'object' && !Array.isArray(value)
@@ -324,13 +325,17 @@ function openEdit(task: ScheduledTaskRecord) {
   form.cron = task.cron
   cleanupDays.value = 30
   if (task.configJson) {
-    try { cleanupDays.value = JSON.parse(task.configJson).daysOld || 30 } catch {}
+    try { cleanupDays.value = Math.max(CLEANUP_MIN_DAYS, JSON.parse(task.configJson).daysOld || 30) } catch {}
   }
   showEditor.value = true
 }
 
 async function handleSave() {
   if (!form.name || !form.cron) { message.error('名称和 Cron 表达式为必填'); return }
+  if (form.taskType === 'cleanup' && cleanupDays.value < CLEANUP_MIN_DAYS) {
+    message.error(`数据清理任务的保留天数不能小于 ${CLEANUP_MIN_DAYS} 天`)
+    return
+  }
   const payload: Record<string, string> = {
     name: form.name,
     description: form.description,
@@ -444,7 +449,11 @@ async function handleRunNow(id: number) {
     if (nextLastStatus !== 'success' && nextLastStatus !== 'failed') {
       throw new Error('任务触发结果待确认')
     }
-    message.success('任务已触发')
+    if (nextLastStatus === 'failed') {
+      message.error('任务已触发，但执行失败，请检查 Cron 和清理配置')
+      return
+    }
+    message.success('任务已触发并执行成功')
   } catch (err: unknown) { message.error(getErrorMessage(err, '执行失败')) }
   finally { runningId.value = null }
 }

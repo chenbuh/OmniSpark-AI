@@ -9,10 +9,11 @@
     <n-card class="glass-card" :bordered="false">
       <div class="param-row">
         <span class="param-label">清理超过</span>
-        <n-input-number v-model:value="daysOld" :min="1" :max="365" :step="1" style="width:100px" />
+        <n-input-number v-model:value="daysOld" :min="7" :max="365" :step="1" style="width:100px" />
         <span class="param-label">天的数据</span>
         <n-button type="primary" secondary @click="handlePreview" :loading="previewing">预览可清理量</n-button>
       </div>
+      <div class="status-note status-note--hint">真实清理下限为 7 天，避免误删近期任务、资产与日志。</div>
       <div v-if="previewLoadState === 'error'" class="status-note">清理预览待确认，请稍后重试。</div>
       <div v-if="resultLoadState === 'error'" class="status-note">清理结果待确认，请稍后重试。</div>
     </n-card>
@@ -89,6 +90,7 @@ const cleaning = ref(false)
 const previewLoadState = ref<'idle' | 'loading' | 'ready' | 'error'>('idle')
 const resultLoadState = ref<'idle' | 'ready' | 'error'>('idle')
 const NO_CACHE_HEADERS = { 'X-No-Cache': '1' }
+const CLEANUP_MIN_DAYS = 7
 
 const cleanupItems: CleanupItem[] = [
   { key: 'oldTasks', label: '过期任务', color: '#f59e0b' },
@@ -127,7 +129,7 @@ function normalizeCleanupPreview(payload: unknown): CleanupPreviewPayload {
     acc[item.key] = normalized
     return acc
   }, {} as Record<CleanupMetricKey, number>)
-  if (daysOldValue == null || daysOldValue < 1) {
+  if (daysOldValue == null || daysOldValue < CLEANUP_MIN_DAYS) {
     throw new Error('清理预览待确认')
   }
   return {
@@ -165,6 +167,12 @@ function cleanupResultKey(metricKey: CleanupMetricKey): CleanupResultMetricKey {
 
 function snapshotCleanupMetrics<T extends string>(source: Record<T, unknown> | null, keys: readonly T[]) {
   return Object.fromEntries(keys.map((key) => [key, source ? toOptionalNumber(source[key]) ?? 0 : 0])) as Record<T, number>
+}
+
+function requireValidDaysOldInput() {
+  if (daysOld.value < CLEANUP_MIN_DAYS) {
+    throw new Error(`保留天数不能小于 ${CLEANUP_MIN_DAYS} 天，以防误删近期数据`)
+  }
 }
 
 function requireCleanupExecutionConfirmed(
@@ -212,6 +220,7 @@ function requireCleanupExecutionConfirmed(
 }
 
 async function fetchCleanupPreview(noCache = false) {
+  requireValidDaysOldInput()
   const res = await request.get<unknown>('/api/admin/cleanup/preview', {
     params: { daysOld: daysOld.value },
     headers: noCache ? NO_CACHE_HEADERS : undefined
@@ -238,6 +247,7 @@ async function handlePreview() {
 async function handleExecute() {
   cleaning.value = true
   try {
+    requireValidDaysOldInput()
     const previewPayload = preview.value ?? await fetchCleanupPreview(true)
     const previewSnapshot = snapshotCleanupMetrics(previewPayload as Record<CleanupMetricKey, unknown>, cleanupItems.map(item => item.key))
     const res = await request.delete<unknown>('/api/admin/cleanup/execute', { params: { daysOld: daysOld.value } })
@@ -286,4 +296,5 @@ function toOptionalNumber(value: unknown): number | null {
 .stats-value { font-size: 24px; font-weight: 700; }
 .stats-unit { font-size: 10px; color: #6b7280; }
 .status-note { margin-top: 12px; font-size: 12px; color: #fca5a5; }
+.status-note--hint { color: #9ca3af; }
 </style>

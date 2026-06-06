@@ -5,6 +5,8 @@ import com.example.aihub.infrastructure.mapper.ScheduledTaskMapper;
 import com.example.aihub.module.system.AdminCleanupController;
 import com.example.aihub.common.exception.BusinessException;
 import com.example.aihub.common.util.PagingUtil;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -25,10 +27,12 @@ import java.util.concurrent.TimeUnit;
 @RequiredArgsConstructor
 public class DynamicSchedulerService {
     private static final Set<String> SUPPORTED_TASK_TYPES = Set.of("cleanup");
+    private static final int CLEANUP_MIN_DAYS_OLD = 7;
 
     private final ScheduledTaskMapper taskMapper;
     private final ScheduledExecutorService executor = Executors.newScheduledThreadPool(3);
     private final AdminCleanupController cleanupController;
+    private final ObjectMapper objectMapper;
 
     @PostConstruct
     public void init() {
@@ -138,13 +142,7 @@ public class DynamicSchedulerService {
 
             switch (task.getTaskType()) {
                 case "cleanup" -> {
-                    int days = 30;
-                    try {
-                        if (task.getConfigJson() != null) {
-                            var node = new com.fasterxml.jackson.databind.ObjectMapper().readTree(task.getConfigJson());
-                            if (node.has("daysOld")) days = node.get("daysOld").asInt();
-                        }
-                    } catch (Exception ignored) {}
+                    int days = resolveCleanupDaysOld(task.getConfigJson());
                     cleanupController.execute(days);
                     log.info("Scheduled cleanup completed: {} days", days);
                 }
@@ -178,8 +176,9 @@ public class DynamicSchedulerService {
             throw new BusinessException("当前仅支持真实可执行的“数据清理”任务类型");
         }
         task.setTaskType(normalizedType);
-        if ("cleanup".equals(normalizedType) && (task.getConfigJson() == null || task.getConfigJson().isBlank())) {
-            task.setConfigJson("{\"daysOld\":30}");
+        if ("cleanup".equals(normalizedType)) {
+            int daysOld = resolveCleanupDaysOld(task.getConfigJson());
+            task.setConfigJson("{\"daysOld\":" + daysOld + "}");
         }
     }
 
@@ -189,5 +188,23 @@ public class DynamicSchedulerService {
 
     private String normalizeTaskType(String taskType) {
         return taskType == null ? "" : taskType.trim().toLowerCase(Locale.ROOT);
+    }
+
+    private int resolveCleanupDaysOld(String configJson) {
+        if (configJson == null || configJson.isBlank()) {
+            return 30;
+        }
+        try {
+            JsonNode node = objectMapper.readTree(configJson);
+            int daysOld = node.path("daysOld").asInt(30);
+            if (daysOld < CLEANUP_MIN_DAYS_OLD) {
+                throw new BusinessException("数据清理任务的保留天数不能小于 " + CLEANUP_MIN_DAYS_OLD + " 天");
+            }
+            return daysOld;
+        } catch (BusinessException ex) {
+            throw ex;
+        } catch (Exception ex) {
+            throw new BusinessException("数据清理任务配置无效，请填写真实可执行的保留天数");
+        }
     }
 }
