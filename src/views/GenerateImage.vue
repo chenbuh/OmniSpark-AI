@@ -271,7 +271,7 @@
           <!-- 2. 生成成功结果展示 -->
           <div v-else-if="currentAsset" class="result-state">
             <div class="image-wrapper">
-              <img :src="currentAsset.fileUrl" :alt="currentAsset.prompt || '生成结果图片'" class="result-img" @click="showLightbox = true" />
+              <img :src="currentAsset.fileUrl" :alt="actualImagePrompt || '生成结果图片'" class="result-img" @click="showLightbox = true" />
               <!-- 批量切换指示 -->
               <div class="batch-indicator" v-if="batchTotal > 1">
                 <n-button size="tiny" secondary :disabled="selectedBatchIndex <= 0" @click.stop="selectedBatchIndex--">
@@ -318,7 +318,7 @@
                 :class="{ 'active': idx === selectedBatchIndex }"
                 @click="selectedBatchIndex = idx"
               >
-                <img :src="asset.thumbUrl" :alt="asset.prompt || '批次图片缩略图'" class="batch-thumb-img" loading="lazy" />
+                <img :src="asset.thumbUrl" :alt="actualImagePrompt || asset.prompt || '批次图片缩略图'" class="batch-thumb-img" loading="lazy" />
                 <div class="batch-thumb-overlay">
                   <span class="batch-thumb-idx">{{ idx + 1 }}</span>
                 </div>
@@ -327,11 +327,12 @@
 
             <div class="params-details-card">
               <div class="params-head">
-                <span class="model-badge">模型: {{ currentAsset.modelName }}</span>
+                <span class="model-badge">模型: {{ actualImageModelName || currentAsset.modelName }}</span>
                 <span class="date">{{ currentAsset.createdAt }}</span>
                 <span class="batch-badge" v-if="batchTotal > 1">共 {{ batchTotal }} 张</span>
               </div>
-              <p class="prompt-display"><strong>Prompt:</strong> {{ currentAsset.prompt }}</p>
+              <p class="prompt-display"><strong>Prompt:</strong> {{ actualImagePrompt || currentAsset.prompt }}</p>
+              <p v-if="actualImageNegativePrompt" class="prompt-display prompt-display-negative"><strong>Negative:</strong> {{ actualImageNegativePrompt }}</p>
               <!-- 实际参数对比 -->
               <n-collapse style="margin-top:10px;">
                 <n-collapse-item title="📊 实际生成参数" name="params">
@@ -1641,6 +1642,14 @@ function normalizeActualImageMode(payload: Record<string, unknown> | null) {
 }
 
 const activeImageTaskRequest = computed(() => tryParseTaskRequestJson(activeTask.value))
+
+const actualImagePrompt = computed(() => {
+  return normalizeTaskField(activeImageTaskRequest.value?.prompt) || currentAsset.value?.prompt || ''
+})
+
+const actualImageNegativePrompt = computed(() => {
+  return normalizeTaskField(activeImageTaskRequest.value?.negativePrompt) || ''
+})
 
 const actualImageModelName = computed(() => {
   return normalizeTaskField(activeTask.value?.modelName) || currentAsset.value?.modelName || ''
@@ -3181,6 +3190,10 @@ onBeforeUnmount(() => {
   color: #d1d5db;
   line-height: 1.5;
   margin: 0;
+}
+
+.prompt-display-negative {
+  color: #fca5a5;
 }
 
 /* 历史生成侧栏 */

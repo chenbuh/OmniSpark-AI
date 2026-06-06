@@ -184,7 +184,7 @@
           <!-- 2. 生成成功播放器 -->
           <div v-else-if="currentAsset" class="result-state">
             <div class="video-wrapper">
-              <video :src="currentAsset.fileUrl" :aria-label="currentAsset.prompt || '生成的视频结果'" class="result-video" controls autoplay loop playsinline></video>
+              <video :src="currentAsset.fileUrl" :aria-label="actualVideoPrompt || '生成的视频结果'" class="result-video" controls autoplay loop playsinline></video>
               <!-- 悬浮控制条 -->
               <div class="action-float-bar">
                 <n-button circle secondary class="float-btn" @click="handleToggleFavorite">
@@ -206,7 +206,7 @@
                 <span class="model-badge">视频模型: {{ actualVideoModelName || currentAsset.modelName }}</span>
                 <span class="date">{{ currentAsset.createdAt }}</span>
               </div>
-              <p class="prompt-display"><strong>视频 Prompt:</strong> {{ currentAsset.prompt }}</p>
+              <p class="prompt-display"><strong>视频 Prompt:</strong> {{ actualVideoPrompt || currentAsset.prompt }}</p>
               <div class="param-compare-grid">
                 <div class="param-item">
                   <span class="param-label">生成模式</span>
@@ -826,6 +826,10 @@ function toPositiveInteger(value: unknown) {
 }
 
 const activeVideoTaskRequest = computed(() => tryParseTaskRequestJsonForDisplay(activeTask.value))
+
+const actualVideoPrompt = computed(() => {
+  return normalizeTaskField(activeVideoTaskRequest.value?.prompt) || currentAsset.value?.prompt || ''
+})
 
 const actualVideoModelName = computed(() => {
   return normalizeTaskField(activeTask.value?.modelName) || currentAsset.value?.modelName || ''
