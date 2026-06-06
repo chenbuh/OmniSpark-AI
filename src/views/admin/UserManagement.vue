@@ -193,6 +193,29 @@ type AdminUserRecord = {
   createdAt: string
 }
 
+type RoleOption = {
+  label: string
+  value: string
+}
+
+type CreatedUserResult = {
+  id: number
+  username: string
+  initialPassword: string
+}
+
+type GeneratedCredential = {
+  username: string
+  initialPassword: string
+}
+
+type UserImportResult = {
+  success: number
+  failed: number
+  errors: string[]
+  generatedCredentials: GeneratedCredential[]
+}
+
 const users = ref<AdminUserRecord[] | null>(null)
 const search = ref('')
 const loading = ref(true)
@@ -201,7 +224,7 @@ const loading = ref(true)
 const page = ref(1)
 const pageSize = 10
 const total = ref<number | null>(null)
-const roleOptions = ref<{ label: string; value: string }[]>([])
+const roleOptions = ref<RoleOption[]>([])
 const roleOptionsLoadState = ref<'loading' | 'ready' | 'error'>('loading')
 const totalDisplay = computed(() => total.value == null ? '-' : total.value)
 
@@ -220,12 +243,27 @@ onMounted(async () => {
   await loadUsers()
 })
 
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === 'object' && !Array.isArray(value)
+}
+
+function getResponseData(response: unknown, errorMessage: string) {
+  if (!isPlainObject(response) || !('data' in response)) {
+    throw new Error(errorMessage)
+  }
+  return response.data
+}
+
+function normalizeOptionalText(value: unknown) {
+  return typeof value === 'string' ? value.trim() : ''
+}
+
 function requireUsersPage(value: unknown) {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+  if (!isPlainObject(value)) {
     throw new Error('用户数据待确认')
   }
-  const records = (value as any).records
-  const count = Number((value as any).total)
+  const records = value.records
+  const count = Number(value.total)
   if (!Array.isArray(records) || !Number.isFinite(count) || count < 0) {
     throw new Error('用户数据待确认')
   }
@@ -248,43 +286,95 @@ function requireUsersPage(value: unknown) {
 }
 
 function normalizeUserRecord(value: unknown): AdminUserRecord {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+  if (!isPlainObject(value)) {
     throw new Error('用户数据待确认')
   }
-  const record = value as Record<string, unknown>
-  const id = Number(record.id)
-  const username = typeof record.username === 'string' ? record.username.trim() : ''
-  const role = typeof record.role === 'string' ? record.role.trim() : ''
-  const status = normalizeUserStatus(record.status)
-  const createdAt = typeof record.createdAt === 'string' ? record.createdAt.trim() : ''
+  const id = Number(value.id)
+  const username = normalizeOptionalText(value.username)
+  const role = normalizeOptionalText(value.role)
+  const status = normalizeUserStatus(value.status)
+  const createdAt = normalizeOptionalText(value.createdAt)
   if (!Number.isFinite(id) || id <= 0 || !username || !role || status == null || !createdAt) {
     throw new Error('用户数据待确认')
   }
   return {
     id,
     username,
-    nickname: typeof record.nickname === 'string' ? record.nickname.trim() : '',
-    avatar: typeof record.avatar === 'string' ? record.avatar.trim() : '',
+    nickname: normalizeOptionalText(value.nickname),
+    avatar: normalizeOptionalText(value.avatar),
     role,
     status,
     createdAt
   }
 }
 
-function requireCreatedUserResult(value: unknown) {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+function requireCreatedUserResult(value: unknown): CreatedUserResult {
+  if (!isPlainObject(value)) {
     throw new Error('用户创建结果待确认')
   }
-  const id = Number((value as any).id)
-  const username = typeof (value as any).username === 'string' ? (value as any).username.trim() : ''
-  const role = typeof (value as any).role === 'string' ? (value as any).role.trim() : ''
+  const id = Number(value.id)
+  const username = normalizeOptionalText(value.username)
+  const role = normalizeOptionalText(value.role)
   if (!Number.isFinite(id) || id <= 0 || !username || !role) {
     throw new Error('用户创建结果待确认')
   }
   return {
     id,
     username,
-    initialPassword: typeof (value as any).initialPassword === 'string' ? (value as any).initialPassword : ''
+    initialPassword: typeof value.initialPassword === 'string' ? value.initialPassword : ''
+  }
+}
+
+function requireResetPasswordResult(value: unknown) {
+  if (!isPlainObject(value)) {
+    throw new Error('重置后的初始密码待确认')
+  }
+  const initialPassword = normalizeOptionalText(value.initialPassword)
+  if (!initialPassword) {
+    throw new Error('重置后的初始密码待确认')
+  }
+  return { initialPassword }
+}
+
+function requireGeneratedCredentials(value: unknown): GeneratedCredential[] {
+  if (value == null) {
+    return []
+  }
+  if (!Array.isArray(value)) {
+    throw new Error('导入结果待确认')
+  }
+  const usernames = new Set<string>()
+  return value.map((item: unknown) => {
+    if (!isPlainObject(item)) {
+      throw new Error('导入结果待确认')
+    }
+    const username = normalizeOptionalText(item.username)
+    const initialPassword = normalizeOptionalText(item.initialPassword)
+    if (!username || !initialPassword || usernames.has(username)) {
+      throw new Error('导入结果待确认')
+    }
+    usernames.add(username)
+    return { username, initialPassword }
+  })
+}
+
+function requireImportResult(value: unknown): UserImportResult {
+  if (!isPlainObject(value)) {
+    throw new Error('导入结果待确认')
+  }
+  const success = Number(value.success)
+  const failed = Number(value.failed)
+  if (!Number.isInteger(success) || success < 0 || !Number.isInteger(failed) || failed < 0) {
+    throw new Error('导入结果待确认')
+  }
+  const errors = Array.isArray(value.errors)
+    ? value.errors.map((item) => normalizeOptionalText(item)).filter(Boolean)
+    : []
+  return {
+    success,
+    failed,
+    errors,
+    generatedCredentials: requireGeneratedCredentials(value.generatedCredentials)
   }
 }
 
@@ -311,8 +401,8 @@ function requireUserExportCsv(value: string) {
 async function loadRoleOptions() {
   roleOptionsLoadState.value = 'loading'
   try {
-    const res = await request.get('/api/admin/users/roles')
-    const options = requireRoleOptions((res as any).data)
+    const response = await request.get<unknown>('/api/admin/users/roles')
+    const options = requireRoleOptions(getResponseData(response, '角色选项待确认'))
     roleOptions.value = options
     roleOptionsLoadState.value = 'ready'
     if (!roleOptions.value.some(item => item.value === createForm.value.role)) {
@@ -330,12 +420,12 @@ function requireRoleOptions(value: unknown) {
     throw new Error('角色选项待确认')
   }
   const seenValues = new Set<string>()
-  return value.map((item: unknown) => {
-    if (!item || typeof item !== 'object' || Array.isArray(item)) {
+  return value.map((item: unknown): RoleOption => {
+    if (!isPlainObject(item)) {
       throw new Error('角色选项待确认')
     }
-    const label = typeof (item as any).label === 'string' ? (item as any).label.trim() : ''
-    const optionValue = typeof (item as any).value === 'string' ? (item as any).value.trim() : ''
+    const label = normalizeOptionalText(item.label)
+    const optionValue = normalizeOptionalText(item.value)
     if (!label || !optionValue || seenValues.has(optionValue)) {
       throw new Error('角色选项待确认')
     }
@@ -360,10 +450,10 @@ function openCreateDialog() {
 async function loadUsers() {
   loading.value = true
   try {
-    const params: Record<string, any> = { page: page.value, pageSize }
+    const params: Record<string, number | string> = { page: page.value, pageSize }
     if (search.value) params.search = search.value
-    const res = await request.get('/api/admin/users', { params, headers: NO_CACHE_HEADERS })
-    const data = requireUsersPage((res as any).data)
+    const response = await request.get<unknown>('/api/admin/users', { params, headers: NO_CACHE_HEADERS })
+    const data = requireUsersPage(getResponseData(response, '用户数据待确认'))
     users.value = data.records
     total.value = data.total
   } catch (err: any) {
@@ -399,10 +489,10 @@ async function handleCreate() {
     }
     if (createForm.value.nickname) params.set('nickname', createForm.value.nickname)
     params.set('role', createForm.value.role)
-    const res = await request.post('/api/admin/users', params.toString(), {
+    const response = await request.post<unknown>('/api/admin/users', params.toString(), {
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' }
     })
-    const createdUser = requireCreatedUserResult((res as any).data)
+    const createdUser = requireCreatedUserResult(getResponseData(response, '用户创建结果待确认'))
     await loadUsers()
     const shouldAppearInCurrentList = !searchKeyword
       || createdUser.username.toLowerCase().includes(searchKeyword)
@@ -451,7 +541,7 @@ async function handleUpdateRole(id: number, role: string) {
 }
 
 // --- 状态切换 ---
-async function handleToggleStatus(u: any, enabled: boolean) {
+async function handleToggleStatus(u: AdminUserRecord, enabled: boolean) {
   try {
     await request.put(`/api/admin/users/${u.id}/status?status=${enabled ? 1 : 0}`)
     await loadUsers()
@@ -470,7 +560,7 @@ function normalizeUserStatus(value: unknown): number | null {
 }
 
 // --- 内联编辑昵称 ---
-function startEdit(u: any) {
+function startEdit(u: AdminUserRecord) {
   editingId.value = u.id
   editNickname.value = u.nickname || ''
   setTimeout(() => {
@@ -505,7 +595,7 @@ async function confirmEdit(id: number) {
 }
 
 // --- 重置密码 ---
-async function handleResetPassword(u: any) {
+async function handleResetPassword(u: AdminUserRecord) {
   dialog.info({
     title: '重置密码',
     content: `确定要重置用户「${u.username}」的密码吗？系统将生成一个随机初始密码。`,
@@ -513,18 +603,15 @@ async function handleResetPassword(u: any) {
     negativeText: '取消',
     onPositiveClick: async () => {
       try {
-        const res = await request.put(`/api/admin/users/${u.id}/reset-password`)
-        const initial = (res as any).data?.initialPassword
-        if (typeof initial !== 'string' || !initial) {
-          throw new Error('重置后的初始密码待确认')
-        }
+        const response = await request.put<unknown>(`/api/admin/users/${u.id}/reset-password`)
+        const result = requireResetPasswordResult(getResponseData(response, '重置后的初始密码待确认'))
         const confirmedUser = await loadUserByUsername(u.username)
         if (!confirmedUser || Number(confirmedUser.id) !== Number(u.id) || confirmedUser.username !== u.username) {
           throw new Error('用户重置密码结果待确认')
         }
         dialog.success({
           title: '密码已重置',
-          content: `用户「${u.username}」的新密码：${initial}（请妥善转交，关闭后无法再次查看）`,
+          content: `用户「${u.username}」的新密码：${result.initialPassword}（请妥善转交，关闭后无法再次查看）`,
           positiveText: '我已记录'
         })
       } catch (err: any) { message.error(err.message || '操作失败') }
@@ -533,7 +620,7 @@ async function handleResetPassword(u: any) {
 }
 
 // --- 删除 ---
-async function handleDeleteUser(u: any) {
+async function handleDeleteUser(u: AdminUserRecord) {
   dialog.warning({
     title: '确认删除',
     content: `确定要永久删除用户「${u.username}」（ID: ${u.id}）吗？该操作不可恢复。`,
@@ -585,53 +672,40 @@ function triggerImport() {
   const input = document.createElement('input')
   input.type = 'file'
   input.accept = '.csv'
-  input.onchange = async (e: any) => {
-    const file = e.target?.files?.[0]
+  input.onchange = async (event: Event) => {
+    const target = event.target
+    const file = target instanceof HTMLInputElement ? target.files?.[0] : undefined
     if (!file) return
     try {
       const previousTotal = total.value
       const previousSearch = search.value.trim()
       const text = await file.text()
-      const res = await request.post('/api/admin/users/import', text, {
+      const response = await request.post<unknown>('/api/admin/users/import', text, {
         headers: { 'Content-Type': 'text/plain;charset=UTF-8' }
       })
-      if ((res as any).code === 200) {
-        const importResult = (res as any).data
-        if (!importResult || typeof importResult !== 'object' || Array.isArray(importResult)) {
+      const importResult = requireImportResult(getResponseData(response, '导入结果待确认'))
+      const generatedCredentials = importResult.generatedCredentials
+      await loadUsers()
+      if (importResult.success > 0 && total.value === null) {
+        throw new Error('导入结果待确认')
+      }
+      if (importResult.success > 0 && !previousSearch && previousTotal !== null && total.value !== null && total.value < previousTotal + importResult.success) {
+        throw new Error('导入结果待确认')
+      }
+      for (const item of generatedCredentials.slice(0, 5)) {
+        const confirmedUser = await loadUserByUsername(item.username)
+        if (!confirmedUser || confirmedUser.username !== item.username) {
           throw new Error('导入结果待确认')
         }
-        if (typeof importResult.success !== 'number' || typeof importResult.failed !== 'number') {
-          throw new Error('导入结果待确认')
-        }
-        if (importResult.generatedCredentials != null && !Array.isArray(importResult.generatedCredentials)) {
-          throw new Error('导入结果待确认')
-        }
-        const generatedCredentials = Array.isArray(importResult.generatedCredentials) ? importResult.generatedCredentials : []
-        if (generatedCredentials.some((item: any) => !item || typeof item !== 'object' || typeof item.username !== 'string' || typeof item.initialPassword !== 'string' || !item.initialPassword)) {
-          throw new Error('导入结果待确认')
-        }
-        await loadUsers()
-        if (importResult.success > 0 && total.value === null) {
-          throw new Error('导入结果待确认')
-        }
-        if (importResult.success > 0 && !previousSearch && previousTotal !== null && total.value !== null && total.value < previousTotal + importResult.success) {
-          throw new Error('导入结果待确认')
-        }
-        for (const item of generatedCredentials.slice(0, 5)) {
-          const confirmedUser = await loadUserByUsername(item.username)
-          if (!confirmedUser || confirmedUser.username !== item.username) {
-            throw new Error('导入结果待确认')
-          }
-        }
-        message.success(`导入完成：成功 ${importResult.success} 条，失败 ${importResult.failed} 条`)
-        if (generatedCredentials.length > 0) {
-          dialog.success({
-            title: '导入成功',
-            content: buildGeneratedCredentialSummary(generatedCredentials),
-            positiveText: '我已记录'
-          })
-        }
-      } else message.error((res as any).message || '导入失败')
+      }
+      message.success(`导入完成：成功 ${importResult.success} 条，失败 ${importResult.failed} 条`)
+      if (generatedCredentials.length > 0) {
+        dialog.success({
+          title: '导入成功',
+          content: buildGeneratedCredentialSummary(generatedCredentials),
+          positiveText: '我已记录'
+        })
+      }
     } catch (err: any) { message.error('导入失败: ' + (err.message || '文件格式错误')) }
   }
   input.click()
@@ -640,7 +714,7 @@ function triggerImport() {
 async function loadUserByUsername(username: string) {
   const keyword = username.trim()
   if (!keyword) return null
-  const res = await request.get('/api/admin/users', {
+  const response = await request.get<unknown>('/api/admin/users', {
     params: {
       page: 1,
       pageSize: 100,
@@ -648,11 +722,11 @@ async function loadUserByUsername(username: string) {
     },
     headers: NO_CACHE_HEADERS
   })
-  const data = requireUsersPage((res as any).data)
+  const data = requireUsersPage(getResponseData(response, '用户数据待确认'))
   return data.records.find(item => item.username === keyword) || null
 }
 
-function buildGeneratedCredentialSummary(items: Array<{ username?: string; initialPassword?: string }>) {
+function buildGeneratedCredentialSummary(items: GeneratedCredential[]) {
   const visibleItems = items.slice(0, 10).map(item => `${item.username}：${item.initialPassword}`)
   const extraCount = Math.max(0, items.length - visibleItems.length)
   return [

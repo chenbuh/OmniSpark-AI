@@ -35,12 +35,32 @@ import { ref, onMounted } from 'vue'
 import { useMessage } from 'naive-ui'
 import request from '@/api/request'
 
+interface LoginLogRecord {
+  id: number
+  userId: number
+  username: string
+  ip: string
+  userAgent: string
+  createdAt: string
+}
+
 const message = useMessage()
-const logs = ref<any[] | null>(null)
+const logs = ref<LoginLogRecord[] | null>(null)
 const page = ref(1)
 const pageSize = 20
 const total = ref<number | null>(null)
 const NO_CACHE_HEADERS = { 'X-No-Cache': '1' }
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === 'object' && !Array.isArray(value)
+}
+
+function getResponseData(response: unknown) {
+  if (!isPlainObject(response) || !('data' in response)) {
+    throw new Error('登录日志数据待确认')
+  }
+  return response.data
+}
 
 function normalizeOptionalText(value: unknown) {
   return typeof value === 'string' ? value.trim() : ''
@@ -54,36 +74,33 @@ function requirePositiveNumber(value: unknown, errorMessage: string) {
   return normalized
 }
 
-function normalizeLoginLogRecord(value: unknown) {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+function normalizeLoginLogRecord(value: unknown): LoginLogRecord {
+  if (!isPlainObject(value)) {
     throw new Error('登录日志数据待确认')
   }
-  const record = value as Record<string, unknown>
-  const id = requirePositiveNumber(record.id, '登录日志数据待确认')
-  const userId = requirePositiveNumber(record.userId, '登录日志数据待确认')
-  const username = normalizeOptionalText(record.username)
-  const createdAt = normalizeOptionalText(record.createdAt)
+  const id = requirePositiveNumber(value.id, '登录日志数据待确认')
+  const userId = requirePositiveNumber(value.userId, '登录日志数据待确认')
+  const username = normalizeOptionalText(value.username)
+  const createdAt = normalizeOptionalText(value.createdAt)
   if (!username || !createdAt) {
     throw new Error('登录日志数据待确认')
   }
   return {
-    ...record,
     id,
     userId,
     username,
-    ip: normalizeOptionalText(record.ip),
-    userAgent: normalizeOptionalText(record.userAgent),
+    ip: normalizeOptionalText(value.ip),
+    userAgent: normalizeOptionalText(value.userAgent),
     createdAt
   }
 }
 
-function requireLoginLogPage(value: unknown) {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+function requireLoginLogPage(value: unknown): { records: LoginLogRecord[]; total: number } {
+  if (!isPlainObject(value)) {
     throw new Error('登录日志数据待确认')
   }
-  const record = value as Record<string, unknown>
-  const records = record.records
-  const count = Number(record.total)
+  const records = value.records
+  const count = Number(value.total)
   if (!Array.isArray(records) || !Number.isFinite(count) || count < 0) {
     throw new Error('登录日志数据待确认')
   }
@@ -106,11 +123,11 @@ function requireLoginLogPage(value: unknown) {
 
 async function loadLogs() {
   try {
-    const res = await request.get('/api/admin/login-logs', {
+    const response = await request.get<unknown>('/api/admin/login-logs', {
       params: { page: page.value, pageSize },
       headers: NO_CACHE_HEADERS
     })
-    const data = requireLoginLogPage((res as any).data)
+    const data = requireLoginLogPage(getResponseData(response))
     logs.value = data.records
     total.value = data.total
   } catch (err: any) {
