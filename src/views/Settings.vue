@@ -170,6 +170,13 @@ function getResponseData(response: unknown, errorMessage: string) {
   return response.data
 }
 
+function getErrorMessage(error: unknown, fallback: string) {
+  if (error instanceof Error && error.message.trim()) {
+    return error.message
+  }
+  return fallback
+}
+
 // ===== 主题 =====
 const isDark = ref(getThemeWindow().__isDark?.value !== false)
 const setTheme = (dark: boolean) => {
@@ -208,8 +215,8 @@ async function saveProfile() {
     }
     message.success('昵称已更新')
     editingProfile.value = false
-  } catch (err: any) {
-    message.error(err.message || '更新失败')
+  } catch (err: unknown) {
+    message.error(getErrorMessage(err, '更新失败'))
   }
 }
 
@@ -252,8 +259,8 @@ async function handleChangePassword() {
         passwordForm.oldPassword = ''
         passwordForm.newPassword = ''
         passwordForm.confirmPassword = ''
-      } catch (err: any) {
-        message.error(err.message || '修改失败')
+      } catch (err: unknown) {
+        message.error(getErrorMessage(err, '修改失败'))
       } finally {
         changingPassword.value = false
       }

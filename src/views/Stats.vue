@@ -495,8 +495,22 @@ function normalizeDateTime(value?: string) {
   return String(value || '').replace('T', ' ').substring(0, 19)
 }
 
-function isPlainObject(value: unknown): value is Record<string, any> {
+function isPlainObject(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === 'object' && !Array.isArray(value)
+}
+
+function getResponseData(response: unknown, errorMessage: string): unknown {
+  if (!isPlainObject(response) || !('data' in response)) {
+    throw new Error(errorMessage)
+  }
+  return response.data
+}
+
+function getErrorMessage(error: unknown, fallback: string): string {
+  if (error instanceof Error && error.message.trim()) {
+    return error.message
+  }
+  return fallback
 }
 
 function toOptionalNumber(value: unknown): number | null {
@@ -708,12 +722,12 @@ async function loadStatsData() {
       params: { projectId: selectedProjectId.value },
       headers: NO_CACHE_HEADERS
     })
-    dashboard.value = normalizeDashboard(res.data)
+    dashboard.value = normalizeDashboard(getResponseData(res, '统计数据待确认'))
     statsLoadState.value = 'ready'
-  } catch (err: any) {
+  } catch (err: unknown) {
     dashboard.value = createEmptyDashboard()
     statsLoadState.value = 'error'
-    console.error(err)
+    console.error(getErrorMessage(err, '统计数据待确认'))
   } finally {
     loading.value = false
   }
@@ -734,12 +748,12 @@ async function refreshPageData() {
       params: { projectId: selectedProjectId.value },
       headers: NO_CACHE_HEADERS
     })
-    dashboard.value = normalizeDashboard(res.data)
+    dashboard.value = normalizeDashboard(getResponseData(res, '统计数据待确认'))
     statsLoadState.value = 'ready'
-  } catch (err: any) {
+  } catch (err: unknown) {
     dashboard.value = createEmptyDashboard()
     statsLoadState.value = 'error'
-    console.error(err)
+    console.error(getErrorMessage(err, '统计数据待确认'))
   } finally {
     suppressAutoReload.value = false
     loading.value = false

@@ -225,6 +225,13 @@ function getResponseData(response: unknown, errorMessage: string) {
   return response.data
 }
 
+function getErrorMessage(error: unknown, fallback: string) {
+  if (error instanceof Error && error.message.trim()) {
+    return error.message
+  }
+  return fallback
+}
+
 function requireStringList(value: unknown, errorMessage: string) {
   if (!Array.isArray(value)) {
     throw new Error(errorMessage)
@@ -598,8 +605,8 @@ async function handleLike(tpl: PromptTemplate) {
         ...refreshed
       }
     }
-  } catch (err: any) {
-    message.error(err.message || '点赞失败')
+  } catch (err: unknown) {
+    message.error(getErrorMessage(err, '点赞失败'))
   }
 }
 
@@ -696,8 +703,8 @@ const handleSave = async () => {
     }
     resetForm()
     showAddModal.value = false
-  } catch (err: any) {
-    message.error(err.message || '保存失败')
+  } catch (err: unknown) {
+    message.error(getErrorMessage(err, '保存失败'))
   } finally {
     saving.value = false
   }
@@ -721,8 +728,8 @@ const handleDelete = async (id: number) => {
           selectedTemplate.value = null
         }
         message.success('已删除')
-      } catch (err: any) {
-        message.error(err.message || '删除失败')
+      } catch (err: unknown) {
+        message.error(getErrorMessage(err, '删除失败'))
       }
     }
   })
