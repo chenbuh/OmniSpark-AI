@@ -1,8 +1,10 @@
 package com.example.aihub.infrastructure.service;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.example.aihub.common.exception.BusinessException;
 import com.example.aihub.common.security.UploadAccessSignatureService;
+import com.example.aihub.common.result.PageResult;
 import com.example.aihub.common.util.PagingUtil;
 import com.example.aihub.common.util.VoMapper;
 import com.example.aihub.infrastructure.dto.ImageGenerateDTO;
@@ -77,6 +79,32 @@ public class WorkflowService {
                         "subtitleLanguage", DEFAULT_SUBTITLE_LANGUAGE
                 )
         );
+    }
+
+    public PageResult<WorkflowVO> page(Long projectId, String keyword, long page, long pageSize) {
+        LambdaQueryWrapper<Workflow> wrapper = new LambdaQueryWrapper<>();
+        if (projectId != null) {
+            projectAccessGuard.assertAccess(projectId);
+            wrapper.eq(Workflow::getProjectId, projectId);
+        } else {
+            List<Long> accessibleIds = projectAccessGuard.accessibleProjectIds();
+            if (accessibleIds.isEmpty()) {
+                return new PageResult<>(0, 0, List.of());
+            }
+            wrapper.in(Workflow::getProjectId, accessibleIds);
+        }
+        String normalizedKeyword = keyword == null ? "" : keyword.trim();
+        if (!normalizedKeyword.isBlank()) {
+            wrapper.and(query -> query
+                    .like(Workflow::getName, normalizedKeyword)
+                    .or()
+                    .like(Workflow::getDescription, normalizedKeyword));
+        }
+        wrapper.orderByDesc(Workflow::getId);
+        long safePage = PagingUtil.normalizePage(page);
+        long safePageSize = PagingUtil.clampPageSize(pageSize, 20);
+        Page<Workflow> result = workflowMapper.selectPage(new Page<>(safePage, safePageSize), wrapper);
+        return new PageResult<>(result.getTotal(), result.getPages(), result.getRecords().stream().map(this::toVO).toList());
     }
 
     public List<WorkflowVO> list(Long projectId, int limit) {

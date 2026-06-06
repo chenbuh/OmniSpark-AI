@@ -1,8 +1,9 @@
 package com.example.aihub.module.workflow;
 
 import cn.dev33.satoken.annotation.SaCheckLogin;
-import com.example.aihub.common.util.PagingUtil;
 import com.example.aihub.common.result.ApiResult;
+import com.example.aihub.common.result.PageResult;
+import com.example.aihub.common.util.PagingUtil;
 import com.example.aihub.infrastructure.dto.WorkflowSaveDTO;
 import com.example.aihub.infrastructure.service.WorkflowService;
 import com.example.aihub.infrastructure.vo.WorkflowRunVO;
@@ -29,6 +30,14 @@ public class WorkflowController {
     public ApiResult<List<WorkflowVO>> list(@RequestParam(name = "projectId", required = false) Long projectId,
                                             @RequestParam(defaultValue = "100") int limit) {
         return ApiResult.ok(workflowService.list(projectId, PagingUtil.clampLimit(limit, 100, 100)));
+    }
+
+    @GetMapping("/page")
+    public ApiResult<PageResult<WorkflowVO>> page(@RequestParam(name = "projectId", required = false) Long projectId,
+                                                  @RequestParam(name = "q", required = false) String keyword,
+                                                  @RequestParam(defaultValue = "1") long page,
+                                                  @RequestParam(defaultValue = "20") long pageSize) {
+        return ApiResult.ok(workflowService.page(projectId, keyword, page, pageSize));
     }
 
     @GetMapping("/{id}")

@@ -60,6 +60,12 @@ export interface WorkflowMetaVO {
   }
 }
 
+export interface PageResult<T> {
+  total: number
+  pages: number
+  records: T[]
+}
+
 export const workflowApi = {
   async meta() {
     return request.get('/api/workflows/meta')
@@ -67,6 +73,10 @@ export const workflowApi = {
 
   async list(projectId?: number) {
     return request.get('/api/workflows', { params: { projectId } })
+  },
+
+  async page(params: { projectId?: number; q?: string; page: number; pageSize: number }) {
+    return request.get('/api/workflows/page', { params })
   },
 
   async get(id: number) {

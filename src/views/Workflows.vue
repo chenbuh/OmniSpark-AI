@@ -36,12 +36,12 @@
             </div>
           </template>
 
-          <div v-if="loading && filteredWorkflows === null" class="loading-box">
+          <div v-if="loading && workflows === null" class="loading-box">
             <n-spin size="small" />
           </div>
-          <div v-else-if="filteredWorkflows && filteredWorkflows.length > 0" class="wf-list">
+          <div v-else-if="workflows && workflows.length > 0" class="wf-list">
             <div
-              v-for="wf in pagedWorkflows"
+              v-for="wf in workflows"
               :key="wf.id"
               class="wf-card"
               :class="{ 'active-wf': selectedWorkflow?.id === wf.id }"
@@ -60,10 +60,10 @@
               </n-button>
             </div>
           </div>
-          <n-empty v-else-if="filteredWorkflows !== null" description="当前项目还没有工作流" />
+          <n-empty v-else-if="workflows !== null" description="当前项目还没有工作流" />
           <n-empty v-else description="工作流数据待确认，请稍后重试。" />
-          <div class="pager" v-if="(filteredWorkflows?.length || 0) > wfPageSize">
-            <n-pagination v-model:page="wfPage" :page-size="wfPageSize" :item-count="filteredWorkflows?.length || 0" simple />
+          <div class="pager" v-if="(workflowTotal ?? 0) > wfPageSize">
+            <n-pagination v-model:page="wfPage" :page-size="wfPageSize" :item-count="workflowTotal" @update:page="loadWorkflows" simple />
           </div>
         </n-card>
       </n-col>
@@ -435,6 +435,7 @@ const runsLoading = ref(false)
 const searchQuery = ref('')
 const showEditor = ref(false)
 const editorMode = ref<'create' | 'edit'>('create')
+const workflowTotal = ref<number | null>(null)
 
 const workflows = ref<WorkflowRecord[] | null>(null)
 const selectedWorkflow = ref<WorkflowRecord | null>(null)
@@ -560,21 +561,7 @@ const editorStatusMessages = computed<Array<{ key: string; text: string; tone: E
   return messages
 })
 
-const filteredWorkflows = computed<WorkflowRecord[] | null>(() => {
-  if (workflows.value === null) {
-    return null
-  }
-  const query = searchQuery.value.trim().toLowerCase()
-  const currentProjectId = projectStore.activeProjectId
-  return workflows.value.filter(item => {
-    const matchesProject = item.projectId === currentProjectId
-    if (!matchesProject) return false
-    if (!query) return true
-    return [item.name, item.description]
-      .some(value => String(value || '').toLowerCase().includes(query))
-  })
-})
-const workflowCountDisplay = computed(() => filteredWorkflows.value === null ? '-' : filteredWorkflows.value.length)
+const workflowCountDisplay = computed(() => workflowTotal.value == null ? '-' : workflowTotal.value)
 const latestRunStatus = computed(() => {
   if (runs.value === null) {
     return '待确认'
@@ -597,17 +584,8 @@ function ensureActiveProjectSelected(actionText: string) {
   return true
 }
 
-// 前端分页(workflows 全量不动)
 const wfPage = ref(1)
 const wfPageSize = 10
-const pagedWorkflows = computed(() => {
-  if (!filteredWorkflows.value) {
-    return []
-  }
-  const start = (wfPage.value - 1) * wfPageSize
-  return filteredWorkflows.value.slice(start, start + wfPageSize)
-})
-watch([searchQuery, () => projectStore.activeProjectId], () => { wfPage.value = 1 })
 
 const imageAssetOptions = computed(() => {
   return assetStore
@@ -889,9 +867,9 @@ function findWorkflowById(id: number) {
 }
 
 async function reloadWorkflowById(id: number, messageText = '工作流结果待确认') {
-  await loadWorkflows()
-  const confirmed = findWorkflowById(id)
-  if (!confirmed) {
+  const response = await workflowApi.get(id)
+  const confirmed = normalizeWorkflow(getResponseData(response, messageText))
+  if (confirmed.id !== id) {
     throw new Error(messageText)
   }
   return confirmed
@@ -1043,6 +1021,21 @@ function normalizeWorkflowList(value: unknown) {
   return normalized
 }
 
+function requireWorkflowPage(value: unknown) {
+  if (!isPlainObject(value) || !Array.isArray(value.records)) {
+    throw new Error('工作流数据待确认')
+  }
+  const total = Number(value.total)
+  if (!Number.isFinite(total) || total < 0) {
+    throw new Error('工作流数据待确认')
+  }
+  const records = normalizeWorkflowList(value.records)
+  if (records.length > total) {
+    throw new Error('工作流数据待确认')
+  }
+  return { records, total }
+}
+
 function normalizeRunList(value: unknown) {
   if (!Array.isArray(value)) {
     throw new Error('工作流运行记录待确认')
@@ -1124,24 +1117,32 @@ async function loadAssetLibrary() {
 
 async function loadWorkflows() {
   try {
-    const res = await workflowApi.list(projectStore.activeProjectId)
-    const records = normalizeWorkflowList(getResponseData(res, '工作流数据待确认'))
+    if (!projectStore.activeProjectId) {
+      workflows.value = []
+      workflowTotal.value = 0
+      runs.value = []
+      return
+    }
+    const res = await workflowApi.page({
+      projectId: projectStore.activeProjectId,
+      q: searchQuery.value.trim() || undefined,
+      page: wfPage.value,
+      pageSize: wfPageSize
+    })
+    const data = requireWorkflowPage(getResponseData(res, '工作流数据待确认'))
+    const records = data.records
     workflows.value = records
-    if (selectedWorkflow.value) {
-      const next = records.find((item: WorkflowRecord) => item.id === selectedWorkflow.value?.id) || null
-      selectedWorkflow.value = next
-      if (next) {
-        await loadRuns(next.id)
-      } else {
-        runs.value = []
-      }
+    workflowTotal.value = data.total
+    if (selectedWorkflow.value && records.some((item: WorkflowRecord) => item.id === selectedWorkflow.value?.id)) {
+      selectedWorkflow.value = records.find((item: WorkflowRecord) => item.id === selectedWorkflow.value?.id) || selectedWorkflow.value
     } else if (records.length > 0) {
       await selectWorkflow(records[0])
-    } else {
+    } else if (!selectedWorkflow.value) {
       runs.value = []
     }
   } catch {
     workflows.value = null
+    workflowTotal.value = null
     selectedWorkflow.value = null
     runs.value = null
   }
@@ -1320,6 +1321,7 @@ async function handleSave() {
       const confirmed = await reloadWorkflowById(updated.id, '工作流更新结果待确认')
       assertWorkflowMatchesExpected(confirmed, expectedWorkflow, '工作流更新结果待确认')
       selectedWorkflow.value = confirmed
+      await loadWorkflows()
       await loadRuns(confirmed.id)
       message.success('工作流已更新')
     } else {
@@ -1327,7 +1329,9 @@ async function handleSave() {
       const created = normalizeWorkflow(getResponseData(res, '工作流创建结果待确认'))
       const confirmed = await reloadWorkflowById(created.id, '工作流创建结果待确认')
       assertWorkflowMatchesExpected(confirmed, expectedWorkflow, '工作流创建结果待确认')
+      wfPage.value = 1
       selectedWorkflow.value = confirmed
+      await loadWorkflows()
       await loadRuns(confirmed.id)
       message.success('工作流已创建')
     }
@@ -1343,9 +1347,16 @@ async function handleDelete(id: number) {
   }
   try {
     await workflowApi.remove(id)
+    if ((workflows.value?.length || 0) === 1 && wfPage.value > 1) {
+      wfPage.value--
+    }
     await loadWorkflows()
     if (findWorkflowById(id)) {
       throw new Error('工作流删除结果待确认')
+    }
+    if (selectedWorkflow.value?.id === id) {
+      selectedWorkflow.value = null
+      runs.value = []
     }
     message.success('工作流已删除')
   } catch (err: unknown) {
@@ -1374,7 +1385,9 @@ async function cloneWorkflow(workflow: WorkflowRecord) {
     const cloned = normalizeWorkflow(getResponseData(res, '工作流克隆结果待确认'))
     const confirmed = await reloadWorkflowById(cloned.id, '工作流克隆结果待确认')
     assertWorkflowMatchesExpected(confirmed, expectedWorkflow, '工作流克隆结果待确认')
+    wfPage.value = 1
     selectedWorkflow.value = confirmed
+    await loadWorkflows()
     await loadRuns(confirmed.id)
     message.success('工作流已克隆')
   } catch (err: unknown) {
@@ -1495,7 +1508,16 @@ function formatRunResultStep(stepIndex: unknown) {
   return typeof stepIndex === 'number' ? `步骤 ${stepIndex + 1}` : '步骤待确认'
 }
 
+watch(searchQuery, async () => {
+  if (wfPage.value !== 1) {
+    wfPage.value = 1
+    return
+  }
+  await loadWorkflows()
+})
+
 watch(() => projectStore.activeProjectId, async () => {
+  wfPage.value = 1
   selectedWorkflow.value = null
   runs.value = null
   await loadPageData()
