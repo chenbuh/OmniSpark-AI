@@ -44,7 +44,7 @@
       <template #header><span style="font-weight:600;color:#10b981;">清理完成</span></template>
       <n-descriptions :column="2">
         <n-descriptions-item v-for="item in cleanupItems" :key="item.key" :label="item.label">
-          <span style="color:#10b981;font-weight:600;">已删除 {{ displayCleanupMetric(result, 'deleted' + item.key.charAt(0).toUpperCase() + item.key.slice(1)) }} 条</span>
+          <span style="color:#10b981;font-weight:600;">已删除 {{ displayCleanupMetric(result, cleanupResultKey(item.key)) }} 条</span>
         </n-descriptions-item>
       </n-descriptions>
     </n-card>
@@ -57,7 +57,7 @@ import { useMessage } from 'naive-ui'
 import request from '@/api/request'
 
 type CleanupMetricKey = 'oldTasks' | 'oldAssets' | 'oldAuditLogs' | 'oldLoginLogs'
-type CleanupResultMetricKey = 'deletedOldTasks' | 'deletedOldAssets' | 'deletedOldAuditLogs' | 'deletedOldLoginLogs'
+type CleanupResultMetricKey = 'deletedTasks' | 'deletedAssets' | 'deletedAuditLogs' | 'deletedLoginLogs'
 
 interface CleanupPreviewPayload {
   daysOld: number
@@ -68,10 +68,10 @@ interface CleanupPreviewPayload {
 }
 
 interface CleanupResultPayload {
-  deletedOldTasks: number
-  deletedOldAssets: number
-  deletedOldAuditLogs: number
-  deletedOldLoginLogs: number
+  deletedTasks: number
+  deletedAssets: number
+  deletedAuditLogs: number
+  deletedLoginLogs: number
 }
 
 interface CleanupItem {
@@ -149,15 +149,18 @@ function normalizeCleanupResult(payload: unknown): CleanupResultPayload {
     acc[key] = normalized
     return acc
   }, {
-    deletedOldTasks: 0,
-    deletedOldAssets: 0,
-    deletedOldAuditLogs: 0,
-    deletedOldLoginLogs: 0
+    deletedTasks: 0,
+    deletedAssets: 0,
+    deletedAuditLogs: 0,
+    deletedLoginLogs: 0
   })
 }
 
 function cleanupResultKey(metricKey: CleanupMetricKey): CleanupResultMetricKey {
-  return `deleted${metricKey.charAt(0).toUpperCase()}${metricKey.slice(1)}` as CleanupResultMetricKey
+  if (metricKey === 'oldTasks') return 'deletedTasks'
+  if (metricKey === 'oldAssets') return 'deletedAssets'
+  if (metricKey === 'oldAuditLogs') return 'deletedAuditLogs'
+  return 'deletedLoginLogs'
 }
 
 function snapshotCleanupMetrics<T extends string>(source: Record<T, unknown> | null, keys: readonly T[]) {
