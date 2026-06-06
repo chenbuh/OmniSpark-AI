@@ -121,13 +121,14 @@
             <tr v-else-if="loginLogs === null"><td colspan="3" class="empty-cell">登录记录待确认，请稍后重试。</td></tr>
           </tbody>
         </n-table>
-        <div class="pagination-wrap" v-if="(loginLogs?.length || 0) > logPageSize">
+        <div class="pagination-wrap" v-if="loginLogsTotal > logPageSize">
           <n-pagination
             v-model:page="logPage"
-            :page-count="logPageCount"
+            :item-count="loginLogsTotal"
             :page-size="logPageSize"
             :page-slot="5"
             size="small"
+            @update:page="loadLoginLogs"
           />
         </div>
       </template>
@@ -281,17 +282,15 @@ type LoginLogRecord = {
 }
 
 const loginLogs = ref<LoginLogRecord[] | null>(null)
+const latestLoginRecord = ref<LoginLogRecord | null>(null)
 const loadingLogs = ref(true)
 const logPage = ref(1)
 const logPageSize = 8
+const loginLogsTotal = ref(0)
 
-const logPageCount = computed(() => Math.max(1, Math.ceil((loginLogs.value?.length || 0) / logPageSize)))
-const pagedLogs = computed(() => {
-  const start = (logPage.value - 1) * logPageSize
-  return (loginLogs.value || []).slice(start, start + logPageSize)
-})
-const latestLoginLog = computed(() => loginLogs.value?.[0] || null)
-const loginLogsCountLabel = computed(() => loginLogs.value === null ? '待确认' : `${loginLogs.value.length} 条`)
+const pagedLogs = computed(() => loginLogs.value || [])
+const latestLoginLog = computed(() => latestLoginRecord.value)
+const loginLogsCountLabel = computed(() => loginLogs.value === null ? '待确认' : `${loginLogsTotal.value} 条`)
 const latestLoginTime = computed(() => {
   if (loginLogs.value === null) {
     return '待确认'
@@ -344,6 +343,25 @@ function normalizeLoginLogList(value: unknown) {
     .sort((a, b) => getLogTimestamp(b.createdAt) - getLogTimestamp(a.createdAt))
 }
 
+function requireLoginLogPage(value: unknown) {
+  if (!isPlainObject(value)) {
+    throw new Error('登录记录待确认')
+  }
+  const records = value.records
+  const total = Number(value.total)
+  if (!Array.isArray(records) || !Number.isFinite(total) || total < 0) {
+    throw new Error('登录记录待确认')
+  }
+  const normalizedRecords = normalizeLoginLogList(records)
+  if (normalizedRecords.length > total) {
+    throw new Error('登录记录待确认')
+  }
+  return {
+    records: normalizedRecords,
+    total
+  }
+}
+
 function requireProfileUser(payload: unknown) {
   if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
     throw new Error('昵称更新结果待确认')
@@ -391,18 +409,30 @@ function requirePasswordChangeResult(payload: unknown, expectedUserId?: number) 
 
 // ===== 生命周期 =====
 onMounted(async () => {
+  await loadLoginLogs()
+})
+
+async function loadLoginLogs() {
   try {
     loadingLogs.value = true
-    const logsResponse = await request.get('/api/auth/login-logs?limit=100', {
+    const logsResponse = await request.get('/api/auth/login-logs', {
+      params: { page: logPage.value, pageSize: logPageSize },
       headers: NO_CACHE_HEADERS
     })
-    loginLogs.value = normalizeLoginLogList(getResponseData(logsResponse, '登录记录待确认'))
+    const data = requireLoginLogPage(getResponseData(logsResponse, '登录记录待确认'))
+    loginLogs.value = data.records
+    loginLogsTotal.value = data.total
+    if (logPage.value === 1 || latestLoginRecord.value === null) {
+      latestLoginRecord.value = data.records[0] || null
+    }
   } catch {
     loginLogs.value = null
+    latestLoginRecord.value = null
+    loginLogsTotal.value = 0
   } finally {
     loadingLogs.value = false
   }
-})
+}
 
 // ===== 工具 =====
 function formatFull(dateStr: string): string {

@@ -3,6 +3,7 @@ package com.example.aihub.module.auth;
 import cn.dev33.satoken.stp.StpUtil;
 import cn.dev33.satoken.annotation.SaCheckLogin;
 import com.example.aihub.common.annotation.RateLimit;
+import com.example.aihub.common.result.PageResult;
 import com.example.aihub.common.security.ClientIpResolver;
 import com.example.aihub.common.security.SigningChallengeService;
 import com.example.aihub.common.result.ApiResult;
@@ -21,6 +22,7 @@ import com.example.aihub.infrastructure.vo.PasswordPublicKeyVO;
 import com.example.aihub.infrastructure.vo.UserVO;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
@@ -115,13 +117,15 @@ public class AuthController {
 
     @GetMapping("/login-logs")
     @SaCheckLogin
-    public ApiResult<java.util.List<LoginLog>> loginLogs(@RequestParam(defaultValue = "20") int limit) {
-        int safeLimit = PagingUtil.clampLimit(limit, 20, 100);
+    public ApiResult<PageResult<LoginLog>> loginLogs(@RequestParam(defaultValue = "1") long page,
+                                                     @RequestParam(defaultValue = "20") long pageSize) {
+        long safePage = PagingUtil.normalizePage(page);
+        long safePageSize = PagingUtil.clampPageSize(pageSize, 20);
         Long userId = StpUtil.getLoginIdAsLong();
         var wrapper = new com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper<LoginLog>()
                 .eq(LoginLog::getUserId, userId)
-                .orderByDesc(LoginLog::getId)
-                .last("LIMIT " + safeLimit);
-        return ApiResult.ok(loginLogMapper.selectList(wrapper));
+                .orderByDesc(LoginLog::getId);
+        Page<LoginLog> result = loginLogMapper.selectPage(new Page<>(safePage, safePageSize), wrapper);
+        return ApiResult.ok(new PageResult<>(result.getTotal(), result.getPages(), result.getRecords()));
     }
 }
