@@ -2,7 +2,7 @@
   <div class="templates-container">
     <div class="page-header">
       <h2>提示词模板库 (Prompt Templates)</h2>
-      <p class="subtitle">管理并收藏优秀的 AI 提示词指令。点击模板卡片一键应用至生图或视频面板。</p>
+      <p class="subtitle">公共提示词模板库，管理并收藏优秀的 AI 提示词指令，跨项目一键应用至生图或视频面板。</p>
     </div>
 
     <n-card class="glass-card filter-card" :bordered="false">
@@ -196,6 +196,7 @@ let searchTimer: ReturnType<typeof setTimeout> | null = null
 const page = ref(1)
 const pageSize = ref(12)
 const pageSizeOptions = [12, 24, 48, 96]
+const PUBLIC_TEMPLATE_LIBRARY_PROJECT_ID = 0
 
 const form = reactive({
   name: '', tag: '', content: '', negativePrompt: '', modelName: ''
@@ -378,7 +379,7 @@ function normalizeOptionalPositiveNumber(value: unknown) {
 
 function normalizeTemplateProjectId(value: unknown, action: 'create' | 'update') {
   const parsed = Number(value)
-  if (!Number.isFinite(parsed) || parsed <= 0) {
+  if (!Number.isFinite(parsed) || parsed < PUBLIC_TEMPLATE_LIBRARY_PROJECT_ID) {
     throw new Error(action === 'create' ? '模板创建结果待确认' : '模板更新结果待确认')
   }
   return parsed
@@ -419,7 +420,6 @@ function requireDateText(value: unknown, action: 'create' | 'update') {
 }
 
 function buildTemplateExpectation(payload: {
-  projectId: number
   name: string
   tag?: string
   content: string
@@ -427,7 +427,7 @@ function buildTemplateExpectation(payload: {
   modelName?: string
 }) {
   return {
-    projectId: payload.projectId,
+    projectId: PUBLIC_TEMPLATE_LIBRARY_PROJECT_ID,
     name: payload.name.trim(),
     tag: normalizeOptionalText(payload.tag),
     content: payload.content.trim(),
@@ -457,7 +457,6 @@ async function loadTemplates() {
   loadingTemplates.value = true
   try {
     const response = await templateApi.getTemplates({
-      projectId: projectStore.activeProjectId,
       tag: activeTag.value !== 'all' ? activeTag.value : undefined,
       search: searchQuery.value.trim() || undefined,
       sort: sortBy.value,
@@ -512,12 +511,9 @@ onBeforeUnmount(() => {
     clearTimeout(searchTimer)
   }
 })
-watch([activeTag, sortBy, searchQuery, () => projectStore.activeProjectId], () => {
+watch([activeTag, sortBy, searchQuery], () => {
   page.value = 1
   scheduleLoadTemplates()
-})
-watch(() => projectStore.activeProjectId, () => {
-  void loadTemplateTags()
 })
 watch([page, pageSize], () => {
   scheduleLoadTemplates(0)
@@ -651,7 +647,7 @@ const handleSave = async () => {
   saving.value = true
   try {
     const payload = {
-      projectId: projectStore.activeProjectId,
+      projectId: projectStore.activeProjectId ?? PUBLIC_TEMPLATE_LIBRARY_PROJECT_ID,
       name: form.name,
       tag: form.tag.trim() || undefined,
       content: form.content,

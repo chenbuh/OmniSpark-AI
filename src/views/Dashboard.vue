@@ -250,6 +250,7 @@ const announcementLoadFailed = ref(false)
 const recommendedTemplates = ref<PromptTemplate[] | null>(null)
 const metricsLoadState = ref<'loading' | 'ready' | 'error'>('loading')
 const NO_CACHE_HEADERS = { 'X-No-Cache': '1' }
+const PUBLIC_TEMPLATE_LIBRARY_PROJECT_ID = 0
 let dashboardContext: gsap.Context | null = null
 let dashboardMatchMedia: gsap.MatchMedia | null = null
 
@@ -392,7 +393,7 @@ function normalizePromptTemplateRecord(value: unknown) {
   const projectId = requireNonNegativeNumber(record.projectId, '热门提示词待确认')
   const name = normalizeOptionalText(record.name)
   const content = normalizeOptionalText(record.content)
-  if (id <= 0 || projectId <= 0 || !name || !content) {
+  if (id <= 0 || projectId < PUBLIC_TEMPLATE_LIBRARY_PROJECT_ID || !name || !content) {
     throw new Error('热门提示词待确认')
   }
   return {
@@ -484,26 +485,17 @@ async function loadDashboardData(options?: { loading?: boolean }) {
     loading.value = true
   }
   const activeProjectId = projectStore.activeProjectId
-  if (!activeProjectId) {
-    metricsLoadState.value = 'ready'
-    recommendedTemplates.value = []
-    announcement.value = null
-    announcementLoadFailed.value = false
-    loading.value = false
-    return
-  }
-
   const [tasksResult, assetsResult, tplResult, annResult] = await Promise.allSettled([
-    taskStore.refresh({ projectId: activeProjectId }),
-    assetStore.refresh({ projectId: activeProjectId }),
+    activeProjectId ? taskStore.refresh({ projectId: activeProjectId }) : Promise.resolve(),
+    activeProjectId ? assetStore.refresh({ projectId: activeProjectId }) : Promise.resolve(),
     request.get('/api/prompt-templates', {
-      params: { projectId: activeProjectId, sort: 'likes', page: 1, pageSize: 3 },
+      params: { sort: 'likes', page: 1, pageSize: 3 },
       headers: NO_CACHE_HEADERS
     }),
     request.get('/api/announcements/active', { headers: NO_CACHE_HEADERS })
   ])
 
-  metricsLoadState.value = tasksResult.status === 'fulfilled' && assetsResult.status === 'fulfilled'
+  metricsLoadState.value = !activeProjectId || (tasksResult.status === 'fulfilled' && assetsResult.status === 'fulfilled')
     ? 'ready'
     : 'error'
 
