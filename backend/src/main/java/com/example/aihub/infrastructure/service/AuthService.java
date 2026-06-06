@@ -79,8 +79,21 @@ public class AuthService {
         user.setAvatar("https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?q=80&w=200");
         user.setRole("user");
         user.setStatus(1);
-        userMapper.insert(user);
-        return toUserVO(user);
+        int affected = userMapper.insert(user);
+        if (affected <= 0 || user.getId() == null || user.getId() <= 0) {
+            throw new BusinessException("注册结果待确认");
+        }
+        User created = userMapper.selectById(user.getId());
+        if (created == null
+                || !dto.getUsername().equals(created.getUsername())
+                || !dto.getNickname().equals(created.getNickname())
+                || created.getStatus() == null
+                || created.getStatus() != 1
+                || !"user".equals(created.getRole())
+                || !PasswordUtil.matches(dto.getPassword(), created.getPassword())) {
+            throw new BusinessException("注册结果待确认");
+        }
+        return toUserVO(created);
     }
 
     public UserVO me(Long userId) {

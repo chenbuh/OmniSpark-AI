@@ -19,6 +19,14 @@ interface LoginResult {
   userInfo: AuthUserInfo
 }
 
+function clearSessionState() {
+  useUserStore().logout()
+  useTaskStore().clear()
+  useProjectStore().clear()
+  useModelProviderStore().clear()
+  useAssetStore().clear()
+}
+
 async function hydrateWorkspace() {
   await Promise.allSettled([
     useProjectStore().refresh(),
@@ -63,18 +71,51 @@ function normalizeLoginResult(payload: unknown): LoginResult {
   }
 }
 
+async function fetchCurrentUser() {
+  const res = await request.get('/api/auth/me')
+  return normalizeUserInfo((res as any).data)
+}
+
+function assertConfirmedLogin(result: LoginResult, confirmedUser: AuthUserInfo) {
+  if (
+    confirmedUser.id !== result.userInfo.id
+    || confirmedUser.username !== result.userInfo.username
+    || confirmedUser.nickname !== result.userInfo.nickname
+    || confirmedUser.role !== result.userInfo.role
+  ) {
+    throw new Error('登录结果待确认')
+  }
+}
+
 export const authApi = {
   // 登录
   async login(params: { username: string; password?: string; captchaTicket?: string }) {
-    const res = await request.post('/api/auth/login', {
-      username: params.username,
-      encryptedPassword: await encryptPassword(params.password || ''),
-      captchaTicket: params.captchaTicket
-    })
-    const loginResult = normalizeLoginResult((res as any).data)
-    useUserStore().setSession(loginResult.userInfo, loginResult.token)
-    await hydrateWorkspace()
-    return loginResult
+    let loginResult: LoginResult | null = null
+    try {
+      const res = await request.post('/api/auth/login', {
+        username: params.username,
+        encryptedPassword: await encryptPassword(params.password || ''),
+        captchaTicket: params.captchaTicket
+      })
+      loginResult = normalizeLoginResult((res as any).data)
+      useUserStore().setSession(loginResult.userInfo, loginResult.token)
+      const confirmedUser = await fetchCurrentUser()
+      assertConfirmedLogin(loginResult, confirmedUser)
+      useUserStore().setSession(confirmedUser, loginResult.token)
+      await hydrateWorkspace()
+      return {
+        token: loginResult.token,
+        userInfo: confirmedUser
+      }
+    } catch (error) {
+      if (loginResult?.token) {
+        try {
+          await request.post('/api/auth/logout')
+        } catch {}
+      }
+      clearSessionState()
+      throw error
+    }
   },
 
   // 注册
@@ -101,20 +142,15 @@ export const authApi = {
     try {
       res = await request.post('/api/auth/logout')
     } finally {
-      useUserStore().logout()
-      useTaskStore().clear()
-      useProjectStore().clear()
-      useModelProviderStore().clear()
-      useAssetStore().clear()
+      clearSessionState()
     }
     return res
   },
 
   // 获取当前登录用户
   async getMe() {
-    const res = await request.get('/api/auth/me')
     const token = localStorage.getItem('satoken') || ''
-    const userInfo = normalizeUserInfo((res as any).data)
+    const userInfo = await fetchCurrentUser()
     useUserStore().setSession(userInfo, token)
     await hydrateWorkspace()
     return userInfo
