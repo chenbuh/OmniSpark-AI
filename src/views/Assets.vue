@@ -471,8 +471,19 @@ const subtitleRows = computed(() => {
   }))
 })
 
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === 'object' && !Array.isArray(value)
+}
+
+function getResponseData(response: unknown, errorMessage: string) {
+  if (!isPlainObject(response) || !('data' in response)) {
+    throw new Error(errorMessage)
+  }
+  return response.data
+}
+
 function requireAssetResult(value: unknown, action: 'upload' | 'favorite') {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+  if (!isPlainObject(value)) {
     throw new Error(action === 'upload' ? '资产上传结果待确认' : '资产状态待确认')
   }
   const normalized = assetStore.normalizeAsset(value)
@@ -511,18 +522,18 @@ function assertUploadedAssetMatches(
 }
 
 function requireSubtitleResult(value: unknown, action: 'generate' | 'update' | 'voice') {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+  if (!isPlainObject(value)) {
     if (action === 'generate') throw new Error('字幕识别结果待确认')
     if (action === 'update') throw new Error('字幕更新结果待确认')
     throw new Error('配音结果待确认')
   }
-  const assetId = Number((value as any).assetId)
-  const projectId = Number((value as any).projectId)
-  const id = Number((value as any).id)
-  const language = typeof (value as any).language === 'string' ? (value as any).language.trim() : ''
-  const status = Number((value as any).status)
-  const createdAt = typeof (value as any).createdAt === 'string' ? (value as any).createdAt : ''
-  const srtContent = typeof (value as any).srtContent === 'string' ? (value as any).srtContent : ''
+  const assetId = Number(value.assetId)
+  const projectId = Number(value.projectId)
+  const id = Number(value.id)
+  const language = typeof value.language === 'string' ? value.language.trim() : ''
+  const status = Number(value.status)
+  const createdAt = typeof value.createdAt === 'string' ? value.createdAt : ''
+  const srtContent = typeof value.srtContent === 'string' ? value.srtContent : ''
   if (
     !Number.isFinite(id) || id <= 0
     || !Number.isFinite(assetId) || assetId <= 0
@@ -542,8 +553,7 @@ function requireSubtitleResult(value: unknown, action: 'generate' | 'update' | '
     language,
     srtContent,
     status,
-    voiceUrl: typeof (value as any).voiceUrl === 'string' ? (value as any).voiceUrl.trim() : ''
-    ,
+    voiceUrl: typeof value.voiceUrl === 'string' ? value.voiceUrl.trim() : '',
     createdAt
   }
 }
@@ -575,19 +585,34 @@ function requireAssetTypeItems(value: unknown) {
   }
   const seenCodes = new Set<string>()
   return value.map((item: unknown) => {
-    if (!item || typeof item !== 'object' || Array.isArray(item)) {
+    if (!isPlainObject(item)) {
       throw new Error('资产分类待确认')
     }
-    const itemCode = typeof (item as any).itemCode === 'string' ? (item as any).itemCode.trim() : ''
-    const itemName = typeof (item as any).itemName === 'string' ? (item as any).itemName.trim() : ''
-    if (!itemCode || !itemName || seenCodes.has(itemCode)) {
+    const id = Number(item.id)
+    const dictId = Number(item.dictId)
+    const itemCode = typeof item.itemCode === 'string' ? item.itemCode.trim() : ''
+    const itemName = typeof item.itemName === 'string' ? item.itemName.trim() : ''
+    const sortOrder = Number(item.sortOrder)
+    const status = Number(item.status)
+    if (
+      !Number.isFinite(id) || id <= 0
+      || !Number.isFinite(dictId) || dictId <= 0
+      || !itemCode
+      || !itemName
+      || !Number.isFinite(sortOrder)
+      || !Number.isFinite(status)
+      || seenCodes.has(itemCode)
+    ) {
       throw new Error('资产分类待确认')
     }
     seenCodes.add(itemCode)
     return {
-      ...(item as DataDictItem),
+      id,
+      dictId,
       itemCode,
-      itemName
+      itemName,
+      sortOrder,
+      status
     }
   })
 }
@@ -623,11 +648,11 @@ function normalizeAssetList(value: unknown, errorMessage: string) {
 }
 
 function requireAssetPage(value: unknown) {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+  if (!isPlainObject(value)) {
     throw new Error('资产列表数据待确认')
   }
-  const records = normalizeAssetList((value as any).records, '资产列表数据待确认')
-  const count = Number((value as any).total)
+  const records = normalizeAssetList(value.records, '资产列表数据待确认')
+  const count = Number(value.total)
   if (!Number.isFinite(count) || count < 0 || records.length > count) {
     throw new Error('资产列表数据待确认')
   }
@@ -638,14 +663,14 @@ function requireAssetPage(value: unknown) {
 }
 
 function requireAssetStats(value: unknown) {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+  if (!isPlainObject(value)) {
     throw new Error('资产汇总待确认')
   }
-  const total = Number((value as any).total)
-  const imageCount = Number((value as any).imageCount)
-  const videoCount = Number((value as any).videoCount)
-  const referenceCount = Number((value as any).referenceCount)
-  const favoriteCount = Number((value as any).favoriteCount)
+  const total = Number(value.total)
+  const imageCount = Number(value.imageCount)
+  const videoCount = Number(value.videoCount)
+  const referenceCount = Number(value.referenceCount)
+  const favoriteCount = Number(value.favoriteCount)
   if (
     !Number.isFinite(total) || total < 0
     || !Number.isFinite(imageCount) || imageCount < 0
@@ -677,8 +702,8 @@ function assetTypeLabel(assetType?: string | null) {
 async function loadAssetTypeItems() {
   assetTypeItemsLoadState.value = 'loading'
   try {
-    const res = await dictApi.getItems('asset_category')
-    const items = requireAssetTypeItems((res as any).data)
+    const response = await dictApi.getItems('asset_category')
+    const items = requireAssetTypeItems(getResponseData(response, '资产分类待确认'))
     assetTypeItems.value = items
     assetTypeItemsLoadState.value = 'ready'
   } catch {
@@ -718,11 +743,11 @@ async function loadAssets() {
     if (pageResult.status !== 'fulfilled') {
       throw new Error('资产列表数据待确认')
     }
-    const pageData = requireAssetPage(pageResult.value.data)
+    const pageData = requireAssetPage(getResponseData(pageResult.value, '资产列表数据待确认'))
     assetRecords.value = pageData.records
     filteredTotal.value = pageData.total
     if (statsResult.status === 'fulfilled') {
-      assetStats.value = requireAssetStats(statsResult.value.data)
+      assetStats.value = requireAssetStats(getResponseData(statsResult.value, '资产汇总待确认'))
       assetStatsLoadState.value = 'ready'
     } else {
       assetStats.value = {
@@ -764,8 +789,8 @@ async function openAssetFromRoute() {
     return
   }
   try {
-    const res = await assetApi.getAsset(assetId)
-    handleOpenDetail(assetStore.normalizeAsset(res.data))
+    const response = await assetApi.getAsset(assetId)
+    handleOpenDetail(assetStore.normalizeAsset(getResponseData(response, '资产详情待确认')))
   } catch {}
 }
 
@@ -775,8 +800,8 @@ async function loadVersionHistory() {
     return
   }
   try {
-    const res = await assetApi.getVersions(selectedAsset.value.id, 12)
-    versionHistory.value = normalizeAssetList(res.data, '版本历史待确认')
+    const response = await assetApi.getVersions(selectedAsset.value.id, 12)
+    versionHistory.value = normalizeAssetList(getResponseData(response, '版本历史待确认'), '版本历史待确认')
   } catch {
     versionHistory.value = null
   }
@@ -808,8 +833,8 @@ async function handleUploadChange(event: Event) {
     const formData = new FormData()
     formData.append('projectId', String(activeProjectId))
     formData.append('file', file)
-    const res = await assetApi.uploadAsset(formData)
-    const uploaded = requireAssetResult((res as any).data, 'upload')
+    const response = await assetApi.uploadAsset(formData)
+    const uploaded = requireAssetResult(getResponseData(response, '资产上传结果待确认'), 'upload')
     assertUploadedAssetMatches(uploaded, {
       projectId: activeProjectId,
       fileName: file.name,
@@ -853,7 +878,8 @@ async function handleToggleFavorite(asset: Asset) {
     }
     await loadAssets()
     const listedAsset = assetRecords.value?.find(item => item.id === asset.id) || null
-    const confirmedAsset = listedAsset || assetStore.normalizeAsset((await assetApi.getAsset(asset.id) as any).data)
+    const confirmedAsset = listedAsset
+      || assetStore.normalizeAsset(getResponseData(await assetApi.getAsset(asset.id), '资产状态待确认'))
     if (confirmedAsset.favorite !== updated.favorite) {
       throw new Error('资产状态待确认')
     }
@@ -952,8 +978,8 @@ async function loadSubtitles() {
     return
   }
   try {
-    const res = await subtitleApi.list(selectedAsset.value.id)
-    subtitles.value = requireSubtitleList(res.data)
+    const response = await subtitleApi.list(selectedAsset.value.id)
+    subtitles.value = requireSubtitleList(getResponseData(response, '字幕数据待确认'))
   } catch {
     subtitles.value = null
   }
@@ -965,13 +991,13 @@ async function handleGenerateSubtitle() {
   }
   subGenerating.value = true
   try {
-    const res = await subtitleApi.generate({
+    const response = await subtitleApi.generate({
       assetId: selectedAsset.value.id,
       projectId: selectedAsset.value.projectId,
       prompt: selectedAsset.value.prompt || undefined,
       language: 'zh'
     })
-    const generated = requireSubtitleResult((res as any).data, 'generate')
+    const generated = requireSubtitleResult(getResponseData(response, '字幕识别结果待确认'), 'generate')
     await loadSubtitles()
     const refreshedSubtitle = subtitles.value?.find(item => Number(item.id) === generated.id)
     if (
@@ -1002,8 +1028,8 @@ async function handleSaveSubtitle() {
   try {
     const subtitleId = editSubtitleId.value
     const expectedSrtContent = editSubtitleContent.value
-    const res = await subtitleApi.update(subtitleId, { srtContent: editSubtitleContent.value })
-    const updated = requireSubtitleResult((res as any).data, 'update')
+    const response = await subtitleApi.update(subtitleId, { srtContent: editSubtitleContent.value })
+    const updated = requireSubtitleResult(getResponseData(response, '字幕更新结果待确认'), 'update')
     await loadSubtitles()
     const refreshedSubtitle = subtitles.value?.find(item => Number(item.id) === subtitleId)
     if (
@@ -1025,8 +1051,8 @@ async function handleGenerateVoice(id: number) {
   voiceLoading.value = true
   try {
     const previousVoiceUrl = normalizeOptionalText(subtitles.value?.find(item => Number(item.id) === id)?.voiceUrl)
-    const res = await subtitleApi.generateVoice(id)
-    const voiced = requireSubtitleResult((res as any).data, 'voice')
+    const response = await subtitleApi.generateVoice(id)
+    const voiced = requireSubtitleResult(getResponseData(response, '配音结果待确认'), 'voice')
     await loadSubtitles()
     const refreshedSubtitle = subtitles.value?.find(item => Number(item.id) === id)
     const resolvedVoiceUrl = refreshedSubtitle ? resolveAssetUrl(refreshedSubtitle.voiceUrl) : ''

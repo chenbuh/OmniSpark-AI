@@ -214,6 +214,17 @@ const sortOptions = [
   { label: '最多评论', value: 'comments' }
 ]
 
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === 'object' && !Array.isArray(value)
+}
+
+function getResponseData(response: unknown, errorMessage: string) {
+  if (!isPlainObject(response) || !('data' in response)) {
+    throw new Error(errorMessage)
+  }
+  return response.data
+}
+
 function requireStringList(value: unknown, errorMessage: string) {
   if (!Array.isArray(value)) {
     throw new Error(errorMessage)
@@ -232,11 +243,11 @@ function requireStringList(value: unknown, errorMessage: string) {
 }
 
 function requireTemplatePage(value: unknown) {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+  if (!isPlainObject(value)) {
     throw new Error('模板数据待确认')
   }
-  const records = (value as any).records
-  const count = Number((value as any).total)
+  const records = value.records
+  const count = Number(value.total)
   if (!Array.isArray(records) || !Number.isFinite(count) || count < 0) {
     throw new Error('模板数据待确认')
   }
@@ -259,12 +270,12 @@ function requireTemplatePage(value: unknown) {
 }
 
 function requireTemplateResult(value: unknown, action: 'create' | 'update') {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+  if (!isPlainObject(value)) {
     throw new Error(action === 'create' ? '模板创建结果待确认' : '模板更新结果待确认')
   }
-  const id = Number((value as any).id)
-  const name = typeof (value as any).name === 'string' ? (value as any).name.trim() : ''
-  const content = typeof (value as any).content === 'string' ? (value as any).content.trim() : ''
+  const id = Number(value.id)
+  const name = typeof value.name === 'string' ? value.name.trim() : ''
+  const content = typeof value.content === 'string' ? value.content.trim() : ''
   if (!Number.isFinite(id) || id <= 0 || !name || !content) {
     throw new Error(action === 'create' ? '模板创建结果待确认' : '模板更新结果待确认')
   }
@@ -276,23 +287,25 @@ function requireTemplateResult(value: unknown, action: 'create' | 'update') {
 }
 
 function requireTemplateDetail(value: unknown, action: 'create' | 'update') {
+  if (!isPlainObject(value)) {
+    throw new Error(action === 'create' ? '模板创建结果待确认' : '模板更新结果待确认')
+  }
   const base = requireTemplateResult(value, action)
-  const record = value as Record<string, unknown>
   return {
     ...base,
-    projectId: normalizeTemplateProjectId(record.projectId, action),
-    userId: normalizeOptionalPositiveNumber(record.userId),
-    username: normalizeOptionalText(record.username),
-    nickname: normalizeOptionalText(record.nickname),
-    avatar: normalizeOptionalText(record.avatar),
-    tag: normalizeOptionalText(record.tag),
-    negativePrompt: normalizeOptionalText(record.negativePrompt),
-    modelName: normalizeOptionalText(record.modelName),
-    likesCount: normalizeInteractionCount(record.likesCount, action),
-    commentsCount: normalizeInteractionCount(record.commentsCount, action),
-    liked: normalizeLikedState(record.liked, action),
-    status: normalizeTemplateStatus(record.status, action),
-    createdAt: requireDateText(record.createdAt, action)
+    projectId: normalizeTemplateProjectId(value.projectId, action),
+    userId: normalizeOptionalPositiveNumber(value.userId),
+    username: normalizeOptionalText(value.username),
+    nickname: normalizeOptionalText(value.nickname),
+    avatar: normalizeOptionalText(value.avatar),
+    tag: normalizeOptionalText(value.tag),
+    negativePrompt: normalizeOptionalText(value.negativePrompt),
+    modelName: normalizeOptionalText(value.modelName),
+    likesCount: normalizeInteractionCount(value.likesCount, action),
+    commentsCount: normalizeInteractionCount(value.commentsCount, action),
+    liked: normalizeLikedState(value.liked, action),
+    status: normalizeTemplateStatus(value.status, action),
+    createdAt: requireDateText(value.createdAt, action)
   }
 }
 
@@ -332,11 +345,16 @@ function assertTemplateLikeConfirmed(
 
 async function expectTemplateDeleted(id: number) {
   try {
-    await templateApi.get(id)
+    await loadTemplateDetail(id)
   } catch {
     return
   }
   throw new Error('模板删除结果待确认')
+}
+
+async function loadTemplateDetail(id: number) {
+  const response = await templateApi.get(id)
+  return requireTemplateDetail(getResponseData(response, '模板详情待确认'), 'update')
 }
 
 function normalizeOptionalText(value: unknown) {
@@ -431,7 +449,7 @@ function assertTemplateMatches(
 async function loadTemplates() {
   loadingTemplates.value = true
   try {
-    const res = await templateApi.getTemplates({
+    const response = await templateApi.getTemplates({
       projectId: projectStore.activeProjectId,
       tag: activeTag.value !== 'all' ? activeTag.value : undefined,
       search: searchQuery.value.trim() || undefined,
@@ -439,7 +457,7 @@ async function loadTemplates() {
       page: page.value,
       pageSize: pageSize.value
     })
-    const data = requireTemplatePage((res as any).data)
+    const data = requireTemplatePage(getResponseData(response, '模板数据待确认'))
     templates.value = data.records
     totalTemplates.value = data.total
   } catch {
@@ -453,8 +471,8 @@ async function loadTemplates() {
 async function loadTemplateTags() {
   tagLoadState.value = 'loading'
   try {
-    const res = await templateApi.getTags()
-    templateTags.value = requireStringList((res as any).data, '模板标签待确认')
+    const response = await templateApi.getTags()
+    templateTags.value = requireStringList(getResponseData(response, '模板标签待确认'), '模板标签待确认')
     if (activeTag.value !== 'all' && !templateTags.value.includes(activeTag.value)) {
       activeTag.value = 'all'
     }
@@ -476,8 +494,8 @@ function scheduleLoadTemplates(delay = 180) {
 
 onMounted(() => {
   try {
-    const info = JSON.parse(localStorage.getItem('userInfo') || '{}')
-    currentUserId.value = normalizeOptionalPositiveNumber(info?.id) ?? null
+    const info = JSON.parse(localStorage.getItem('userInfo') || '{}') as unknown
+    currentUserId.value = normalizeOptionalPositiveNumber(isPlainObject(info) ? info.id : null) ?? null
   } catch {}
   loadTemplateTags()
   loadTemplates()
@@ -551,13 +569,13 @@ async function handleLike(tpl: PromptTemplate) {
     if (![0, 1].includes(previousLiked) || !Number.isFinite(previousLikesCount) || previousLikesCount < 0 || !Number.isFinite(previousCommentsCount) || previousCommentsCount < 0) {
       throw new Error('点赞结果待确认')
     }
-    const res = await request.post(`/api/prompt-templates/${tpl.id}/like`)
-    const liked = requireLikeToggleResult((res as any).data)
+    const response = await request.post(`/api/prompt-templates/${tpl.id}/like`)
+    const liked = requireLikeToggleResult(getResponseData(response, '点赞结果待确认'))
     await loadTemplates()
     if (!templates.value) {
       throw new Error('点赞结果待确认')
     }
-    const refreshed = requireTemplateDetail((await templateApi.get(tpl.id) as any).data, 'update')
+    const refreshed = await loadTemplateDetail(tpl.id)
     assertTemplateLikeConfirmed({
       liked: previousLiked,
       likesCount: previousLikesCount,
@@ -637,10 +655,10 @@ const handleSave = async () => {
     const expected = buildTemplateExpectation(payload)
     if (editingId.value) {
       const currentEditingId = editingId.value
-      const res = await templateApi.update(currentEditingId, payload)
-      const updated = requireTemplateResult((res as any).data, 'update')
+      const response = await templateApi.update(currentEditingId, payload)
+      const updated = requireTemplateResult(getResponseData(response, '模板更新结果待确认'), 'update')
       await Promise.all([loadTemplateTags(), loadTemplates()])
-      const refreshed = requireTemplateDetail((await templateApi.get(updated.id) as any).data, 'update')
+      const refreshed = await loadTemplateDetail(updated.id)
       assertTemplateMatches(refreshed, expected, 'update')
       const loaded = findLoadedTemplate(currentEditingId)
       if (
@@ -657,10 +675,10 @@ const handleSave = async () => {
       }
       message.success('模板已更新！')
     } else {
-      const res = await templateApi.createTemplate(payload)
-      const created = requireTemplateResult((res as any).data, 'create')
+      const response = await templateApi.createTemplate(payload)
+      const created = requireTemplateResult(getResponseData(response, '模板创建结果待确认'), 'create')
       await Promise.all([loadTemplateTags(), loadTemplates()])
-      const refreshed = requireTemplateDetail((await templateApi.get(created.id) as any).data, 'create')
+      const refreshed = await loadTemplateDetail(created.id)
       assertTemplateMatches(refreshed, expected, 'create')
       const loaded = findLoadedTemplate(created.id)
       if (

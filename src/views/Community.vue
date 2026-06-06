@@ -249,7 +249,7 @@ const userStore = useUserStore()
 const loading = ref(true)
 const publishing = ref(false)
 const uploadingImage = ref(false)
-const posts = ref<any[] | null>(null)
+const posts = ref<CommunityPostRecord[] | null>(null)
 const activeCategory = ref('all')
 const sortBy = ref('newest')
 const searchQuery = ref('')
@@ -257,7 +257,7 @@ const categories = ref<string[]>([])
 const categoriesLoadState = ref<'loading' | 'ready' | 'error'>('loading')
 const showUploadModal = ref(false)
 const showDetailDrawer = ref(false)
-const detailPost = ref<any>(null)
+const detailPost = ref<CommunityPostRecord | null>(null)
 const imageUploadInput = ref<HTMLInputElement | null>(null)
 const editingPostId = ref<number | null>(null)
 const showAssetPicker = ref(false)
@@ -267,6 +267,28 @@ const pageSizeOptions = [12, 20, 40, 80]
 const total = ref<number | null>(null)
 
 const currentUserId = ref<number | null>(null)
+
+type CommunityAction = 'create' | 'update'
+
+interface CommunityPostRecord {
+  id: number
+  userId?: number
+  username: string
+  nickname: string
+  avatar: string
+  title: string
+  prompt: string
+  negativePrompt: string
+  modelName: string
+  imageUrl: string
+  category: string
+  tags: string
+  likesCount: number
+  commentsCount: number
+  liked: boolean
+  status: number
+  createdAt: string
+}
 
 // 共享资产库中的图片资产
 const imageAssets = computed(() => {
@@ -312,6 +334,17 @@ const categoryOptions = computed(() => {
   }))
 })
 
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === 'object' && !Array.isArray(value)
+}
+
+function getResponseData(response: unknown, errorMessage: string) {
+  if (!isPlainObject(response) || !('data' in response)) {
+    throw new Error(errorMessage)
+  }
+  return response.data
+}
+
 function requireStringList(value: unknown, errorMessage: string) {
   if (!Array.isArray(value)) {
     throw new Error(errorMessage)
@@ -329,11 +362,11 @@ function requireStringList(value: unknown, errorMessage: string) {
   return normalized
 }
 
-function canDelete(post: any) {
+function canDelete(post: Pick<CommunityPostRecord, 'userId'>) {
   return post.userId && currentUserId.value && post.userId === currentUserId.value
 }
 
-function authorLabel(post: any) {
+function authorLabel(post: Pick<CommunityPostRecord, 'nickname' | 'username'>) {
   return post?.nickname?.trim() || post?.username?.trim() || '未知作者'
 }
 
@@ -342,11 +375,11 @@ function formatInteractionCount(count: number | null | undefined) {
 }
 
 function requireCommunityPageData(value: unknown) {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+  if (!isPlainObject(value)) {
     throw new Error('社区内容待确认')
   }
-  const records = (value as any).records
-  const count = Number((value as any).total)
+  const records = value.records
+  const count = Number(value.total)
   if (!Array.isArray(records) || !Number.isFinite(count) || count < 0) {
     throw new Error('社区内容待确认')
   }
@@ -368,24 +401,25 @@ function requireCommunityPageData(value: unknown) {
   }
 }
 
-function requireCommunityPostResult(value: unknown, action: 'create' | 'update') {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+function requireCommunityPostResult(value: unknown, action: CommunityAction): CommunityPostRecord {
+  if (!isPlainObject(value)) {
     throw new Error(action === 'create' ? '发布结果待确认' : '更新结果待确认')
   }
-  const id = Number((value as any).id)
-  const title = typeof (value as any).title === 'string' ? (value as any).title.trim() : ''
-  const prompt = typeof (value as any).prompt === 'string' ? (value as any).prompt.trim() : ''
+  const id = Number(value.id)
+  const title = typeof value.title === 'string' ? value.title.trim() : ''
+  const prompt = typeof value.prompt === 'string' ? value.prompt.trim() : ''
   if (!Number.isFinite(id) || id <= 0 || !title || !prompt) {
     throw new Error(action === 'create' ? '发布结果待确认' : '更新结果待确认')
   }
-  const likesCount = Number((value as any).likesCount)
-  const commentsCount = Number((value as any).commentsCount)
+  const likesCount = Number(value.likesCount)
+  const commentsCount = Number(value.commentsCount)
   let liked: boolean | null = null
-  if ((value as any).liked === 1 || (value as any).liked === '1' || (value as any).liked === true || (value as any).liked === 'true') {
+  if (value.liked === 1 || value.liked === '1' || value.liked === true || value.liked === 'true') {
     liked = true
-  } else if ((value as any).liked === 0 || (value as any).liked === '0' || (value as any).liked === false || (value as any).liked === 'false') {
+  } else if (value.liked === 0 || value.liked === '0' || value.liked === false || value.liked === 'false') {
     liked = false
   }
+  const status = normalizeCommunityStatus(value.status, action)
   if (!Number.isFinite(likesCount) || likesCount < 0 || !Number.isFinite(commentsCount) || commentsCount < 0 || liked === null) {
     throw new Error(action === 'create' ? '发布结果待确认' : '更新结果待确认')
   }
@@ -393,18 +427,20 @@ function requireCommunityPostResult(value: unknown, action: 'create' | 'update')
     id,
     title,
     prompt,
-    userId: normalizeOptionalPositiveNumber((value as any).userId),
-    username: normalizeOptionalText((value as any).username),
-    nickname: normalizeOptionalText((value as any).nickname),
-    negativePrompt: normalizeOptionalText((value as any).negativePrompt),
-    modelName: normalizeOptionalText((value as any).modelName),
-    imageUrl: normalizeOptionalText((value as any).imageUrl),
-    category: normalizeOptionalText((value as any).category),
-    tags: normalizeOptionalText((value as any).tags),
+    userId: normalizeOptionalPositiveNumber(value.userId),
+    username: normalizeOptionalText(value.username),
+    nickname: normalizeOptionalText(value.nickname),
+    avatar: normalizeOptionalText(value.avatar),
+    negativePrompt: normalizeOptionalText(value.negativePrompt),
+    modelName: normalizeOptionalText(value.modelName),
+    imageUrl: normalizeOptionalText(value.imageUrl),
+    category: normalizeOptionalText(value.category),
+    tags: normalizeOptionalText(value.tags),
     likesCount,
     commentsCount,
     liked,
-    createdAt: requireDateText((value as any).createdAt, action)
+    status,
+    createdAt: requireDateText(value.createdAt, action)
   }
 }
 
@@ -419,7 +455,7 @@ function requireLikeToggleResult(value: unknown) {
 }
 
 function findLoadedPost(id: number) {
-  return posts.value?.find((item: any) => Number(item?.id) === id) || null
+  return posts.value?.find(item => item.id === id) || null
 }
 
 function assertCommunityLikeConfirmed(
@@ -451,9 +487,11 @@ async function expectCommunityPostDeleted(id: number) {
   throw new Error('删除结果待确认')
 }
 
-let searchTimer: any = null
+let searchTimer: ReturnType<typeof setTimeout> | null = null
 function debounceSearch() {
-  clearTimeout(searchTimer)
+  if (searchTimer) {
+    clearTimeout(searchTimer)
+  }
   searchTimer = setTimeout(() => { page.value = 1; loadPosts() }, 300)
 }
 
@@ -473,16 +511,16 @@ function handlePageSizeChange(size: number) {
 async function loadPosts() {
   loading.value = true
   try {
-    const params: Record<string, any> = {
+    const params: { page: number; pageSize: number; sort: string; category?: string; search?: string } = {
       page: page.value,
       pageSize: pageSize.value,
       sort: sortBy.value
     }
     if (activeCategory.value !== 'all') params.category = activeCategory.value
     if (searchQuery.value) params.search = searchQuery.value
-    const res = await request.get('/api/community/posts', { params })
-    const data = requireCommunityPageData((res as any).data)
-    posts.value = data.records.map((post: any) => ({
+    const response = await request.get('/api/community/posts', { params })
+    const data = requireCommunityPageData(getResponseData(response, '社区内容待确认'))
+    posts.value = data.records.map((post) => ({
       ...post,
       imageUrl: resolveAssetUrl(post.imageUrl)
     }))
@@ -499,8 +537,8 @@ async function loadPosts() {
 async function loadCategories() {
   categoriesLoadState.value = 'loading'
   try {
-    const res = await request.get('/api/community/categories')
-    categories.value = requireStringList((res as any).data, '社区分类待确认')
+    const response = await request.get('/api/community/categories')
+    categories.value = requireStringList(getResponseData(response, '社区分类待确认'), '社区分类待确认')
     if (activeCategory.value !== 'all' && !categories.value.includes(activeCategory.value)) {
       activeCategory.value = 'all'
     }
@@ -564,16 +602,16 @@ function clearUploadedImage() {
 }
 
 async function loadPostDetail(id: number) {
-  const res = await request.get(`/api/community/posts/${id}`)
-  return requireCommunityPostResult((res as any).data, 'update')
+  const response = await request.get(`/api/community/posts/${id}`)
+  return requireCommunityPostResult(getResponseData(response, '社区详情待确认'), 'update')
 }
 
-function syncCommunityPostState(post: ReturnType<typeof requireCommunityPostResult>) {
+function syncCommunityPostState(post: CommunityPostRecord) {
   const resolvedPost = {
     ...post,
     imageUrl: resolveAssetUrl(post.imageUrl)
   }
-  const target = posts.value?.find((item: any) => item.id === post.id)
+  const target = posts.value?.find(item => item.id === post.id)
   if (target) {
     Object.assign(target, resolvedPost)
   }
@@ -603,6 +641,14 @@ function requireDateText(value: unknown, action: 'create' | 'update') {
     throw new Error(action === 'create' ? '发布结果待确认' : '更新结果待确认')
   }
   return text
+}
+
+function normalizeCommunityStatus(value: unknown, action: CommunityAction) {
+  const parsed = Number(value)
+  if (!Number.isFinite(parsed)) {
+    throw new Error(action === 'create' ? '发布结果待确认' : '更新结果待确认')
+  }
+  return parsed
 }
 
 function normalizeFileName(value: string) {
@@ -640,8 +686,8 @@ async function handleImageUpload(event: Event) {
     const formData = new FormData()
     formData.append('projectId', String(activeProjectId))
     formData.append('file', file)
-    const res = await assetApi.uploadAsset(formData)
-    const uploaded = assetStore.normalizeAsset((res as any).data)
+    const response = await assetApi.uploadAsset(formData)
+    const uploaded = assetStore.normalizeAsset(getResponseData(response, '效果图上传结果待确认'))
     assertUploadedImageAsset(uploaded, { projectId: activeProjectId, fileName: file.name })
     await assetStore.refresh({ projectId: activeProjectId, limit: 100 })
     const confirmedAsset = assetStore
@@ -683,8 +729,8 @@ async function handlePublish() {
     const expectedAuthorId = currentUserId.value
     if (editingPostId.value) {
       const editingId = editingPostId.value
-      const res = await request.put(`/api/community/posts/${editingId}`, payload)
-      const updated = requireCommunityPostResult((res as any).data, 'update')
+      const response = await request.put(`/api/community/posts/${editingId}`, payload)
+      const updated = requireCommunityPostResult(getResponseData(response, '更新结果待确认'), 'update')
       await Promise.all([loadCategories(), loadPosts()])
       const refreshed = await loadPostDetail(updated.id)
       if (
@@ -713,8 +759,8 @@ async function handlePublish() {
       }
       message.success('已更新！')
     } else {
-      const res = await request.post('/api/community/posts', payload)
-      const created = requireCommunityPostResult((res as any).data, 'create')
+      const response = await request.post('/api/community/posts', payload)
+      const created = requireCommunityPostResult(getResponseData(response, '发布结果待确认'), 'create')
       await Promise.all([loadCategories(), loadPosts()])
       const refreshed = await loadPostDetail(created.id)
       if (
@@ -750,7 +796,7 @@ async function handlePublish() {
   finally { publishing.value = false }
 }
 
-function handleEditPost(post: any) {
+function handleEditPost(post: CommunityPostRecord) {
   editingPostId.value = post.id
   form.title = post.title
   form.prompt = post.prompt
@@ -762,7 +808,7 @@ function handleEditPost(post: any) {
   showUploadModal.value = true
 }
 
-async function handleLike(post: any) {
+async function handleLike(post: CommunityPostRecord) {
   try {
     const previousLiked = !!post?.liked
     const previousLikesCount = Number(post?.likesCount)
@@ -770,8 +816,8 @@ async function handleLike(post: any) {
     if (!Number.isFinite(previousLikesCount) || previousLikesCount < 0 || !Number.isFinite(previousCommentsCount) || previousCommentsCount < 0) {
       throw new Error('点赞结果待确认')
     }
-    const res = await request.post(`/api/community/posts/${post.id}/like`)
-    const liked = requireLikeToggleResult((res as any).data)
+    const response = await request.post(`/api/community/posts/${post.id}/like`)
+    const liked = requireLikeToggleResult(getResponseData(response, '点赞结果待确认'))
     await loadPosts()
     if (!posts.value) {
       throw new Error('点赞结果待确认')
@@ -799,7 +845,7 @@ async function handleDelete(id: number) {
     await request.delete(`/api/community/posts/${id}`)
     await loadCategories()
     await loadPosts()
-    if (posts.value?.some((post: any) => post.id === id)) {
+    if (posts.value?.some(post => post.id === id)) {
       throw new Error('删除结果待确认')
     }
     if (typeof previousTotal === 'number' && typeof total.value === 'number' && total.value > Math.max(0, previousTotal - 1)) {
@@ -813,7 +859,7 @@ async function handleDelete(id: number) {
   } catch (err: any) { message.error(err.message || '删除失败') }
 }
 
-function handleApply(post: any) {
+function handleApply(post: CommunityPostRecord) {
   const params: Record<string, string> = { prompt: post.prompt }
   if (post.negativePrompt) params.negPrompt = post.negativePrompt
   if (post.modelName) params.model = post.modelName
@@ -821,7 +867,7 @@ function handleApply(post: any) {
   message.success(`已应用「${post.title}」的提示词`)
 }
 
-function showDetail(post: any) {
+function showDetail(post: CommunityPostRecord) {
   detailPost.value = post
   showDetailDrawer.value = true
 }
@@ -829,7 +875,7 @@ function showDetail(post: any) {
 function handleCommunityCommentCountChange(count: number) {
   if (!detailPost.value) return
   detailPost.value.commentsCount = count
-  const target = posts.value?.find((item: any) => item.id === detailPost.value?.id)
+  const target = posts.value?.find(item => item.id === detailPost.value?.id)
   if (target) {
     target.commentsCount = count
   }

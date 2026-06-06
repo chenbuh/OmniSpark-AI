@@ -67,16 +67,16 @@ export const templateApi = {
 
   // 新增模板
   async createTemplate(params: PromptTemplatePayload) {
-    return request.post('/api/prompt-templates', params)
+    return request.post<PromptTemplate>('/api/prompt-templates', params)
   },
 
   // 更新模板
   async update(id: number, params: Partial<PromptTemplatePayload>) {
-    return request.put(`/api/prompt-templates/${id}`, params)
+    return request.put<PromptTemplate>(`/api/prompt-templates/${id}`, params)
   },
 
   // 删除模板
   async deleteTemplate(id: number) {
-    return request.delete(`/api/prompt-templates/${id}`)
+    return request.delete<void>(`/api/prompt-templates/${id}`)
   }
 }
