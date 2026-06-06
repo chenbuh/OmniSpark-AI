@@ -59,13 +59,16 @@
               <n-descriptions-item v-if="updateCheck.currentCommitShortSha" label="当前提交">
                 <span class="mono">{{ updateCheck.currentCommitShortSha }}</span>
               </n-descriptions-item>
-              <n-descriptions-item label="远程版本">{{ updateCheck.latestVersion || '-' }}</n-descriptions-item>
+              <n-descriptions-item v-if="updateCheck.sourceType === 'commit'" label="远程分支">
+                {{ updateCheck.latestRefName || updateCheck.defaultBranch || '-' }}
+              </n-descriptions-item>
+              <n-descriptions-item v-else label="远程版本">{{ updateCheck.latestVersion || '-' }}</n-descriptions-item>
               <n-descriptions-item label="数据来源">{{ updateCheck.sourceLabel || '-' }}</n-descriptions-item>
               <n-descriptions-item label="检查时间">{{ formatDateTime(updateCheck.checkTime) }}</n-descriptions-item>
               <n-descriptions-item v-if="updateCheck.releasePublishedAt" label="发布时间">
                 {{ formatDateTime(updateCheck.releasePublishedAt) }}
               </n-descriptions-item>
-              <n-descriptions-item v-if="updateCheck.latestCommitShortSha" label="最新提交">
+              <n-descriptions-item v-if="updateCheck.latestCommitShortSha" :label="updateCheck.sourceType === 'commit' ? '远程提交' : '最新提交'">
                 <span class="mono">{{ updateCheck.latestCommitShortSha }}</span>
               </n-descriptions-item>
               <n-descriptions-item label="状态">
@@ -138,6 +141,8 @@ interface UpdateCheckInfo {
   currentCommitSha: string
   currentCommitShortSha: string
   latestVersion: string
+  latestRefName: string
+  defaultBranch: string
   sourceType: UpdateSourceType
   sourceLabel: string
   checkTime: string
@@ -281,6 +286,8 @@ function normalizeUpdateCheckInfo(payload: unknown): UpdateCheckInfo {
     currentCommitSha: normalizeOptionalText(payload.currentCommitSha),
     currentCommitShortSha: normalizeOptionalText(payload.currentCommitShortSha),
     latestVersion: normalizeOptionalText(payload.latestVersion),
+    latestRefName: normalizeOptionalText(payload.latestRefName),
+    defaultBranch: normalizeOptionalText(payload.defaultBranch),
     sourceType,
     sourceLabel,
     checkTime,

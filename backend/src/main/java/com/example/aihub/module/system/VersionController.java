@@ -128,6 +128,7 @@ public class VersionController {
     private Map<String, Object> baseCheckResult() {
         Map<String, Object> result = new LinkedHashMap<>();
         String currentCommitSha = displayCurrentCommitSha();
+        String defaultBranch = effectiveGithubBranch();
         result.put("currentVersion", displayCurrentVersion());
         result.put("checkTime", LocalDateTime.now().toString());
         result.put("sourceType", "unknown");
@@ -136,7 +137,8 @@ public class VersionController {
         result.put("currentCommitSha", currentCommitSha);
         result.put("currentCommitShortSha", abbreviateSha(currentCommitSha));
         result.put("repositoryUrl", buildRepoUrl());
-        result.put("defaultBranch", effectiveGithubBranch());
+        result.put("defaultBranch", defaultBranch);
+        result.put("latestRefName", defaultBranch);
         return result;
     }
 
@@ -219,9 +221,11 @@ public class VersionController {
         }
 
         JsonNode commitNode = node.path("commit");
+        String branchName = effectiveGithubBranch();
         result.put("sourceType", "commit");
         result.put("sourceLabel", "GitHub 最新提交");
-        result.put("latestVersion", displayCurrentVersion());
+        result.put("latestVersion", "");
+        result.put("latestRefName", branchName);
         String currentCommitSha = displayCurrentCommitSha();
         boolean canCompareCommit = !currentCommitSha.isBlank();
         boolean hasUpdate = canCompareCommit && !sha.equalsIgnoreCase(currentCommitSha);
