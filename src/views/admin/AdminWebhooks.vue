@@ -257,6 +257,7 @@ function editWebhook(w: WebhookRecord) {
 async function handleSave() {
   if (!form.name || !form.url) { message.error('名称和 URL 为必填'); return }
   if (form.events.length === 0) { message.error('请至少选择一个触发事件'); return }
+  if (!/^https?:\/\//i.test(form.url.trim())) { message.error('Webhook 回调地址仅支持 http 或 https'); return }
   const eventsValue = form.events.join(',')
   try {
     const previousCount = list.value?.length
@@ -304,7 +305,7 @@ async function toggleStatus(w: WebhookRecord) {
   if (current === null) { message.error('Webhook 状态尚未明确，暂时无法切换'); return }
   try {
     const eventsValue = encodeURIComponent(normalizeEvents(w.events).join(','))
-    const res = await request.put<unknown>(`/api/admin/webhooks/${w.id}?name=${encodeURIComponent(w.name)}&url=${encodeURIComponent(w.url)}&events=${eventsValue}&status=${current ? 0 : 1}`)
+    const res = await request.put<unknown>(`/api/admin/webhooks/${w.id}?name=${encodeURIComponent(w.name)}&url=${encodeURIComponent(w.url)}&events=${eventsValue}&secret=${encodeURIComponent(w.secret || '')}&status=${current ? 0 : 1}`)
     requireWebhook(getResponseData(res, 'Webhook 状态待确认'), 'update')
     await load()
     const refreshed = list.value?.find(item => Number(item.id) === Number(w.id))
@@ -314,6 +315,7 @@ async function toggleStatus(w: WebhookRecord) {
       || normalizeEvents(refreshed.events).join(',') !== normalizeEvents(w.events).join(',')
       || refreshed.name !== w.name
       || refreshed.url !== w.url
+      || (refreshed.secret || '') !== (w.secret || '')
     ) {
       throw new Error('Webhook 状态待确认')
     }

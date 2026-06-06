@@ -47,10 +47,10 @@ public class WebhookService {
     @Transactional(rollbackFor = Exception.class)
     public Webhook create(String name, String url, String events, String secret) {
         Webhook wh = new Webhook();
-        wh.setName(name);
-        wh.setUrl(url);
+        wh.setName(normalizeName(name));
+        wh.setUrl(normalizeUrl(url));
         wh.setEvents(normalizeEvents(events));
-        wh.setSecret(secret);
+        wh.setSecret(normalizeSecret(secret));
         wh.setStatus(1);
         webhookMapper.insert(wh);
         return wh;
@@ -60,11 +60,11 @@ public class WebhookService {
     public Webhook update(Long id, String name, String url, String events, String secret, Integer status) {
         Webhook wh = webhookMapper.selectById(id);
         if (wh == null) throw new BusinessException("Webhook 不存在");
-        if (name != null) wh.setName(name);
-        if (url != null) wh.setUrl(url);
+        if (name != null) wh.setName(normalizeName(name));
+        if (url != null) wh.setUrl(normalizeUrl(url));
         if (events != null) wh.setEvents(normalizeEvents(events));
-        wh.setSecret(secret);
-        if (status != null) wh.setStatus(status);
+        if (secret != null) wh.setSecret(normalizeSecret(secret));
+        if (status != null) wh.setStatus(normalizeStatus(status));
         webhookMapper.updateById(wh);
         return wh;
     }
@@ -127,6 +127,48 @@ public class WebhookService {
             throw new BusinessException("至少选择一个受支持的事件");
         }
         return String.join(",", normalized);
+    }
+
+    private String normalizeName(String name) {
+        String normalized = name == null ? "" : name.trim();
+        if (normalized.isBlank()) {
+            throw new BusinessException("Webhook 名称不能为空");
+        }
+        return normalized;
+    }
+
+    private String normalizeUrl(String url) {
+        String normalized = url == null ? "" : url.trim();
+        if (normalized.isBlank()) {
+            throw new BusinessException("Webhook 回调地址不能为空");
+        }
+        try {
+            URI uri = URI.create(normalized);
+            String scheme = uri.getScheme() == null ? "" : uri.getScheme().trim().toLowerCase(java.util.Locale.ROOT);
+            if (!"http".equals(scheme) && !"https".equals(scheme)) {
+                throw new BusinessException("Webhook 回调地址仅支持 http 或 https");
+            }
+            if (uri.getHost() == null || uri.getHost().isBlank()) {
+                throw new BusinessException("Webhook 回调地址缺少主机名");
+            }
+            return normalized;
+        } catch (IllegalArgumentException ex) {
+            throw new BusinessException("Webhook 回调地址格式无效");
+        }
+    }
+
+    private String normalizeSecret(String secret) {
+        return secret == null ? "" : secret.trim();
+    }
+
+    private Integer normalizeStatus(Integer status) {
+        if (status == null) {
+            return null;
+        }
+        if (status != 0 && status != 1) {
+            throw new BusinessException("Webhook 状态无效");
+        }
+        return status;
     }
 
     private List<String> parseEvents(String events) {
