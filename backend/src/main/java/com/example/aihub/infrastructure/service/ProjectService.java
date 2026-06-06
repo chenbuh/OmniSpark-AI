@@ -190,7 +190,7 @@ public class ProjectService {
     }
 
     @Transactional(rollbackFor = Exception.class)
-    public Long importProject(ProjectExportVO data) {
+    public ProjectImportResult importProject(ProjectExportVO data) {
         if (data.getProject() == null) throw new BusinessException("导入数据缺少项目信息");
         if (normalizeOptionalText(data.getVersion()).isBlank()) throw new BusinessException("导入数据缺少导出版本信息");
         String importedProjectName = normalizeOptionalText(data.getProject().getName());
@@ -272,7 +272,17 @@ public class ProjectService {
             }
         }
 
-        return newId;
+        int skippedAssetCount = data.getAssets() == null ? 0 : data.getAssets().size();
+        return new ProjectImportResult(
+                newId,
+                data.getProviders() == null ? 0 : data.getProviders().size(),
+                data.getPromptTemplates() == null ? 0 : data.getPromptTemplates().size(),
+                data.getStyleCards() == null ? 0 : data.getStyleCards().size(),
+                data.getWorkflows() == null ? 0 : data.getWorkflows().size(),
+                0,
+                skippedAssetCount,
+                skippedAssetCount > 0 ? "导入文件中的资产仅包含元数据，当前不会自动恢复二进制文件，请手动重新上传。" : ""
+        );
     }
 
     private ImportedWorkflowRecord requireImportedWorkflowRecord(Map<String, Object> workflowData) {
@@ -327,4 +337,15 @@ public class ProjectService {
     }
 
     private record ImportedWorkflowRecord(String name, String description, String stepsJson, Integer status) {}
+
+    public record ProjectImportResult(
+            Long projectId,
+            int importedProviderCount,
+            int importedPromptTemplateCount,
+            int importedStyleCardCount,
+            int importedWorkflowCount,
+            int importedAssetCount,
+            int skippedAssetCount,
+            String assetImportNotice
+    ) {}
 }

@@ -32,7 +32,16 @@ public class ExportController {
 
     @PostMapping("/import")
     public ApiResult<Map<String, Object>> importProject(@RequestBody ProjectExportVO data) {
-        Long newProjectId = projectService.importProject(data);
-        return ApiResult.ok(Map.of("projectId", newProjectId));
+        ProjectService.ProjectImportResult importResult = projectService.importProject(data);
+        return ApiResult.ok(Map.of(
+                "projectId", importResult.projectId(),
+                "importedProviderCount", importResult.importedProviderCount(),
+                "importedPromptTemplateCount", importResult.importedPromptTemplateCount(),
+                "importedStyleCardCount", importResult.importedStyleCardCount(),
+                "importedWorkflowCount", importResult.importedWorkflowCount(),
+                "importedAssetCount", importResult.importedAssetCount(),
+                "skippedAssetCount", importResult.skippedAssetCount(),
+                "assetImportNotice", importResult.assetImportNotice()
+        ));
     }
 }

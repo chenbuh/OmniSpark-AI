@@ -403,6 +403,41 @@ function requireImportedProjectId(value: unknown) {
   return parsed
 }
 
+function requireProjectImportResult(value: unknown) {
+  if (!isPlainObject(value)) {
+    throw new Error('项目导入结果待确认')
+  }
+  const projectId = requireImportedProjectId(value.projectId)
+  const importedProviderCount = Number(value.importedProviderCount ?? 0)
+  const importedPromptTemplateCount = Number(value.importedPromptTemplateCount ?? 0)
+  const importedStyleCardCount = Number(value.importedStyleCardCount ?? 0)
+  const importedWorkflowCount = Number(value.importedWorkflowCount ?? 0)
+  const importedAssetCount = Number(value.importedAssetCount ?? 0)
+  const skippedAssetCount = Number(value.skippedAssetCount ?? 0)
+  const assetImportNotice = normalizeOptionalText(value.assetImportNotice)
+  const numericValues = [
+    importedProviderCount,
+    importedPromptTemplateCount,
+    importedStyleCardCount,
+    importedWorkflowCount,
+    importedAssetCount,
+    skippedAssetCount
+  ]
+  if (numericValues.some(item => !Number.isFinite(item) || item < 0)) {
+    throw new Error('项目导入结果待确认')
+  }
+  return {
+    projectId,
+    importedProviderCount,
+    importedPromptTemplateCount,
+    importedStyleCardCount,
+    importedWorkflowCount,
+    importedAssetCount,
+    skippedAssetCount,
+    assetImportNotice
+  }
+}
+
 function requireExportPayload(value: unknown) {
   if (!isPlainObject(value)) {
     throw new Error('项目导出结果待确认')
@@ -934,10 +969,28 @@ const handleProjectAction = async (key: string) => {
           const data = requireImportPayload(JSON.parse(text))
           const response = await request.post<unknown>('/api/projects/import', data)
           const responseData = getResponseData(response, '项目导入结果待确认')
-          const importedProjectId = requireImportedProjectId(isPlainObject(responseData) ? responseData.projectId : null)
+          const importResult = requireProjectImportResult(responseData)
+          if (importResult.importedProviderCount !== data.providers.length
+            || importResult.importedPromptTemplateCount !== data.promptTemplates.length
+            || importResult.importedStyleCardCount !== data.styleCards.length
+            || importResult.importedWorkflowCount !== data.workflows.length) {
+            throw new Error('项目导入结果待确认')
+          }
+          if (importResult.importedAssetCount !== 0) {
+            throw new Error('项目导入结果待确认')
+          }
+          if (importResult.skippedAssetCount !== data.assets.length) {
+            throw new Error('项目导入结果待确认')
+          }
+          const importedProjectId = importResult.projectId
           const importedProject = await verifyImportedProjectData(importedProjectId, data)
           projectStore.setActiveProject(importedProject.id)
-          message.success('项目导入成功！')
+          message.success(importResult.skippedAssetCount > 0
+            ? `项目导入完成，已恢复配置数据；${importResult.skippedAssetCount} 个资产需手动重新上传`
+            : '项目导入成功！')
+          if (importResult.skippedAssetCount > 0 && importResult.assetImportNotice) {
+            message.warning(importResult.assetImportNotice)
+          }
       } catch (err: unknown) {
         message.error('导入失败: ' + getErrorMessage(err, '文件格式错误'))
       }
