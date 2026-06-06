@@ -355,14 +355,16 @@ function buildTaskParameterCopyText(task: GenerationTask) {
     taskType: task.taskType,
     prompt: task.prompt,
     negativePrompt: task.negativePrompt || '',
-    modelName: task.modelName
+    modelName: task.modelName,
+    options: task.options || {},
+    resultAssetId: task.resultAssetId || null
   }, null, 2)
 }
 
 const handleCopyParams = async (task: GenerationTask) => {
   try {
     await navigator.clipboard.writeText(buildTaskParameterCopyText(task))
-    message.success(task.requestJson ? '真实请求参数已复制' : '已复制当前任务已记录的参数摘要')
+    message.success(task.requestJson ? '真实请求参数已复制' : '已复制当前任务已记录的参数')
   } catch {
     message.error('复制失败，请稍后再试')
   }
