@@ -7,7 +7,7 @@
       </div>
       <n-space>
         <n-tabs v-model:value="assetTab" type="segment" size="small">
-          <n-tab name="own">本空间</n-tab>
+          <n-tab name="own">{{ ownAssetTabLabel }}</n-tab>
           <n-tab name="shared">共享给我</n-tab>
         </n-tabs>
         <n-button secondary :loading="loading" @click="loadAssets">
@@ -421,6 +421,10 @@ const currentProjectName = computed(() => {
     return '共享给我'
   }
   return projectStore.projects.find(item => item.id === projectStore.activeProjectId)?.name || '所有可访问项目'
+})
+
+const ownAssetTabLabel = computed(() => {
+  return projectStore.activeProjectId ? '当前项目' : '所有可访问项目'
 })
 
 const currentScopeHint = computed(() => {
