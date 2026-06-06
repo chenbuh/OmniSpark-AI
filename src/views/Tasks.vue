@@ -60,10 +60,10 @@
             <td>
               <div class="model-cell">
                 <span class="provider-lbl">{{ getProviderName(task.providerId) }}</span>
-                <n-tag size="mini" type="info" :bordered="false"><code>{{ task.modelName }}</code></n-tag>
+                <n-tag size="mini" type="info" :bordered="false"><code>{{ getTaskDisplayModelName(task) }}</code></n-tag>
               </div>
             </td>
-            <td><n-ellipsis :line-clamp="1" :tooltip="true" style="max-width:380px;">{{ task.prompt }}</n-ellipsis></td>
+            <td><n-ellipsis :line-clamp="1" :tooltip="true" style="max-width:380px;">{{ getTaskDisplayPrompt(task) }}</n-ellipsis></td>
             <td>
               <div class="progress-cell">
                 <div class="pct-row">
@@ -117,7 +117,7 @@
               <div class="info-item"><span class="info-label">任务 ID</span><span class="info-val"><code>#{{ selectedTask.id }}</code></span></div>
               <div class="info-item"><span class="info-label">类型</span><n-tag :type="taskTypeTagType(selectedTask.taskType)" size="small" round>{{ taskTypeLabel(selectedTask.taskType) }}</n-tag></div>
               <div class="info-item"><span class="info-label">提供商</span><span class="info-val">{{ getProviderName(selectedTask.providerId) }}</span></div>
-              <div class="info-item"><span class="info-label">模型</span><n-tag size="small" type="info"><code>{{ selectedTask.modelName }}</code></n-tag></div>
+              <div class="info-item"><span class="info-label">模型</span><n-tag size="small" type="info"><code>{{ getTaskDisplayModelName(selectedTask) }}</code></n-tag></div>
               <div class="info-item"><span class="info-label">创建</span><span class="info-val">{{ String(selectedTask.createdAt||'').replace('T',' ').substring(0,19) }}</span></div>
               <div class="info-item" v-if="selectedTask.progressText"><span class="info-label">进度</span><span class="info-val dr-progress-text">{{ selectedTask.progressText }}</span></div>
               <div class="info-item" v-if="selectedTask.finishedAt"><span class="info-label">完成</span><span class="info-val">{{ String(selectedTask.finishedAt||'').replace('T',' ').substring(0,19) }}</span></div>
@@ -126,8 +126,8 @@
           <div class="detail-section">
             <h4 class="section-title">提示词</h4>
             <div class="prompt-box">
-              <div class="prompt-block"><span class="prompt-label">Prompt</span><p class="prompt-text">{{ selectedTask.prompt }}</p></div>
-              <div class="prompt-block" v-if="selectedTask.negativePrompt"><span class="prompt-label negative">Negative</span><p class="prompt-text">{{ selectedTask.negativePrompt }}</p></div>
+              <div class="prompt-block"><span class="prompt-label">Prompt</span><p class="prompt-text">{{ getTaskDisplayPrompt(selectedTask) }}</p></div>
+              <div class="prompt-block" v-if="getTaskDisplayNegativePrompt(selectedTask)"><span class="prompt-label negative">Negative</span><p class="prompt-text">{{ getTaskDisplayNegativePrompt(selectedTask) }}</p></div>
             </div>
           </div>
           <div class="detail-section" v-if="selectedTask.requestJson">
@@ -227,6 +227,39 @@ const taskTypeLabel = (taskType: string) => taskType === 'image' ? '生图' : ta
 const taskTypeTagType = (taskType: string) => taskType === 'image' ? 'success' : taskType === 'video' ? 'warning' : 'default'
 const formatTaskProgress = (progress?: number) => typeof progress === 'number' ? `${progress}%` : '-'
 
+function normalizeTaskField(value: unknown) {
+  return typeof value === 'string' ? value.trim() : ''
+}
+
+function tryParseTaskRequestJson(task?: { requestJson?: string } | null) {
+  if (!task?.requestJson) {
+    return null
+  }
+  try {
+    const parsed = JSON.parse(task.requestJson)
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+      ? parsed as Record<string, unknown>
+      : null
+  } catch {
+    return null
+  }
+}
+
+function getTaskDisplayPrompt(task?: GenerationTask | null) {
+  const payload = tryParseTaskRequestJson(task)
+  return normalizeTaskField(payload?.prompt) || task?.prompt || ''
+}
+
+function getTaskDisplayNegativePrompt(task?: GenerationTask | null) {
+  const payload = tryParseTaskRequestJson(task)
+  return normalizeTaskField(payload?.negativePrompt) || task?.negativePrompt || ''
+}
+
+function getTaskDisplayModelName(task?: GenerationTask | null) {
+  const payload = tryParseTaskRequestJson(task)
+  return normalizeTaskField(payload?.modelName) || task?.modelName || ''
+}
+
 function syncSelectedTaskFromStore() {
   const currentTask = selectedTask.value
   if (!currentTask) {
@@ -288,7 +321,10 @@ const filteredTasks = computed<GenerationTask[]>(() => {
   else if (statusFilter.value==='success') list = list.filter(t => t.status==='success')
   else if (statusFilter.value==='failed') list = list.filter(t => t.status==='failed')
   if (typeFilter.value) list = list.filter(t => t.taskType === typeFilter.value)
-  if (searchQuery.value) { const q = searchQuery.value.toLowerCase(); list = list.filter(t => t.prompt.toLowerCase().includes(q)) }
+  if (searchQuery.value) {
+    const q = searchQuery.value.toLowerCase()
+    list = list.filter(t => getTaskDisplayPrompt(t).toLowerCase().includes(q))
+  }
   return list
 })
 
