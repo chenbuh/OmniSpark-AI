@@ -58,7 +58,7 @@
             <div class="card-header-row">
               <div class="header-col">
                 <span>{{ selectedTeam.name }} · 成员 ({{ membersCountDisplay }})</span>
-                <span class="team-desc" v-if="(selectedTeam as any).description">{{ (selectedTeam as any).description }}</span>
+                <span class="team-desc" v-if="selectedTeam.description">{{ selectedTeam.description }}</span>
               </div>
               <n-space>
                 <n-input v-model:value="memberSearch" placeholder="搜索成员..." style="width:160px;" size="small" clearable>
@@ -153,7 +153,7 @@ import { ref, computed, onMounted } from 'vue'
 import { useMessage, useDialog } from 'naive-ui'
 import { useUserStore } from '@/store/user'
 import { useTeamStore } from '@/store/team'
-import { teamApi, type Team } from '@/api/teams'
+import { teamApi, type Team, type TeamMember } from '@/api/teams'
 import { Plus, Trash2, UserPlus, Search, Edit3, MoreVertical } from 'lucide-vue-next'
 
 const message = useMessage()
@@ -221,12 +221,23 @@ function roleLabel(role: string) {
   if (role === 'member') return '成员'
   return role || '未知角色'
 }
-function canManage(member: any) {
+function canManage(member: TeamMember) {
   return selectedTeam.value?.ownerId === userStore.userInfo?.id && member.role !== 'owner'
 }
 
 function hasValidTeamId(team: Team | null | undefined) {
   return !!team && Number.isFinite(team.id) && team.id > 0
+}
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === 'object' && !Array.isArray(value)
+}
+
+function getResponseData(response: unknown, errorMessage: string): unknown {
+  if (!isPlainObject(response) || !('data' in response)) {
+    throw new Error(errorMessage)
+  }
+  return response.data
 }
 
 function normalizeOptionalText(value: unknown) {
@@ -278,9 +289,9 @@ async function loadTeams() {
   try {
     await teamStore.refresh()
     teamsReady.value = true
-  } catch (err: any) {
+  } catch (err: unknown) {
     teamsReady.value = false
-    message.error(err.message || '加载团队失败')
+    message.error(err instanceof Error && err.message ? err.message : '加载团队失败')
   } finally {
     teamsLoading.value = false
   }
@@ -301,9 +312,9 @@ async function loadMembers(teamId: number) {
     await teamStore.refreshMembers(teamId)
     assertMembersMatchTeam(teamId)
     membersReady.value = true
-  } catch (err: any) {
+  } catch (err: unknown) {
     membersReady.value = false
-    message.error(err.message || '加载团队成员失败')
+    message.error(err instanceof Error && err.message ? err.message : '加载团队成员失败')
   } finally {
     membersLoading.value = false
   }
@@ -323,7 +334,10 @@ const handleCreateTeam = async () => {
     const expectedName = createForm.value.name.trim()
     const expectedDescription = (createForm.value.description || '').trim()
     const createdTeam = await teamStore.createTeam(createForm.value.name, createForm.value.description)
-    const teamDetail = requireTeamRecord((await teamApi.getTeam(createdTeam.id) as any).data, '团队创建结果待确认')
+    const teamDetail = requireTeamRecord(
+      getResponseData(await teamApi.getTeam(createdTeam.id), '团队创建结果待确认'),
+      '团队创建结果待确认'
+    )
     if (
       !hasValidTeamId(createdTeam)
       || normalizeOptionalText(createdTeam.name) !== expectedName
@@ -339,13 +353,15 @@ const handleCreateTeam = async () => {
     createForm.value = { name: '', description: '' }
     showCreateModal.value = false
     message.success('团队创建成功！')
-  } catch (err: any) { message.error(err.message || '创建失败') }
+  } catch (err: unknown) {
+    message.error(err instanceof Error && err.message ? err.message : '创建失败')
+  }
   finally { creating.value = false }
 }
 
 const handleTeamAction = (key: string, team: Team) => {
   if (key === 'edit') {
-    editForm.value = { id: team.id, name: team.name, description: (team as any).description || '' }
+    editForm.value = { id: team.id, name: team.name, description: team.description || '' }
     showEditModal.value = true
   } else if (key === 'delete') {
     dialog.warning({
@@ -363,8 +379,8 @@ const handleTeamAction = (key: string, team: Team) => {
             throw new Error('团队解散结果待确认')
           }
           message.success('团队已解散')
-        } catch (err: any) {
-          message.error(err.message || '解散失败')
+        } catch (err: unknown) {
+          message.error(err instanceof Error && err.message ? err.message : '解散失败')
         }
       }
     })
@@ -378,7 +394,10 @@ const handleEditTeam = async () => {
     await teamApi.updateTeam(editForm.value.id, { name: editForm.value.name, description: editForm.value.description })
     await loadTeams()
     const refreshedTeam = requireTeamRecord(teamStore.teams.find(t => t.id === editForm.value.id), '团队更新结果待确认')
-    const teamDetail = requireTeamRecord((await teamApi.getTeam(editForm.value.id) as any).data, '团队更新结果待确认')
+    const teamDetail = requireTeamRecord(
+      getResponseData(await teamApi.getTeam(editForm.value.id), '团队更新结果待确认'),
+      '团队更新结果待确认'
+    )
     if (
       normalizeOptionalText(refreshedTeam.name) !== expectedName
       || normalizeOptionalText(refreshedTeam.description) !== expectedDescription
@@ -395,7 +414,9 @@ const handleEditTeam = async () => {
     }
     showEditModal.value = false
     message.success('已更新')
-  } catch (err: any) { message.error(err.message || '更新失败') }
+  } catch (err: unknown) {
+    message.error(err instanceof Error && err.message ? err.message : '更新失败')
+  }
 }
 
 const handleInviteMember = async () => {
@@ -407,7 +428,7 @@ const handleInviteMember = async () => {
     const selectedTeamId = selectedTeam.value.id
     const previousMemberCount = teamStore.teams.find(team => team.id === selectedTeamId)?.memberCount
     const invitedRes = await teamApi.inviteMember({ teamId: selectedTeam.value.id, username: invitedUsername, role: inviteForm.value.role })
-    const invitedMember = requireMemberRecord((invitedRes as any).data, '邀请结果待确认')
+    const invitedMember = requireMemberRecord(getResponseData(invitedRes, '邀请结果待确认'), '邀请结果待确认')
     if (
       invitedMember.teamId !== selectedTeamId
       || normalizeOptionalText(invitedMember.username) !== invitedUsername
@@ -443,11 +464,13 @@ const handleInviteMember = async () => {
     inviteForm.value = { username: '', role: 'member' }
     showInviteModal.value = false
     message.success('邀请成功！')
-  } catch (err: any) { message.error(err.message || '邀请失败') }
+  } catch (err: unknown) {
+    message.error(err instanceof Error && err.message ? err.message : '邀请失败')
+  }
   finally { inviting.value = false }
 }
 
-const handleRemoveMember = async (member: any) => {
+const handleRemoveMember = async (member: TeamMember) => {
   if (!selectedTeam.value) return
   dialog.warning({
     title: '移除成员',
@@ -475,8 +498,8 @@ const handleRemoveMember = async (member: any) => {
         }
         syncSelectedTeamFromStore()
         message.success(`已移除 ${memberDisplayName(member)}`)
-      } catch (err: any) {
-        message.error(err.message || '移除失败')
+      } catch (err: unknown) {
+        message.error(err instanceof Error && err.message ? err.message : '移除失败')
       }
     }
   })

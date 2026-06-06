@@ -338,7 +338,7 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === 'object' && !Array.isArray(value)
 }
 
-function getResponseData(response: unknown, errorMessage: string) {
+function getResponseData(response: unknown, errorMessage: string): unknown {
   if (!isPlainObject(response) || !('data' in response)) {
     throw new Error(errorMessage)
   }
@@ -518,17 +518,17 @@ async function loadPosts() {
     }
     if (activeCategory.value !== 'all') params.category = activeCategory.value
     if (searchQuery.value) params.search = searchQuery.value
-    const response = await request.get('/api/community/posts', { params })
+    const response = await request.get<unknown>('/api/community/posts', { params })
     const data = requireCommunityPageData(getResponseData(response, '社区内容待确认'))
     posts.value = data.records.map((post) => ({
       ...post,
       imageUrl: resolveAssetUrl(post.imageUrl)
     }))
     total.value = data.total
-  } catch (err: any) {
+  } catch (err: unknown) {
     posts.value = null
     total.value = null
-    message.error(err.message || '加载社区内容失败')
+    message.error(err instanceof Error && err.message ? err.message : '加载社区内容失败')
   } finally {
     loading.value = false
   }
@@ -537,7 +537,7 @@ async function loadPosts() {
 async function loadCategories() {
   categoriesLoadState.value = 'loading'
   try {
-    const response = await request.get('/api/community/categories')
+    const response = await request.get<unknown>('/api/community/categories')
     categories.value = requireStringList(getResponseData(response, '社区分类待确认'), '社区分类待确认')
     if (activeCategory.value !== 'all' && !categories.value.includes(activeCategory.value)) {
       activeCategory.value = 'all'
@@ -602,7 +602,7 @@ function clearUploadedImage() {
 }
 
 async function loadPostDetail(id: number) {
-  const response = await request.get(`/api/community/posts/${id}`)
+  const response = await request.get<unknown>(`/api/community/posts/${id}`)
   return requireCommunityPostResult(getResponseData(response, '社区详情待确认'), 'update')
 }
 
@@ -702,8 +702,8 @@ async function handleImageUpload(event: Event) {
       throw new Error('效果图地址待确认')
     }
     message.success('效果图上传成功')
-  } catch (err: any) {
-    message.error(err.message || '图片上传失败')
+  } catch (err: unknown) {
+    message.error(err instanceof Error && err.message ? err.message : '图片上传失败')
   } finally {
     uploadingImage.value = false
     target.value = ''
@@ -729,7 +729,7 @@ async function handlePublish() {
     const expectedAuthorId = currentUserId.value
     if (editingPostId.value) {
       const editingId = editingPostId.value
-      const response = await request.put(`/api/community/posts/${editingId}`, payload)
+      const response = await request.put<unknown>(`/api/community/posts/${editingId}`, payload)
       const updated = requireCommunityPostResult(getResponseData(response, '更新结果待确认'), 'update')
       await Promise.all([loadCategories(), loadPosts()])
       const refreshed = await loadPostDetail(updated.id)
@@ -759,7 +759,7 @@ async function handlePublish() {
       }
       message.success('已更新！')
     } else {
-      const response = await request.post('/api/community/posts', payload)
+      const response = await request.post<unknown>('/api/community/posts', payload)
       const created = requireCommunityPostResult(getResponseData(response, '发布结果待确认'), 'create')
       await Promise.all([loadCategories(), loadPosts()])
       const refreshed = await loadPostDetail(created.id)
@@ -792,7 +792,9 @@ async function handlePublish() {
     }
     showUploadModal.value = false
     resetPublishForm()
-  } catch (err: any) { message.error(err.message || '发布失败') }
+  } catch (err: unknown) {
+    message.error(err instanceof Error && err.message ? err.message : '发布失败')
+  }
   finally { publishing.value = false }
 }
 
@@ -816,7 +818,7 @@ async function handleLike(post: CommunityPostRecord) {
     if (!Number.isFinite(previousLikesCount) || previousLikesCount < 0 || !Number.isFinite(previousCommentsCount) || previousCommentsCount < 0) {
       throw new Error('点赞结果待确认')
     }
-    const response = await request.post(`/api/community/posts/${post.id}/like`)
+    const response = await request.post<unknown>(`/api/community/posts/${post.id}/like`)
     const liked = requireLikeToggleResult(getResponseData(response, '点赞结果待确认'))
     await loadPosts()
     if (!posts.value) {
@@ -836,13 +838,15 @@ async function handleLike(post: CommunityPostRecord) {
       throw new Error('点赞结果待确认')
     }
     syncCommunityPostState(refreshed)
-  } catch (err: any) { message.error(err.message || '操作失败，请先登录') }
+  } catch (err: unknown) {
+    message.error(err instanceof Error && err.message ? err.message : '操作失败，请先登录')
+  }
 }
 
 async function handleDelete(id: number) {
   try {
     const previousTotal = total.value
-    await request.delete(`/api/community/posts/${id}`)
+    await request.delete<unknown>(`/api/community/posts/${id}`)
     await loadCategories()
     await loadPosts()
     if (posts.value?.some(post => post.id === id)) {
@@ -856,7 +860,9 @@ async function handleDelete(id: number) {
       detailPost.value = null
     }
     message.success('已删除')
-  } catch (err: any) { message.error(err.message || '删除失败') }
+  } catch (err: unknown) {
+    message.error(err instanceof Error && err.message ? err.message : '删除失败')
+  }
 }
 
 function handleApply(post: CommunityPostRecord) {

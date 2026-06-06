@@ -475,7 +475,7 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === 'object' && !Array.isArray(value)
 }
 
-function getResponseData(response: unknown, errorMessage: string) {
+function getResponseData(response: unknown, errorMessage: string): unknown {
   if (!isPlainObject(response) || !('data' in response)) {
     throw new Error(errorMessage)
   }
@@ -760,7 +760,7 @@ async function loadAssets() {
       assetStatsLoadState.value = 'error'
     }
     openAssetFromRoute()
-  } catch (err: any) {
+  } catch (err: unknown) {
     assetRecords.value = null
     filteredTotal.value = null
     assetStats.value = {
@@ -771,7 +771,7 @@ async function loadAssets() {
       favoriteCount: null
     }
     assetStatsLoadState.value = 'error'
-    message.error(err.message || '资产加载失败')
+    message.error(err instanceof Error && err.message ? err.message : '资产加载失败')
   } finally {
     if (loadToken === latestLoadToken) {
       loading.value = false
@@ -856,8 +856,8 @@ async function handleUploadChange(event: Event) {
     })
     handleOpenDetail(refreshedAsset)
     message.success(`素材已上传到共享资产库: ${file.name}`)
-  } catch (err: any) {
-    message.error(err.message || '上传失败')
+  } catch (err: unknown) {
+    message.error(err instanceof Error && err.message ? err.message : '上传失败')
   } finally {
     uploading.value = false
     target.value = ''
@@ -890,8 +890,8 @@ async function handleToggleFavorite(asset: Asset) {
       selectedAsset.value = confirmedAsset
     }
     message.success(confirmedAsset.favorite ? '资产已加入收藏' : '已取消收藏')
-  } catch (err: any) {
-    message.error(err.message || '收藏操作失败')
+  } catch (err: unknown) {
+    message.error(err instanceof Error && err.message ? err.message : '收藏操作失败')
   }
 }
 
@@ -1010,8 +1010,8 @@ async function handleGenerateSubtitle() {
       throw new Error('字幕识别结果待确认')
     }
     message.success('字幕识别成功')
-  } catch (err: any) {
-    message.error(err.message || '字幕识别失败')
+  } catch (err: unknown) {
+    message.error(err instanceof Error && err.message ? err.message : '字幕识别失败')
   } finally {
     subGenerating.value = false
   }
@@ -1042,8 +1042,8 @@ async function handleSaveSubtitle() {
     }
     message.success('字幕已更新')
     showSubEditor.value = false
-  } catch (err: any) {
-    message.error(err.message || '保存失败')
+  } catch (err: unknown) {
+    message.error(err instanceof Error && err.message ? err.message : '保存失败')
   }
 }
 
@@ -1066,8 +1066,8 @@ async function handleGenerateVoice(id: number) {
       throw new Error('配音结果待确认')
     }
     message.success('配音生成成功')
-  } catch (err: any) {
-    message.error(err.message || '配音失败')
+  } catch (err: unknown) {
+    message.error(err instanceof Error && err.message ? err.message : '配音失败')
   } finally {
     voiceLoading.value = false
   }
@@ -1081,8 +1081,8 @@ async function handleDeleteSubtitle(id: number) {
       throw new Error('字幕删除结果待确认')
     }
     message.success('字幕已删除')
-  } catch (err: any) {
-    message.error(err.message || '删除失败')
+  } catch (err: unknown) {
+    message.error(err instanceof Error && err.message ? err.message : '删除失败')
   }
 }
 
@@ -1110,8 +1110,8 @@ async function handleDeleteAsset() {
       throw new Error('资产删除结果待确认')
     }
     message.success('资产已删除')
-  } catch (err: any) {
-    message.error(err.message || '删除失败')
+  } catch (err: unknown) {
+    message.error(err instanceof Error && err.message ? err.message : '删除失败')
   }
 }
 
