@@ -9,12 +9,13 @@
     <n-card class="glass-card table-card" :bordered="false">
       <div class="actions-bar">
         <span class="count-lbl">当前项目已配置: {{ currentProviders.length }} 个</span>
-        <n-button type="primary" size="medium" :disabled="providerMetaLoadState !== 'ready'" @click="handleOpenAddModal">
+        <n-button type="primary" size="medium" :disabled="providerMetaLoadState !== 'ready' || !canManageCurrentProject" @click="handleOpenAddModal">
           <template #icon><Plus /></template>添加提供商
         </n-button>
       </div>
       <div v-if="providerMetaLoadState === 'error'" class="status-note">提供商类型与音频格式待确认，请稍后重试。</div>
       <div v-if="providerListLoadState === 'error'" class="status-note">当前项目提供商列表待确认，请稍后重试。</div>
+      <div v-if="currentProject && !canManageCurrentProject" class="status-note">当前共享项目仅有{{ currentProjectPermissionLabel }}权限，可查看提供商配置，但不能新增、编辑、删除或测试连接。</div>
 
       <n-table :single-line="false" class="providers-table" style="margin-top: 15px;">
         <thead>
@@ -59,6 +60,7 @@
               <n-switch
                 v-else
                 :value="provider.enabled"
+                :disabled="!canManageCurrentProject"
                 @update:value="(value: boolean) => handleToggleEnable(provider, value)"
               />
             </td>
@@ -83,15 +85,16 @@
                   type="primary"
                   size="tiny"
                   secondary
+                  :disabled="!canManageCurrentProject"
                   :loading="testingId === provider.id"
                   @click="handleTestConnection(provider)"
                 >
                   测试连接
                 </n-button>
-                <n-button type="warning" size="tiny" secondary @click="handleOpenEditModal(provider)">
+                <n-button type="warning" size="tiny" secondary :disabled="!canManageCurrentProject" @click="handleOpenEditModal(provider)">
                   编辑
                 </n-button>
-                <n-button type="error" size="tiny" tertiary @click="handleDelete(provider.id)">
+                <n-button type="error" size="tiny" tertiary :disabled="!canManageCurrentProject" @click="handleDelete(provider.id)">
                   删除
                 </n-button>
               </n-space>
@@ -261,6 +264,13 @@ const typeOptions = computed(() => providerMeta.value.providerTypes || [])
 const responseFormatOptions = computed(() => providerMeta.value.audioResponseFormats || [])
 const defaultProviderType = computed(() => providerMeta.value.defaults?.providerType || typeOptions.value[0]?.value || '')
 const defaultResponseFormat = computed(() => providerMeta.value.defaults?.audioResponseFormat || responseFormatOptions.value[0]?.value || '')
+const currentProject = computed(() =>
+  projectStore.projects.find(project => project.id === projectStore.activeProjectId) || null
+)
+const canManageCurrentProject = computed(() =>
+  !!currentProject.value && currentProject.value.accessPermission !== 'view'
+)
+const currentProjectPermissionLabel = computed(() => formatProjectPermissionLabel(currentProject.value?.accessPermission))
 
 const currentProviders = computed(() => {
   return providerStore.getProvidersForProject(projectStore.activeProjectId)
@@ -306,6 +316,13 @@ function resolveOptionValue(options: ProviderMetaOption[], preferredValue?: stri
     return preferredValue
   }
   return options[0]?.value || fallbackValue
+}
+
+function formatProjectPermissionLabel(permission?: string) {
+  if (permission === 'owner') return '所有者'
+  if (permission === 'admin') return '管理'
+  if (permission === 'edit') return '编辑'
+  return '查看'
 }
 
 function requireSavedProvider(provider: ModelProvider, action: 'create' | 'update') {
@@ -467,11 +484,19 @@ async function loadProviderList() {
 }
 
 const handleToggleEnable = async (provider: ModelProvider, enabled: boolean) => {
+  if (!canManageCurrentProject.value) {
+    message.error(`当前项目仅有${currentProjectPermissionLabel.value}权限，不能修改提供商状态`)
+    return
+  }
   requireEnabledState(await providerStore.updateProvider(provider.id, { enabled }), enabled)
   message.info(enabled ? `模型 ${provider.name} 已启用` : `模型 ${provider.name} 已禁用`)
 }
 
 const handleSetDefault = async (provider: ModelProvider) => {
+  if (!canManageCurrentProject.value) {
+    message.error(`当前项目仅有${currentProjectPermissionLabel.value}权限，不能设置默认提供商`)
+    return
+  }
   await providerStore.setDefaultProvider(provider.id)
   requireDefaultState(
     providerStore.providers.find(item => item.id === provider.id) || provider,
@@ -490,7 +515,7 @@ const providerDefaultTagType = (provider: ModelProvider) => {
   return provider.isDefault ? 'success' : 'default'
 }
 
-const canSetDefault = (provider: ModelProvider) => provider.isDefault === false
+const canSetDefault = (provider: ModelProvider) => canManageCurrentProject.value && provider.isDefault === false
 
 const handleEnabledChange = (value: boolean) => {
   form.enabled = value
@@ -505,6 +530,10 @@ const handleDefaultChange = (value: boolean) => {
 }
 
 const handleTestConnection = async (provider: ModelProvider) => {
+  if (!canManageCurrentProject.value) {
+    message.error(`当前项目仅有${currentProjectPermissionLabel.value}权限，不能测试提供商连接`)
+    return
+  }
   testingId.value = provider.id
   message.loading(`正在测试连接提供商 ${provider.name} 中...`)
   try {
@@ -518,6 +547,10 @@ const handleTestConnection = async (provider: ModelProvider) => {
 }
 
 const handleOpenAddModal = () => {
+  if (!canManageCurrentProject.value) {
+    message.error(`当前项目仅有${currentProjectPermissionLabel.value}权限，不能新增提供商`)
+    return
+  }
   if (typeOptions.value.length === 0) {
     message.error('模型类型元数据尚未加载成功，暂时无法基于真实配置新增提供商')
     return
@@ -545,6 +578,10 @@ const handleOpenAddModal = () => {
 }
 
 const handleOpenEditModal = (provider: ModelProvider) => {
+  if (!canManageCurrentProject.value) {
+    message.error(`当前项目仅有${currentProjectPermissionLabel.value}权限，不能编辑提供商`)
+    return
+  }
   const config = parseConfigJson(provider.configJson)
   isEditMode.value = true
   editingId.value = provider.id
@@ -573,6 +610,10 @@ const handleOpenEditModal = (provider: ModelProvider) => {
 }
 
 const handleSave = async () => {
+  if (!canManageCurrentProject.value) {
+    message.error(`当前项目仅有${currentProjectPermissionLabel.value}权限，不能保存提供商配置`)
+    return false
+  }
   if (!form.type) {
     message.error('请选择真实的模型类型后再保存')
     return false
@@ -633,6 +674,10 @@ const handleSave = async () => {
 }
 
 const handleDelete = async (id: number) => {
+  if (!canManageCurrentProject.value) {
+    message.error(`当前项目仅有${currentProjectPermissionLabel.value}权限，不能删除提供商`)
+    return
+  }
   await providerStore.deleteProvider(id)
   requireDeletedProvider(id)
   message.success('模型提供商配置已删除')

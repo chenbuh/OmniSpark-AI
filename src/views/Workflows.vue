@@ -4,13 +4,14 @@
       <div>
         <h2>工作流编排 (Workflows)</h2>
         <p class="subtitle">把图像生成、视频生成和字幕处理编成可复用链路，减少重复操作。</p>
+        <p v-if="currentProject && !canEditCurrentProject" class="permission-note">当前共享项目仅有{{ currentProjectPermissionLabel }}权限，可查看工作流，但不能新建、编辑、克隆、删除或执行。</p>
       </div>
       <n-space>
         <n-button secondary :loading="loading" @click="loadPageData">
           <template #icon><RefreshCw /></template>
           刷新
         </n-button>
-        <n-button type="primary" @click="openCreateEditor">
+        <n-button type="primary" :disabled="!canEditCurrentProject" @click="openCreateEditor">
           <template #icon><Plus /></template>
           新建工作流
         </n-button>
@@ -54,7 +55,7 @@
                 <span class="wf-meta">{{ wf.steps.length }} 个步骤 · {{ workflowTypeSummary(wf.steps) }}</span>
                 <span class="wf-desc">{{ wf.description || '未填写描述' }}</span>
               </div>
-              <n-button size="tiny" type="error" tertiary @click.stop="handleDelete(wf.id)">
+              <n-button v-if="canEditCurrentProject" size="tiny" type="error" tertiary @click.stop="handleDelete(wf.id)">
                 <template #icon><Trash2 /></template>
               </n-button>
             </div>
@@ -76,14 +77,14 @@
                 <small>{{ selectedWorkflow.description || '暂无描述' }}</small>
               </div>
               <n-space>
-                <n-button type="warning" :loading="executing" @click="handleExecute">
+                <n-button type="warning" :loading="executing" :disabled="!canEditCurrentProject" @click="handleExecute">
                   <template #icon><Play /></template>
                   执行工作流
                 </n-button>
-                <n-button secondary @click="cloneWorkflow(selectedWorkflow)">
+                <n-button secondary :disabled="!canEditCurrentProject" @click="cloneWorkflow(selectedWorkflow)">
                   <template #icon><Copy /></template>克隆
                 </n-button>
-                <n-button secondary @click="openEditEditor(selectedWorkflow)">编辑</n-button>
+                <n-button secondary :disabled="!canEditCurrentProject" @click="openEditEditor(selectedWorkflow)">编辑</n-button>
               </n-space>
             </div>
           </template>
@@ -442,6 +443,13 @@ const workflowMetaLoadState = ref<LoadState>('loading')
 const generationMetaLoadState = ref<LoadState>('loading')
 const providerLoadState = ref<LoadState>('loading')
 const assetLibraryLoadState = ref<LoadState>('loading')
+const currentProject = computed(() =>
+  projectStore.projects.find(project => project.id === projectStore.activeProjectId) || null
+)
+const canEditCurrentProject = computed(() =>
+  !!currentProject.value && currentProject.value.accessPermission !== 'view'
+)
+const currentProjectPermissionLabel = computed(() => formatProjectPermissionLabel(currentProject.value?.accessPermission))
 
 const editForm = reactive({
   id: null as number | null,
@@ -564,6 +572,13 @@ const latestRunStatus = computed(() => {
   }
   return runs.value[0] ? formatRunProgress(runs.value[0]) : '暂无'
 })
+
+function formatProjectPermissionLabel(permission?: string) {
+  if (permission === 'owner') return '所有者'
+  if (permission === 'admin') return '管理'
+  if (permission === 'edit') return '编辑'
+  return '查看'
+}
 
 // 前端分页(workflows 全量不动)
 const wfPage = ref(1)
@@ -1141,12 +1156,20 @@ function resetEditor() {
 }
 
 function openCreateEditor() {
+  if (!canEditCurrentProject.value) {
+    message.error(`当前项目仅有${currentProjectPermissionLabel.value}权限，不能新建工作流`)
+    return
+  }
   editorMode.value = 'create'
   resetEditor()
   showEditor.value = true
 }
 
 function openEditEditor(workflow: WorkflowRecord) {
+  if (!canEditCurrentProject.value) {
+    message.error(`当前项目仅有${currentProjectPermissionLabel.value}权限，不能编辑工作流`)
+    return
+  }
   editorMode.value = 'edit'
   editForm.id = workflow.id
   editForm.name = workflow.name
@@ -1230,6 +1253,10 @@ function moveStep(index: number, direction: -1 | 1) {
 }
 
 async function handleSave() {
+  if (!canEditCurrentProject.value) {
+    message.error(`当前项目仅有${currentProjectPermissionLabel.value}权限，不能保存工作流`)
+    return
+  }
   if (!editForm.name.trim()) {
     message.error('请填写工作流名称')
     return
@@ -1297,6 +1324,10 @@ async function handleSave() {
 }
 
 async function handleDelete(id: number) {
+  if (!canEditCurrentProject.value) {
+    message.error(`当前项目仅有${currentProjectPermissionLabel.value}权限，不能删除工作流`)
+    return
+  }
   try {
     await workflowApi.remove(id)
     await loadWorkflows()
@@ -1310,6 +1341,10 @@ async function handleDelete(id: number) {
 }
 
 async function cloneWorkflow(workflow: WorkflowRecord) {
+  if (!canEditCurrentProject.value) {
+    message.error(`当前项目仅有${currentProjectPermissionLabel.value}权限，不能克隆工作流`)
+    return
+  }
   try {
     const payload = {
       projectId: projectStore.activeProjectId,
@@ -1337,6 +1372,10 @@ async function cloneWorkflow(workflow: WorkflowRecord) {
 
 async function handleExecute() {
   if (!selectedWorkflow.value?.id) return
+  if (!canEditCurrentProject.value) {
+    message.error(`当前项目仅有${currentProjectPermissionLabel.value}权限，不能执行工作流`)
+    return
+  }
   executing.value = true
   try {
     const res = await workflowApi.execute(selectedWorkflow.value.id)
@@ -1480,6 +1519,12 @@ onMounted(async () => {
   font-size: 13px;
   color: #9ca3af;
   margin: 0;
+}
+
+.permission-note {
+  margin: 8px 0 0;
+  font-size: 12px;
+  color: #f59e0b;
 }
 
 .glass-card {
