@@ -235,7 +235,7 @@
 
           <div v-if="versionHistory === null || versionHistory.length > 1" class="detail-section">
             <h4 class="section-title">版本历史 ({{ versionHistory?.length ?? '-' }})</h4>
-            <p class="version-subtitle">同一提示词与模型下的其他输出版本</p>
+            <p class="version-subtitle">{{ versionHistorySubtitle }}</p>
             <div v-if="versionHistory && versionHistory.length > 1" class="version-grid">
               <div
                 v-for="version in versionHistory"
@@ -415,6 +415,20 @@ const currentProjectName = computed(() => {
     return '共享给我'
   }
   return projectStore.projects.find(item => item.id === projectStore.activeProjectId)?.name || ''
+})
+
+const versionHistorySubtitle = computed(() => {
+  const asset = selectedAsset.value
+  if (!asset) {
+    return '按当前项目中的同提示词与同模型名称归并'
+  }
+  if (!String(asset.prompt || '').trim()) {
+    return '当前资产没有提示词记录，暂时无法匹配版本历史'
+  }
+  if (!String(asset.modelName || '').trim()) {
+    return '按当前项目中的同提示词归并，仅匹配未记录模型名的结果'
+  }
+  return '按当前项目中的同提示词与同模型名称归并'
 })
 
 const summaryCards = computed(() => {

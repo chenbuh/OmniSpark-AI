@@ -136,7 +136,7 @@
                       <n-tag size="small" :type="runStatusType(run.status)">{{ runStatusLabel(run.status) }}</n-tag>
                       <span class="run-time">{{ formatRunTime(run) }}</span>
                     </div>
-                    <span class="run-step">{{ formatRunCurrentStep(run.currentStep) }}</span>
+                    <span class="run-step">{{ formatRunProgress(run) }}</span>
                   </div>
 
                   <div v-if="run.errorMessage" class="run-error">
@@ -153,6 +153,8 @@
                         <span v-if="result.message">{{ result.message }}</span>
                         <span v-if="result.taskId">任务 #{{ result.taskId }}</span>
                         <span v-if="result.assetId">资产 #{{ result.assetId }}</span>
+                        <span v-if="result.sourceAssetId">来源资产 #{{ result.sourceAssetId }}</span>
+                        <span v-if="result.referenceAssetId">参考资产 #{{ result.referenceAssetId }}</span>
                         <span v-if="result.subtitleId">字幕 #{{ result.subtitleId }}</span>
                         <span v-if="result.voiceUrl">已生成配音</span>
                       </div>
@@ -416,6 +418,7 @@ interface WorkflowRecord extends WorkflowVO {
 type RunResult = {
   stepIndex?: number
   stepType?: string
+  status?: string
 } & Record<string, unknown>
 type LoadState = 'loading' | 'ready' | 'error'
 type EditorStatusTone = 'error' | 'info'
@@ -559,7 +562,7 @@ const latestRunStatus = computed(() => {
   if (runs.value === null) {
     return '待确认'
   }
-  return runs.value[0]?.status ? runStatusLabel(runs.value[0].status) : '暂无'
+  return runs.value[0] ? formatRunProgress(runs.value[0]) : '暂无'
 })
 
 // 前端分页(workflows 全量不动)
@@ -1371,15 +1374,71 @@ function parseRunResults(run: WorkflowRunVO): RunResult[] {
       .map((item) => ({
         ...item,
         stepIndex: typeof item.stepIndex === 'number' ? item.stepIndex : undefined,
-        stepType: typeof item.stepType === 'string' ? item.stepType : undefined
+        stepType: typeof item.stepType === 'string' ? item.stepType : undefined,
+        status: typeof item.status === 'string' ? item.status : undefined
       }))
   } catch {
     return []
   }
 }
 
-function formatRunCurrentStep(currentStep?: number) {
-  return typeof currentStep === 'number' ? `进行到步骤 ${currentStep + 1}` : '步骤进度待确认'
+function resolveRunStepCount(run: WorkflowRunVO) {
+  const workflow = selectedWorkflow.value?.id === run.workflowId
+    ? selectedWorkflow.value
+    : findWorkflowById(run.workflowId)
+  if (workflow?.steps.length) {
+    return workflow.steps.length
+  }
+  const resultCount = parseRunResults(run).length
+  return resultCount > 0 ? resultCount : undefined
+}
+
+function normalizeRunStepIndex(stepIndex: unknown, stepCount?: number) {
+  if (typeof stepIndex !== 'number' || !Number.isFinite(stepIndex) || stepIndex < 0) {
+    return undefined
+  }
+  if (typeof stepCount === 'number' && stepCount > 0) {
+    return Math.min(stepIndex, stepCount - 1)
+  }
+  return stepIndex
+}
+
+function formatRunProgress(run: WorkflowRunVO) {
+  const stepCount = resolveRunStepCount(run)
+  const results = parseRunResults(run)
+  const currentStep = normalizeRunStepIndex(run.currentStep, stepCount)
+  if (run.status === 'success') {
+    if (typeof stepCount === 'number' && stepCount > 0) {
+      return `已完成 ${stepCount}/${stepCount} 步`
+    }
+    if (results.length > 0) {
+      return `已完成 ${results.length} 步`
+    }
+    return '执行完成'
+  }
+  if (run.status === 'failed') {
+    const failedStep = normalizeRunStepIndex(
+      results.find(result => result.status === 'failed')?.stepIndex,
+      stepCount
+    ) ?? currentStep
+    if (typeof failedStep === 'number' && typeof stepCount === 'number' && stepCount > 0) {
+      return `失败于步骤 ${failedStep + 1}/${stepCount}`
+    }
+    if (typeof failedStep === 'number') {
+      return `失败于步骤 ${failedStep + 1}`
+    }
+    return '执行失败'
+  }
+  if (run.status === 'running') {
+    if (typeof currentStep === 'number' && typeof stepCount === 'number' && stepCount > 0) {
+      return `正在执行第 ${currentStep + 1}/${stepCount} 步`
+    }
+    if (typeof currentStep === 'number') {
+      return `正在执行第 ${currentStep + 1} 步`
+    }
+    return '执行中'
+  }
+  return runStatusLabel(run.status)
 }
 
 function formatRunResultStep(stepIndex: unknown) {
