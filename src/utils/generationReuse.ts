@@ -97,10 +97,11 @@ export function buildGenerationReuseLocation(source: GenerationReuseSource, opti
   }
 
   const query: Record<string, string> = {}
+  const duration = normalizeText(payload?.duration) || normalizeText(payload?.size)
   appendQuery(query, 'prompt', payload?.prompt ?? source.prompt)
   appendQuery(query, 'model', payload?.modelName ?? source.modelName)
   appendPositiveIntegerQuery(query, 'providerId', payload?.providerId)
-  appendQuery(query, 'duration', payload?.size)
+  appendQuery(query, 'duration', duration)
   appendQuery(query, 'cameraMotion', payloadOptions.cameraMotion)
   appendFiniteNumberQuery(query, 'motionSpeed', payloadOptions.motionSpeed)
   appendPositiveIntegerQuery(query, 'sourceAssetId', payload?.sourceAssetId)

@@ -497,6 +497,10 @@ function parseTaskRequestJson(task: { requestJson?: string }, errorMessage: stri
   }
 }
 
+function getVideoRequestDuration(payload: Record<string, unknown>) {
+  return normalizeTaskField(payload.duration) || normalizeTaskField(payload.size)
+}
+
 function assertVideoGenerationTaskMatches(
   task: ReturnType<typeof taskStore.normalizeTask>,
   expected: {
@@ -527,7 +531,7 @@ function assertVideoGenerationTaskMatches(
     || Number(requestPayload.providerId) !== expected.providerId
     || normalizeTaskField(requestPayload.prompt) !== expected.prompt
     || normalizeTaskField(requestPayload.modelName) !== expected.modelName
-    || normalizeTaskField(requestPayload.size) !== expected.duration
+    || getVideoRequestDuration(requestPayload) !== expected.duration
     || Number(requestPayload.sourceAssetId ?? 0) !== Number(expected.sourceAssetId ?? 0)
     || Number(requestPayload.endAssetId ?? 0) !== Number(expected.endAssetId ?? 0)
   ) {
@@ -833,7 +837,7 @@ const actualVideoModeLabel = computed(() => {
 })
 
 const actualVideoDurationLabel = computed(() => {
-  const duration = normalizeTaskField(activeVideoTaskRequest.value?.size)
+  const duration = activeVideoTaskRequest.value ? getVideoRequestDuration(activeVideoTaskRequest.value) : ''
   return duration || '待确认'
 })
 

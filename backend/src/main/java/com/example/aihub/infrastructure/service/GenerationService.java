@@ -184,7 +184,7 @@ public class GenerationService {
         Long userId = SecurityUtil.loginUserId();
         String modelName = resolveModelName(dto.getModelName(), dto.getOptions(), provider.getModelName());
         GenerationTask task = createTask(dto.getProjectId(), provider.getId(), "image", dto.getPrompt(),
-                dto.getNegativePrompt(), dto.getSize(), dto.getCount(), dto.getOptions(), dto.getReferenceAssetIds(), null, modelName);
+                dto.getNegativePrompt(), dto.getSize(), dto.getCount(), dto.getOptions(), dto.getReferenceAssetIds(), null, null, null, modelName);
         submitImageInpaintTask(task, userId, provider, modelName, dto);
         return toTaskVO(taskMapper.selectById(task.getId()));
     }
@@ -196,7 +196,7 @@ public class GenerationService {
         Long userId = SecurityUtil.loginUserId();
         String modelName = resolveModelName(dto.getModelName(), dto.getOptions(), provider.getModelName());
         GenerationTask task = createTask(dto.getProjectId(), provider.getId(), "image", dto.getPrompt(),
-                dto.getNegativePrompt(), dto.getSize(), dto.getCount(), dto.getOptions(), dto.getReferenceAssetIds(), null, modelName);
+                dto.getNegativePrompt(), dto.getSize(), dto.getCount(), dto.getOptions(), dto.getReferenceAssetIds(), null, null, null, modelName);
         submitImageTask(task, userId, provider, modelName, dto);
         return toTaskVO(taskMapper.selectById(task.getId()));
     }
@@ -208,16 +208,7 @@ public class GenerationService {
         ModelProvider provider = requireProvider(dto.getProviderId(), dto.getProjectId(), "video");
         String modelName = resolveModelName(dto.getModelName(), dto.getOptions(), provider.getModelName());
         GenerationTask task = createTask(dto.getProjectId(), provider.getId(), "video", dto.getPrompt(),
-                null, dto.getDuration(), null, dto.getOptions(), null, dto.getSourceAssetId(), modelName);
-        // 将 endAssetId 存入 requestJson 供重试使用
-        if (dto.getEndAssetId() != null) {
-            try {
-                Map<String, Object> existing = objectMapper.readValue(task.getRequestJson(), Map.class);
-                existing.put("endAssetId", dto.getEndAssetId());
-                task.setRequestJson(cn.hutool.json.JSONUtil.toJsonStr(existing));
-                taskMapper.updateById(task);
-            } catch (Exception ignored) {}
-        }
+                null, dto.getDuration(), null, dto.getOptions(), null, dto.getSourceAssetId(), dto.getDuration(), dto.getEndAssetId(), modelName);
         try {
             List<MediaRecord> mediaList = generateVideoMedia(provider, dto, modelName);
             return completeTask(task, null, mediaList, "video");
@@ -304,6 +295,8 @@ public class GenerationService {
                                        Map<String, Object> options,
                                        List<Long> referenceAssetIds,
                                        Long sourceAssetId,
+                                       String duration,
+                                       Long endAssetId,
                                        String modelName) {
         GenerationTask task = new GenerationTask();
         task.setProjectId(projectId);
@@ -315,7 +308,8 @@ public class GenerationService {
         task.setProgress(10);
         task.setProgressText("已受理，正在请求模型服务");
         task.setModelName(modelName);
-        task.setRequestJson(cn.hutool.json.JSONUtil.toJsonStr(buildRequestPayload(taskType, projectId, providerId, prompt, modelName, negativePrompt, size, count, options, referenceAssetIds, sourceAssetId)));
+        task.setRequestJson(cn.hutool.json.JSONUtil.toJsonStr(buildRequestPayload(
+                taskType, projectId, providerId, prompt, modelName, negativePrompt, size, count, options, referenceAssetIds, sourceAssetId, duration, endAssetId)));
         taskMapper.insert(task);
         try {
             webhookService.trigger("task.started", task.getId(), taskType, task.getStatus(), task.getPrompt());
@@ -423,7 +417,9 @@ public class GenerationService {
                                                     Integer count,
                                                     Map<String, Object> options,
                                                     List<Long> referenceAssetIds,
-                                                    Long sourceAssetId) {
+                                                    Long sourceAssetId,
+                                                    String duration,
+                                                    Long endAssetId) {
         Map<String, Object> payload = new LinkedHashMap<>();
         payload.put("taskType", taskType);
         payload.put("projectId", projectId);
@@ -436,6 +432,10 @@ public class GenerationService {
         payload.put("options", options);
         payload.put("referenceAssetIds", referenceAssetIds);
         payload.put("sourceAssetId", sourceAssetId);
+        if ("video".equals(taskType)) {
+            payload.put("duration", duration);
+            payload.put("endAssetId", endAssetId);
+        }
         return payload;
     }
 
@@ -662,7 +662,8 @@ public class GenerationService {
         dto.setProviderId(toLong(request.get("providerId")));
         dto.setPrompt(stringValue(request.get("prompt")));
         dto.setModelName(resolveModelName(stringValue(request.get("modelName")), null, null));
-        dto.setDuration(stringValue(request.get("size")));
+        String duration = stringValue(request.get("duration"));
+        dto.setDuration(duration != null ? duration : stringValue(request.get("size")));
         dto.setSourceAssetId(toLong(request.get("sourceAssetId")));
         dto.setEndAssetId(toLong(request.get("endAssetId")));
         Object options = request.get("options");
