@@ -1747,12 +1747,19 @@ async function loadLinkedTaskForAsset(asset: Asset) {
   if (linkedTask?.requestJson || !asset.taskId) {
     return linkedTask
   }
-  const response = await taskApi.getTask(asset.taskId)
-  const confirmedTask = taskStore.normalizeTask(getResponseData(response, '图片任务结果待确认'))
-  if (confirmedTask.projectId !== asset.projectId || confirmedTask.id !== asset.taskId) {
+  try {
+    const response = await taskApi.getTask(asset.taskId)
+    const confirmedTask = taskStore.upsertTask(getResponseData(response, '图片任务结果待确认'))
+    if (confirmedTask.projectId !== asset.projectId || confirmedTask.id !== asset.taskId) {
+      throw new Error('图片任务结果待确认')
+    }
+    return confirmedTask
+  } catch {
+    if (linkedTask?.projectId === asset.projectId) {
+      return linkedTask
+    }
     throw new Error('图片任务结果待确认')
   }
-  return confirmedTask
 }
 
 async function resolveAssetGenerationFields(asset: Asset) {
@@ -1762,16 +1769,18 @@ async function resolveAssetGenerationFields(asset: Asset) {
   let modelName = linkedTask?.modelName || asset.modelName || ''
   let providerId = linkedTask?.providerId ? String(linkedTask.providerId) : ''
   let hasRequestPayload = false
+  let sourceLevel: 'request' | 'task' | 'asset' = linkedTask ? 'task' : 'asset'
   const requestPayload = tryParseTaskRequestJson(linkedTask)
   if (requestPayload) {
     hasRequestPayload = true
+    sourceLevel = 'request'
     prompt = normalizeTaskField(requestPayload.prompt) || prompt
     negativePrompt = normalizeTaskField(requestPayload.negativePrompt)
     modelName = normalizeTaskField(requestPayload.modelName) || modelName
     const actualProviderId = toPositiveInteger(requestPayload.providerId)
     providerId = actualProviderId ? String(actualProviderId) : ''
   }
-  return { prompt, negativePrompt, modelName, providerId, hasRequestPayload }
+  return { prompt, negativePrompt, modelName, providerId, hasRequestPayload, sourceLevel }
 }
 
 function parseTaskRequestJson(task: { requestJson?: string }, errorMessage: string) {
@@ -2600,10 +2609,10 @@ const handleToVideo = async () => {
   const query: Record<string, string> = {
     sourceAssetId: asset.id.toString()
   }
-  let hasRequestPayload = false
+  let sourceLevel: 'request' | 'task' | 'asset' = 'asset'
   try {
     const resolvedFields = await resolveAssetGenerationFields(asset)
-    hasRequestPayload = resolvedFields.hasRequestPayload
+    sourceLevel = resolvedFields.sourceLevel
     if (resolvedFields.prompt) {
       query.prompt = resolvedFields.prompt
     }
@@ -2626,9 +2635,11 @@ const handleToVideo = async () => {
     query
   })
   message.success(
-    hasRequestPayload
+    sourceLevel === 'request'
       ? '已将当前图片设为视频首帧，并优先带入真实提示词、模型与可确认的提供商参数'
-      : '已将当前图片设为视频首帧，并带入已记录的提示词与模型'
+      : sourceLevel === 'task'
+        ? '已将当前图片设为视频首帧，并优先带入任务已记录的提示词、模型与提供商参数'
+        : '已将当前图片设为视频首帧，并带入资产当前已记录的提示词与模型'
   )
 }
 
