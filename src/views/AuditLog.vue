@@ -128,6 +128,24 @@ const actionFilterPlaceholder = computed(() => {
   return '操作类型'
 })
 
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === 'object' && !Array.isArray(value)
+}
+
+function getResponseData(response: unknown, errorMessage: string): unknown {
+  if (!isPlainObject(response) || !('data' in response)) {
+    throw new Error(errorMessage)
+  }
+  return response.data
+}
+
+function getErrorMessage(error: unknown, fallback: string): string {
+  if (error instanceof Error && error.message.trim()) {
+    return error.message
+  }
+  return fallback
+}
+
 const actionColor = (action: string) => {
   if (!action) return 'default'
   if (action.includes('delete') || action.includes('remove')) return 'error'
@@ -180,11 +198,11 @@ function requireNonNegativeNumber(value: unknown, errorMessage: string) {
 }
 
 function requireAuditLogPage(value: unknown) {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+  if (!isPlainObject(value)) {
     throw new Error('审计日志数据待确认')
   }
-  const records = (value as any).records
-  const count = Number((value as any).total)
+  const records = value.records
+  const count = Number(value.total)
   if (!Array.isArray(records) || !Number.isFinite(count) || count < 0) {
     throw new Error('审计日志数据待确认')
   }
@@ -225,17 +243,17 @@ function requireAuditActionList(value: unknown) {
 
 async function loadLogs() {
   try {
-    const params: Record<string, any> = { page: page.value, size: pageSize.value }
+    const params: Record<string, string | number> = { page: page.value, size: pageSize.value }
     if (actionFilter.value) params.action = actionFilter.value
     const endpoint = isAdmin.value ? '/api/audit-logs' : '/api/audit-logs/my'
     const res = await request.get(endpoint, { params, headers: NO_CACHE_HEADERS })
-    const data = requireAuditLogPage((res as any).data)
+    const data = requireAuditLogPage(getResponseData(res, '审计日志数据待确认'))
     logs.value = data.records
     total.value = data.total
-  } catch (err: any) {
+  } catch (err: unknown) {
     logs.value = null
     total.value = null
-    message.error(err.message || '加载审计日志失败')
+    message.error(getErrorMessage(err, '加载审计日志失败'))
   }
 }
 
@@ -244,7 +262,7 @@ async function loadCleanupPreview(noCache = false) {
     params: { daysOld: cleanupDays.value },
     headers: noCache ? NO_CACHE_HEADERS : undefined
   })
-  return requireNonNegativeNumber((res as any).data, '清理结果待确认')
+  return requireNonNegativeNumber(getResponseData(res, '清理结果待确认'), '清理结果待确认')
 }
 
 function requireCleanupConfirmed(
@@ -278,7 +296,7 @@ async function loadActions() {
   actionOptionsLoadState.value = 'loading'
   try {
     const res = await request.get('/api/audit-logs/actions', { headers: NO_CACHE_HEADERS })
-    actions.value = requireAuditActionList((res as any).data)
+    actions.value = requireAuditActionList(getResponseData(res, '审计操作类型待确认'))
     actionOptionsLoadState.value = 'ready'
     if (actionFilter.value && !actions.value.includes(actionFilter.value)) {
       actionFilter.value = null
@@ -315,13 +333,13 @@ function handleCleanup() {
         const previousTotal = total.value
         const previewBefore = await loadCleanupPreview(true)
         const res = await request.delete('/api/audit-logs', { params: { daysOld: cleanupDays.value } })
-        const deletedCount = requireNonNegativeNumber((res as any).data, '清理结果待确认')
+        const deletedCount = requireNonNegativeNumber(getResponseData(res, '清理结果待确认'), '清理结果待确认')
         page.value = 1
-        const params: Record<string, any> = { page: page.value, size: pageSize.value }
+        const params: Record<string, string | number> = { page: page.value, size: pageSize.value }
         if (actionFilter.value) params.action = actionFilter.value
         const endpoint = isAdmin.value ? '/api/audit-logs' : '/api/audit-logs/my'
         const refreshRes = await request.get(endpoint, { params, headers: NO_CACHE_HEADERS })
-        const refreshData = requireAuditLogPage((refreshRes as any).data)
+        const refreshData = requireAuditLogPage(getResponseData(refreshRes, '审计日志数据待确认'))
         logs.value = refreshData.records
         total.value = refreshData.total
         const previewAfter = await loadCleanupPreview(true)
@@ -330,8 +348,8 @@ function handleCleanup() {
         }
         requireCleanupConfirmed(deletedCount, previewBefore, previewAfter, previousTotal, total.value)
         message.success(`已清理 ${deletedCount} 条审计日志`)
-      } catch (err: any) {
-        message.error(err.message || '清理失败')
+      } catch (err: unknown) {
+        message.error(getErrorMessage(err, '清理失败'))
       } finally {
         cleaning.value = false
       }

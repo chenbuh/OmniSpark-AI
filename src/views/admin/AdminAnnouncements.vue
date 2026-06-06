@@ -91,26 +91,44 @@ const form = reactive({ title: '', content: '', priority: 'normal' })
 const listLoadState = ref<'loading' | 'ready' | 'error'>('loading')
 const listCountDisplay = computed(() => list.value === null ? '-' : list.value.length)
 
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === 'object' && !Array.isArray(value)
+}
+
+function getResponseData(response: unknown, errorMessage: string): unknown {
+  if (!isPlainObject(response) || !('data' in response)) {
+    throw new Error(errorMessage)
+  }
+  return response.data
+}
+
+function getErrorMessage(error: unknown, fallback: string): string {
+  if (error instanceof Error && error.message.trim()) {
+    return error.message
+  }
+  return fallback
+}
+
 function requireAnnouncement(value: unknown, action: 'create' | 'update') {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+  if (!isPlainObject(value)) {
     throw new Error(action === 'create' ? '公告发布结果待确认' : '公告更新结果待确认')
   }
-  const id = Number((value as any).id)
-  const title = typeof (value as any).title === 'string' ? (value as any).title.trim() : ''
+  const id = Number(value.id)
+  const title = typeof value.title === 'string' ? value.title.trim() : ''
   if (!Number.isFinite(id) || id <= 0 || !title) {
     throw new Error(action === 'create' ? '公告发布结果待确认' : '公告更新结果待确认')
   }
   return {
     id,
     title,
-    content: typeof (value as any).content === 'string' ? (value as any).content.trim() : '',
-    priority: typeof (value as any).priority === 'string' ? (value as any).priority.trim() : '',
-    status: normalizeBinaryStatus((value as any).status)
+    content: typeof value.content === 'string' ? value.content.trim() : '',
+    priority: typeof value.priority === 'string' ? value.priority.trim() : '',
+    status: normalizeBinaryStatus(value.status)
   }
 }
 
 function normalizeAnnouncementRecord(value: unknown): AnnouncementRecord {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+  if (!isPlainObject(value)) {
     throw new Error('公告数据待确认')
   }
   const announcement = requireAnnouncement(value, 'update')
@@ -151,12 +169,12 @@ async function load() {
   listLoadState.value = 'loading'
   try {
     const res = await request.get('/api/admin/announcements')
-    list.value = normalizeAnnouncementList((res as any).data)
+    list.value = normalizeAnnouncementList(getResponseData(res, '公告数据待确认'))
     listLoadState.value = 'ready'
-  } catch (err: any) {
+  } catch (err: unknown) {
     list.value = null
     listLoadState.value = 'error'
-    message.error(err.message || '加载公告失败')
+    message.error(getErrorMessage(err, '加载公告失败'))
   } finally {
     loadingList.value = false
   }
@@ -173,7 +191,7 @@ async function handleSave() {
     if (editingId.value) {
       const currentEditingId = editingId.value
       const res = await request.put(`/api/admin/announcements/${currentEditingId}?title=${encodeURIComponent(form.title)}&content=${encodeURIComponent(form.content)}&priority=${form.priority}`)
-      requireAnnouncement((res as any).data, 'update')
+      requireAnnouncement(getResponseData(res, '公告更新结果待确认'), 'update')
       await load()
       const refreshed = list.value?.find(item => Number(item.id) === currentEditingId)
       if (!refreshed || refreshed.title !== form.title || refreshed.content !== form.content || refreshed.priority !== form.priority) {
@@ -185,7 +203,7 @@ async function handleSave() {
       message.success('已更新')
     } else {
       const res = await request.post(`/api/admin/announcements?title=${encodeURIComponent(form.title)}&content=${encodeURIComponent(form.content)}&priority=${form.priority}`)
-      const created = requireAnnouncement((res as any).data, 'create')
+      const created = requireAnnouncement(getResponseData(res, '公告发布结果待确认'), 'create')
       await load()
       const refreshed = list.value?.find(item => Number(item.id) === created.id)
       if (!refreshed || refreshed.title !== form.title || refreshed.content !== form.content || refreshed.priority !== form.priority) {
@@ -197,7 +215,7 @@ async function handleSave() {
       message.success('已发布')
     }
     showEditor.value = false
-  } catch (err: any) { message.error(err.message || '操作失败') }
+  } catch (err: unknown) { message.error(getErrorMessage(err, '操作失败')) }
 }
 
 async function handleToggle(id: number) {
@@ -214,7 +232,7 @@ async function handleToggle(id: number) {
     if (!refreshed || normalizeBinaryStatus(refreshed.status) !== !currentStatus) {
       throw new Error('公告状态待确认')
     }
-  } catch (err: any) { message.error(err.message || '操作失败') }
+  } catch (err: unknown) { message.error(getErrorMessage(err, '操作失败')) }
 }
 
 async function handleDelete(id: number) {
@@ -230,7 +248,7 @@ async function handleDelete(id: number) {
     }
     message.success('已删除')
   }
-  catch (err: any) { message.error(err.message || '删除失败') }
+  catch (err: unknown) { message.error(getErrorMessage(err, '删除失败')) }
 }
 
 function normalizeBinaryStatus(value: unknown): boolean | null {
