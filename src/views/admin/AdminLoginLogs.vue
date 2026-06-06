@@ -40,16 +40,79 @@ const logs = ref<any[] | null>(null)
 const page = ref(1)
 const pageSize = 20
 const total = ref<number | null>(null)
+const NO_CACHE_HEADERS = { 'X-No-Cache': '1' }
+
+function normalizeOptionalText(value: unknown) {
+  return typeof value === 'string' ? value.trim() : ''
+}
+
+function requirePositiveNumber(value: unknown, errorMessage: string) {
+  const normalized = Number(value)
+  if (!Number.isFinite(normalized) || normalized <= 0) {
+    throw new Error(errorMessage)
+  }
+  return normalized
+}
+
+function normalizeLoginLogRecord(value: unknown) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new Error('登录日志数据待确认')
+  }
+  const record = value as Record<string, unknown>
+  const id = requirePositiveNumber(record.id, '登录日志数据待确认')
+  const userId = requirePositiveNumber(record.userId, '登录日志数据待确认')
+  const username = normalizeOptionalText(record.username)
+  const createdAt = normalizeOptionalText(record.createdAt)
+  if (!username || !createdAt) {
+    throw new Error('登录日志数据待确认')
+  }
+  return {
+    ...record,
+    id,
+    userId,
+    username,
+    ip: normalizeOptionalText(record.ip),
+    userAgent: normalizeOptionalText(record.userAgent),
+    createdAt
+  }
+}
+
+function requireLoginLogPage(value: unknown) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new Error('登录日志数据待确认')
+  }
+  const record = value as Record<string, unknown>
+  const records = record.records
+  const count = Number(record.total)
+  if (!Array.isArray(records) || !Number.isFinite(count) || count < 0) {
+    throw new Error('登录日志数据待确认')
+  }
+  const normalizedRecords = records.map(item => normalizeLoginLogRecord(item))
+  const ids = new Set<number>()
+  normalizedRecords.forEach(item => {
+    if (ids.has(item.id)) {
+      throw new Error('登录日志数据待确认')
+    }
+    ids.add(item.id)
+  })
+  if (normalizedRecords.length > count) {
+    throw new Error('登录日志数据待确认')
+  }
+  return {
+    records: normalizedRecords,
+    total: count
+  }
+}
 
 async function loadLogs() {
   try {
-    const res = await request.get('/api/admin/login-logs', { params: { page: page.value, pageSize } })
-    const data = (res as any).data
-    if (!Array.isArray(data.records)) {
-      throw new Error('登录日志数据待确认')
-    }
+    const res = await request.get('/api/admin/login-logs', {
+      params: { page: page.value, pageSize },
+      headers: NO_CACHE_HEADERS
+    })
+    const data = requireLoginLogPage((res as any).data)
     logs.value = data.records
-    total.value = typeof data.total === 'number' ? data.total : null
+    total.value = data.total
   } catch (err: any) {
     logs.value = null
     total.value = null

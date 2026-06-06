@@ -213,7 +213,7 @@ import { useUserStore } from '@/store/user'
 import { useProjectStore } from '@/store/project'
 import { useTaskStore } from '@/store/task'
 import { useAssetStore } from '@/store/asset'
-import { templateApi, type PromptTemplate } from '@/api/templates'
+import type { PromptTemplate } from '@/api/templates'
 import SkeletonCard from '@/components/SkeletonCard.vue'
 import request from '@/api/request'
 import {
@@ -239,6 +239,7 @@ const announcement = ref<any>(null)
 const announcementLoadFailed = ref(false)
 const recommendedTemplates = ref<PromptTemplate[] | null>(null)
 const metricsLoadState = ref<'loading' | 'ready' | 'error'>('loading')
+const NO_CACHE_HEADERS = { 'X-No-Cache': '1' }
 let dashboardContext: gsap.Context | null = null
 let dashboardMatchMedia: gsap.MatchMedia | null = null
 
@@ -311,6 +312,107 @@ const taskStatusTagType = (status: string) => {
   return 'default'
 }
 
+function normalizeOptionalText(value: unknown) {
+  return typeof value === 'string' ? value.trim() : ''
+}
+
+function requireNonNegativeNumber(value: unknown, errorMessage: string) {
+  const normalized = Number(value)
+  if (!Number.isFinite(normalized) || normalized < 0) {
+    throw new Error(errorMessage)
+  }
+  return normalized
+}
+
+function normalizeBinaryStatus(value: unknown): number | null {
+  if (value === 1 || value === '1' || value === true || value === 'true') return 1
+  if (value === 0 || value === '0' || value === false || value === 'false') return 0
+  return null
+}
+
+function normalizePromptTemplateRecord(value: unknown) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new Error('热门提示词待确认')
+  }
+  const record = value as Record<string, unknown>
+  const id = requireNonNegativeNumber(record.id, '热门提示词待确认')
+  const projectId = requireNonNegativeNumber(record.projectId, '热门提示词待确认')
+  const name = normalizeOptionalText(record.name)
+  const content = normalizeOptionalText(record.content)
+  if (id <= 0 || projectId <= 0 || !name || !content) {
+    throw new Error('热门提示词待确认')
+  }
+  return {
+    id,
+    projectId,
+    userId: Number.isFinite(Number(record.userId)) ? Number(record.userId) : undefined,
+    username: normalizeOptionalText(record.username) || undefined,
+    nickname: normalizeOptionalText(record.nickname) || undefined,
+    avatar: normalizeOptionalText(record.avatar) || undefined,
+    name,
+    content,
+    negativePrompt: normalizeOptionalText(record.negativePrompt) || undefined,
+    modelName: normalizeOptionalText(record.modelName) || undefined,
+    tag: normalizeOptionalText(record.tag),
+    likesCount: requireNonNegativeNumber(record.likesCount ?? 0, '热门提示词待确认'),
+    commentsCount: requireNonNegativeNumber(record.commentsCount ?? 0, '热门提示词待确认'),
+    liked: normalizeBinaryStatus(record.liked) ?? 0,
+    status: requireNonNegativeNumber(record.status ?? 0, '热门提示词待确认'),
+    createdAt: normalizeOptionalText(record.createdAt) || undefined
+  }
+}
+
+function requireTemplatePage(value: unknown) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new Error('热门提示词待确认')
+  }
+  const record = value as Record<string, unknown>
+  const records = record.records
+  const total = record.total
+  if (!Array.isArray(records)) {
+    throw new Error('热门提示词待确认')
+  }
+  const normalizedRecords = records.map(item => normalizePromptTemplateRecord(item))
+  const ids = new Set<number>()
+  normalizedRecords.forEach(item => {
+    if (ids.has(item.id)) {
+      throw new Error('热门提示词待确认')
+    }
+    ids.add(item.id)
+  })
+  const normalizedTotal = requireNonNegativeNumber(total, '热门提示词待确认')
+  if (normalizedRecords.length > normalizedTotal) {
+    throw new Error('热门提示词待确认')
+  }
+  return {
+    records: normalizedRecords,
+    total: normalizedTotal
+  }
+}
+
+function normalizeAnnouncementRecord(value: unknown) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new Error('公告待确认')
+  }
+  const record = value as Record<string, unknown>
+  const id = requireNonNegativeNumber(record.id, '公告待确认')
+  const title = normalizeOptionalText(record.title)
+  const content = normalizeOptionalText(record.content)
+  const priority = normalizeOptionalText(record.priority)
+  const status = normalizeBinaryStatus(record.status)
+  if (id <= 0 || !title || !content || !priority || status !== 1) {
+    throw new Error('公告待确认')
+  }
+  return {
+    ...record,
+    id,
+    title,
+    content,
+    priority,
+    status
+  }
+}
+
 async function loadDashboardData(options?: { loading?: boolean }) {
   if (options?.loading) {
     loading.value = true
@@ -328,8 +430,11 @@ async function loadDashboardData(options?: { loading?: boolean }) {
   const [tasksResult, assetsResult, tplResult, annResult] = await Promise.allSettled([
     taskStore.refresh({ projectId: activeProjectId }),
     assetStore.refresh({ projectId: activeProjectId }),
-    templateApi.getTemplates({ projectId: activeProjectId, sort: 'likes', page: 1, pageSize: 3 }),
-    request.get('/api/announcements/active')
+    request.get('/api/prompt-templates', {
+      params: { projectId: activeProjectId, sort: 'likes', page: 1, pageSize: 3 },
+      headers: NO_CACHE_HEADERS
+    }),
+    request.get('/api/announcements/active', { headers: NO_CACHE_HEADERS })
   ])
 
   metricsLoadState.value = tasksResult.status === 'fulfilled' && assetsResult.status === 'fulfilled'
@@ -337,8 +442,13 @@ async function loadDashboardData(options?: { loading?: boolean }) {
     : 'error'
 
   if (tplResult.status === 'fulfilled') {
-    const records = tplResult.value.data?.records
-    recommendedTemplates.value = Array.isArray(records) ? records : null
+    try {
+      const data = requireTemplatePage((tplResult.value as any).data)
+      recommendedTemplates.value = data.records
+    } catch (err) {
+      recommendedTemplates.value = null
+      console.error(err)
+    }
   } else {
     recommendedTemplates.value = null
     console.error(tplResult.reason)
@@ -347,8 +457,14 @@ async function loadDashboardData(options?: { loading?: boolean }) {
   if (annResult.status === 'fulfilled') {
     const anns = (annResult.value as any).data
     if (Array.isArray(anns)) {
-      announcement.value = anns.length > 0 ? anns[0] : null
-      announcementLoadFailed.value = false
+      try {
+        const normalized = anns.map((item: unknown) => normalizeAnnouncementRecord(item))
+        announcement.value = normalized.length > 0 ? normalized[0] : null
+        announcementLoadFailed.value = false
+      } catch {
+        announcement.value = null
+        announcementLoadFailed.value = true
+      }
     } else {
       announcement.value = null
       announcementLoadFailed.value = true
