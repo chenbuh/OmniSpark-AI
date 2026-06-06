@@ -136,7 +136,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, computed, onMounted } from 'vue'
+import { ref, reactive, computed, onMounted, type Ref } from 'vue'
 import { useMessage, useDialog } from 'naive-ui'
 import { Pencil } from 'lucide-vue-next'
 import { useUserStore } from '@/store/user'
@@ -152,11 +152,31 @@ const userStore = useUserStore()
 const displayRoleLabel = computed(() => formatUserRole(userStore.userInfo?.role))
 const NO_CACHE_HEADERS = { 'X-No-Cache': '1' }
 
+type ThemeWindow = Window & {
+  __toggleTheme?: () => void
+  __isDark?: Ref<boolean>
+}
+
+const getThemeWindow = (): ThemeWindow => window as ThemeWindow
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === 'object' && !Array.isArray(value)
+}
+
+function getResponseData(response: unknown, errorMessage: string) {
+  if (!isPlainObject(response) || !('data' in response)) {
+    throw new Error(errorMessage)
+  }
+  return response.data
+}
+
 // ===== 主题 =====
-const isDark = ref((window as any).__isDark?.value !== false)
+const isDark = ref(getThemeWindow().__isDark?.value !== false)
 const setTheme = (dark: boolean) => {
   isDark.value = dark
-  ;(window as any).__toggleTheme?.()
+  if (getThemeWindow().__isDark?.value !== dark) {
+    getThemeWindow().__toggleTheme?.()
+  }
 }
 
 // ===== 个人资料编辑 =====
@@ -177,8 +197,8 @@ async function saveProfile() {
   const name = editNickname.value.trim()
   if (!name) { message.error('昵称不能为空'); return }
   try {
-    const res = await request.put(`/api/auth/profile?nickname=${encodeURIComponent(name)}`)
-    const data = requireProfileUser((res as any).data)
+    const response = await request.put(`/api/auth/profile?nickname=${encodeURIComponent(name)}`)
+    const data = requireProfileUser(getResponseData(response, '昵称更新结果待确认'))
     if (data.nickname !== name) {
       throw new Error('昵称更新结果待确认')
     }
@@ -220,10 +240,10 @@ async function handleChangePassword() {
           encryptedOldPassword: await encryptPassword(passwordForm.oldPassword),
           encryptedNewPassword: await encryptPassword(passwordForm.newPassword)
         })
-        const res = await request.put('/api/auth/password', params.toString(), {
+        const response = await request.put('/api/auth/password', params.toString(), {
           headers: { 'Content-Type': 'application/x-www-form-urlencoded' }
         })
-        const changed = requirePasswordChangeResult((res as any).data, userStore.userInfo?.id)
+        const changed = requirePasswordChangeResult(getResponseData(response, '密码修改结果待确认'), userStore.userInfo?.id)
         const confirmedProfile = await authApi.getMe()
         if (confirmedProfile.id !== changed.userId) {
           throw new Error('密码修改结果待确认')
@@ -366,10 +386,10 @@ function requirePasswordChangeResult(payload: unknown, expectedUserId?: number) 
 onMounted(async () => {
   try {
     loadingLogs.value = true
-    const logsRes = await request.get('/api/auth/login-logs?limit=100', {
+    const logsResponse = await request.get('/api/auth/login-logs?limit=100', {
       headers: NO_CACHE_HEADERS
     })
-    loginLogs.value = normalizeLoginLogList((logsRes as any).data)
+    loginLogs.value = normalizeLoginLogList(getResponseData(logsResponse, '登录记录待确认'))
   } catch {
     loginLogs.value = null
   } finally {

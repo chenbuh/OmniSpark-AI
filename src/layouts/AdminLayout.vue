@@ -35,9 +35,9 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, h } from 'vue'
+import { ref, computed, h, type Component, type Ref } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
-import { NLayout, NLayoutSider, NLayoutHeader, NLayoutContent, NMenu, NButton, NIcon } from 'naive-ui'
+import { NLayout, NLayoutSider, NLayoutHeader, NLayoutContent, NMenu, NButton, NIcon, type MenuOption } from 'naive-ui'
 import { useUserStore } from '@/store/user'
 import {
   BarChart3, ClipboardList, Library, Shield, Settings,
@@ -49,13 +49,20 @@ const route = useRoute()
 const userStore = useUserStore()
 const collapsed = ref(false)
 
+type ThemeWindow = Window & {
+  __toggleTheme?: () => void
+  __isDark?: Ref<boolean>
+}
+
+const getThemeWindow = (): ThemeWindow => window as ThemeWindow
+
 // 从 App.vue 读取主题状态
-const isDark = computed(() => (window as any).__isDark?.value !== false)
-const toggleTheme = () => (window as any).__toggleTheme?.()
+const isDark = computed(() => getThemeWindow().__isDark?.value !== false)
+const toggleTheme = () => getThemeWindow().__toggleTheme?.()
 
-const renderIcon = (icon: any) => () => h(NIcon, null, () => h(icon))
+const renderIcon = (icon: Component) => () => h(NIcon, null, () => h(icon))
 
-const menuOptions = [
+const menuOptions: MenuOption[] = [
   { label: '控制台', key: 'admin-dashboard', icon: renderIcon(BarChart3) },
   { label: '任务监管', key: 'admin-tasks', icon: renderIcon(ClipboardList) },
   { label: '资产监管', key: 'admin-assets', icon: renderIcon(Library) },

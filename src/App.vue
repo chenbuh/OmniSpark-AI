@@ -22,9 +22,8 @@
 import hljs from 'highlight.js/lib/core'
 import 'highlight.js/styles/atom-one-dark.css'
 import json from 'highlight.js/lib/languages/json'
+import type { Ref } from 'vue'
 hljs.registerLanguage('json', json)
-// Naive UI code component will auto-detect hljs on window
-;(window as any).hljs = hljs
 
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
@@ -45,6 +44,19 @@ const router = useRouter()
 const riskCaptchaVisible = ref(false)
 let resolveRiskCaptcha: ((ticket: string) => void) | null = null
 let rejectRiskCaptcha: ((reason?: unknown) => void) | null = null
+
+type ThemeWindow = Window & {
+  hljs?: typeof hljs
+  __toggleTheme?: () => void
+  __isDark?: Ref<boolean>
+}
+
+type MaintenanceEvent = CustomEvent<string>
+
+const getAppWindow = (): ThemeWindow => window as ThemeWindow
+
+// Naive UI code component will auto-detect hljs on window
+getAppWindow().hljs = hljs
 
 // ===== 主题切换 =====
 const THEME_KEY = 'omnispark-theme'
@@ -108,8 +120,17 @@ function onRiskCaptchaClose() {
 document.body.className = isDark.value ? 'dark' : 'light'
 
 // 暴露到 window 供其他组件调用
-;(window as any).__toggleTheme = toggleTheme
-;(window as any).__isDark = isDark
+getAppWindow().__toggleTheme = toggleTheme
+getAppWindow().__isDark = isDark
+
+const maintenanceHandler = (event: Event) => {
+  const maintenanceEvent = event as MaintenanceEvent
+  const msg = typeof maintenanceEvent.detail === 'string' && maintenanceEvent.detail.trim()
+    ? maintenanceEvent.detail
+    : '系统维护中，请稍后再试'
+  window.dispatchEvent(new CustomEvent('notify-maintenance', { detail: msg }))
+  console.warn('[Maintenance]', msg)
+}
 
 // 监听维护模式事件
 onMounted(() => {
@@ -125,12 +146,6 @@ onUnmounted(() => {
   window.removeEventListener('system-maintenance', maintenanceHandler)
   window.removeEventListener('auth-unauthorized', unauthorizedHandler)
 })
-const maintenanceHandler = (e: Event) => {
-  const msg = (e as CustomEvent).detail || '系统维护中，请稍后再试'
-  // 创建一个 Naive UI 通知（通过事件触发子组件）
-  window.dispatchEvent(new CustomEvent('notify-maintenance', { detail: msg }))
-  console.warn('[Maintenance]', msg)
-}
 // 401 登录失效：清空本地会话并跳转登录页
 const unauthorizedHandler = () => {
   const store = useUserStore()

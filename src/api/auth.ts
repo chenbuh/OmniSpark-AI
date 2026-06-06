@@ -19,6 +19,17 @@ interface LoginResult {
   userInfo: AuthUserInfo
 }
 
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === 'object' && !Array.isArray(value)
+}
+
+function getResponseData(response: unknown, errorMessage: string) {
+  if (!isPlainObject(response) || !('data' in response)) {
+    throw new Error(errorMessage)
+  }
+  return response.data
+}
+
 function clearSessionState() {
   useUserStore().logout()
   useTaskStore().clear()
@@ -37,43 +48,41 @@ async function hydrateWorkspace() {
 }
 
 function normalizeUserInfo(payload: unknown): AuthUserInfo {
-  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
+  if (!isPlainObject(payload)) {
     throw new Error('用户信息待确认')
   }
-  const record = payload as Record<string, unknown>
-  const id = Number(record.id)
+  const id = Number(payload.id)
   if (!Number.isFinite(id)) {
     throw new Error('用户信息待确认')
   }
-  if (typeof record.username !== 'string' || typeof record.nickname !== 'string' || typeof record.role !== 'string') {
+  if (typeof payload.username !== 'string' || typeof payload.nickname !== 'string' || typeof payload.role !== 'string') {
     throw new Error('用户信息待确认')
   }
   return {
     id,
-    username: record.username,
-    nickname: record.nickname,
-    avatar: typeof record.avatar === 'string' ? record.avatar : '',
-    role: record.role
+    username: payload.username,
+    nickname: payload.nickname,
+    avatar: typeof payload.avatar === 'string' ? payload.avatar : '',
+    role: payload.role
   }
 }
 
 function normalizeLoginResult(payload: unknown): LoginResult {
-  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
+  if (!isPlainObject(payload)) {
     throw new Error('登录结果待确认')
   }
-  const record = payload as Record<string, unknown>
-  if (typeof record.token !== 'string' || !record.token.trim()) {
+  if (typeof payload.token !== 'string' || !payload.token.trim()) {
     throw new Error('登录结果待确认')
   }
   return {
-    token: record.token,
-    userInfo: normalizeUserInfo(record.userInfo)
+    token: payload.token,
+    userInfo: normalizeUserInfo(payload.userInfo)
   }
 }
 
 async function fetchCurrentUser() {
-  const res = await request.get('/api/auth/me')
-  return normalizeUserInfo((res as any).data)
+  const response = await request.get('/api/auth/me')
+  return normalizeUserInfo(getResponseData(response, '用户信息待确认'))
 }
 
 function assertConfirmedLogin(result: LoginResult, confirmedUser: AuthUserInfo) {
@@ -92,12 +101,12 @@ export const authApi = {
   async login(params: { username: string; password?: string; captchaTicket?: string }) {
     let loginResult: LoginResult | null = null
     try {
-      const res = await request.post('/api/auth/login', {
+      const response = await request.post('/api/auth/login', {
         username: params.username,
         encryptedPassword: await encryptPassword(params.password || ''),
         captchaTicket: params.captchaTicket
       })
-      loginResult = normalizeLoginResult((res as any).data)
+      loginResult = normalizeLoginResult(getResponseData(response, '登录结果待确认'))
       useUserStore().setSession(loginResult.userInfo, loginResult.token)
       const confirmedUser = await fetchCurrentUser()
       assertConfirmedLogin(loginResult, confirmedUser)
@@ -120,13 +129,13 @@ export const authApi = {
 
   // 注册
   async register(params: { username: string; password: string; nickname: string; captchaTicket?: string }) {
-    const res = await request.post('/api/auth/register', {
+    const response = await request.post('/api/auth/register', {
       username: params.username,
       nickname: params.nickname,
       encryptedPassword: await encryptPassword(params.password),
       captchaTicket: params.captchaTicket
     })
-    const createdUser = normalizeUserInfo((res as any).data)
+    const createdUser = normalizeUserInfo(getResponseData(response, '注册结果待确认'))
     if (
       createdUser.username !== params.username.trim()
       || createdUser.nickname !== params.nickname.trim()
