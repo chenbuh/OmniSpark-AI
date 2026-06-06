@@ -58,11 +58,11 @@
           <div class="grid-name">{{ item.name }}</div>
           <div class="grid-size">{{ !item.isDir ? formatSize(item.size) : '' }}</div>
           <div class="grid-actions" @click.stop>
-            <n-popconfirm v-if="!item.isDir" @positive-click="handleDelete(item)">
+            <n-popconfirm @positive-click="handleDelete(item)">
               <template #trigger>
                 <n-button size="tiny" type="error" tertiary>删除</n-button>
               </template>
-              确定删除 {{ item.name }}？
+              {{ deleteConfirmText(item) }}
             </n-popconfirm>
           </div>
         </div>
@@ -85,7 +85,7 @@
                 <n-button v-if="isImage(item)" size="tiny" secondary @click="previewFile(item)">预览</n-button>
                 <n-popconfirm @positive-click="handleDelete(item)">
                   <template #trigger><n-button size="tiny" type="error" tertiary>删除</n-button></template>
-                  确定删除 {{ item.name }}？
+                  {{ deleteConfirmText(item) }}
                 </n-popconfirm>
               </n-space>
             </td>
@@ -322,8 +322,15 @@ async function handleDelete(item: FileListItem) {
     if (!item.isDir && previousTotalSize !== null && typeof stats.value?.totalSize === 'number' && stats.value.totalSize > previousTotalSize) {
       throw new Error('文件统计待确认')
     }
-    message.success('已删除')
+    message.success(item.isDir ? '目录已递归删除，并已同步清理关联引用' : '文件已删除，并已同步清理关联引用')
   } catch (err: unknown) { message.error(getErrorMessage(err, '删除失败')) }
+}
+
+function deleteConfirmText(item: FileListItem) {
+  if (item.isDir) {
+    return `确定递归删除目录 ${item.name} 及其内部文件？若目录下存在资产或配音文件，会同步清理关联记录。`
+  }
+  return `确定删除 ${item.name}？若该文件已被资产或配音引用，会同步清理关联记录。`
 }
 
 function switchView() { viewMode.value = viewMode.value === 'grid' ? 'list' : 'grid' }
