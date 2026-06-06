@@ -121,6 +121,7 @@ const summary = ref<Record<string, any>>({})
 const total = ref<number | null>(null)
 const page = ref(1)
 const pageSize = 20
+const NO_CACHE_HEADERS = { 'X-No-Cache': '1' }
 const filters = reactive({
   clientIp: '',
   path: '',
@@ -148,26 +149,104 @@ function normalizeSummaryRows(value: unknown) {
   if (!Array.isArray(value)) {
     throw new Error('访问日志汇总待确认')
   }
-  return value.map((item) => {
+  const normalized = value.map((item) => {
     if (!isPlainObject(item)) {
       throw new Error('访问日志汇总待确认')
     }
     const count = toOptionalNumber(item.count)
-    if (count == null) {
+    if (count == null || count < 0) {
       throw new Error('访问日志汇总待确认')
     }
     return {
-      name: typeof item.name === 'string' ? item.name : '',
+      name: typeof item.name === 'string' ? item.name.trim() : '',
       count
     }
   })
+  const names = new Set<string>()
+  normalized.forEach(item => {
+    const key = `${item.name}::${item.count}`
+    if (names.has(key)) {
+      throw new Error('访问日志汇总待确认')
+    }
+    names.add(key)
+  })
+  return normalized
+}
+
+function normalizeAccessLogRecord(value: unknown) {
+  if (!isPlainObject(value)) {
+    throw new Error('访问日志数据待确认')
+  }
+  const id = requirePositiveNumber(value.id, '访问日志数据待确认')
+  const method = normalizeOptionalText(value.method)
+  const path = normalizeOptionalText(value.path)
+  const statusCode = requireNonNegativeNumber(value.statusCode, '访问日志数据待确认')
+  const durationMs = requireNonNegativeNumber(value.durationMs, '访问日志数据待确认')
+  const createdAt = normalizeOptionalText(value.createdAt)
+  if (!method || !path || !createdAt || statusCode < 100) {
+    throw new Error('访问日志数据待确认')
+  }
+  const rateLimited = normalizeBinaryStatus(value.rateLimited)
+  if (rateLimited === null) {
+    throw new Error('访问日志数据待确认')
+  }
+  const userId = toOptionalNumber(value.userId)
+  const apiKeyId = toOptionalNumber(value.apiKeyId)
+  if ((userId != null && userId <= 0) || (apiKeyId != null && apiKeyId <= 0)) {
+    throw new Error('访问日志数据待确认')
+  }
+  return {
+    ...value,
+    id,
+    userId,
+    apiKeyId,
+    clientIp: normalizeOptionalText(value.clientIp),
+    userAgent: normalizeOptionalText(value.userAgent),
+    method,
+    path,
+    queryString: normalizeOptionalText(value.queryString),
+    statusCode,
+    durationMs,
+    rateLimited,
+    riskReason: normalizeOptionalText(value.riskReason),
+    createdAt
+  }
+}
+
+function requireAccessLogPage(value: unknown) {
+  if (!isPlainObject(value)) {
+    throw new Error('访问日志数据待确认')
+  }
+  const records = value.records
+  const count = toOptionalNumber(value.total)
+  if (!Array.isArray(records) || count == null || count < 0) {
+    throw new Error('访问日志数据待确认')
+  }
+  const normalizedRecords = records.map(item => normalizeAccessLogRecord(item))
+  const ids = new Set<number>()
+  normalizedRecords.forEach(item => {
+    if (ids.has(item.id)) {
+      throw new Error('访问日志数据待确认')
+    }
+    ids.add(item.id)
+  })
+  if (normalizedRecords.length > count) {
+    throw new Error('访问日志数据待确认')
+  }
+  return {
+    records: normalizedRecords,
+    total: count
+  }
 }
 
 async function loadSummary() {
   summaryLoading.value = true
   summaryLoadState.value = 'loading'
   try {
-    const res = await request.get('/api/admin/access-logs/summary', { params: { minutes: 60 } })
+    const res = await request.get('/api/admin/access-logs/summary', {
+      params: { minutes: 60 },
+      headers: NO_CACHE_HEADERS
+    })
     const data = (res as any).data
     if (!isPlainObject(data)) {
       throw new Error('访问日志汇总待确认')
@@ -176,7 +255,11 @@ async function loadSummary() {
     const totalRequests = toOptionalNumber(data.total)
     const rateLimited = toOptionalNumber(data.rateLimited)
     const riskHits = toOptionalNumber(data.riskHits)
-    if (windowMinutes == null || totalRequests == null || rateLimited == null || riskHits == null) {
+    if (
+      windowMinutes == null || totalRequests == null || rateLimited == null || riskHits == null
+      || windowMinutes <= 0 || totalRequests < 0 || rateLimited < 0 || riskHits < 0
+      || rateLimited > totalRequests || riskHits > totalRequests
+    ) {
       throw new Error('访问日志汇总待确认')
     }
     summary.value = {
@@ -205,15 +288,10 @@ async function loadLogs() {
     Object.entries(filters).forEach(([key, value]) => {
       if (value !== null && value !== '') params[key] = value
     })
-    const res = await request.get('/api/admin/access-logs', { params })
-    const data = (res as any).data || {}
-    if (!Array.isArray(data.records)) {
-      logs.value = null
-      total.value = null
-      return
-    }
+    const res = await request.get('/api/admin/access-logs', { params, headers: NO_CACHE_HEADERS })
+    const data = requireAccessLogPage((res as any).data)
     logs.value = data.records
-    total.value = typeof data.total === 'number' ? data.total : null
+    total.value = data.total
   } catch (err: any) {
     logs.value = null
     total.value = null
@@ -276,7 +354,33 @@ function toOptionalNumber(value: unknown): number | null {
     return null
   }
   const normalized = Number(value)
-  return Number.isNaN(normalized) ? null : normalized
+  return Number.isFinite(normalized) ? normalized : null
+}
+
+function normalizeOptionalText(value: unknown) {
+  return typeof value === 'string' ? value.trim() : ''
+}
+
+function normalizeBinaryStatus(value: unknown): number | null {
+  if (value === 1 || value === '1' || value === true || value === 'true') return 1
+  if (value === 0 || value === '0' || value === false || value === 'false') return 0
+  return null
+}
+
+function requirePositiveNumber(value: unknown, errorMessage: string) {
+  const normalized = toOptionalNumber(value)
+  if (normalized == null || normalized <= 0) {
+    throw new Error(errorMessage)
+  }
+  return normalized
+}
+
+function requireNonNegativeNumber(value: unknown, errorMessage: string) {
+  const normalized = toOptionalNumber(value)
+  if (normalized == null || normalized < 0) {
+    throw new Error(errorMessage)
+  }
+  return normalized
 }
 
 onMounted(reload)

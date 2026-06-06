@@ -254,6 +254,7 @@ const scopeMode = ref<ScopeMode>('all')
 const dashboard = ref<StatsDashboard>(createEmptyDashboard())
 const suppressAutoReload = ref(false)
 let refreshTimer: number | null = null
+const NO_CACHE_HEADERS = { 'X-No-Cache': '1' }
 
 const scopeOptions = [
   { label: '全部项目', value: 'all' },
@@ -506,6 +507,18 @@ function toOptionalNumber(value: unknown): number | null {
   return Number.isFinite(num) ? num : null
 }
 
+function normalizeOptionalText(value: unknown) {
+  return typeof value === 'string' ? value.trim() : ''
+}
+
+function requireNonNegativeNumber(value: unknown, errorMessage: string) {
+  const normalized = toOptionalNumber(value)
+  if (normalized == null || normalized < 0) {
+    throw new Error(errorMessage)
+  }
+  return normalized
+}
+
 function formatOptionalNumber(value: unknown) {
   const num = toOptionalNumber(value)
   return num === null ? '-' : `${num}`
@@ -524,47 +537,158 @@ function activityTypeClass(item: StatsActivity) {
   return item.status === 'failed' ? 'error' : item.type
 }
 
+function normalizeOverview(value: unknown): StatsOverview {
+  if (!isPlainObject(value)) {
+    throw new Error('统计数据待确认')
+  }
+  return {
+    projectCount: requireNonNegativeNumber(value.projectCount, '统计数据待确认'),
+    taskCount: requireNonNegativeNumber(value.taskCount, '统计数据待确认'),
+    successTaskCount: requireNonNegativeNumber(value.successTaskCount, '统计数据待确认'),
+    assetCount: requireNonNegativeNumber(value.assetCount, '统计数据待确认'),
+    favoriteAssetCount: requireNonNegativeNumber(value.favoriteAssetCount, '统计数据待确认'),
+    quotaUsed: requireNonNegativeNumber(value.quotaUsed, '统计数据待确认'),
+    quotaLimit: requireNonNegativeNumber(value.quotaLimit, '统计数据待确认')
+  }
+}
+
+function normalizeDistribution(value: unknown, overviewValue: StatsOverview): StatsDistribution {
+  if (!isPlainObject(value)) {
+    throw new Error('统计数据待确认')
+  }
+  const distribution = {
+    imageTaskCount: requireNonNegativeNumber(value.imageTaskCount, '统计数据待确认'),
+    videoTaskCount: requireNonNegativeNumber(value.videoTaskCount, '统计数据待确认'),
+    successTaskCount: requireNonNegativeNumber(value.successTaskCount, '统计数据待确认'),
+    runningTaskCount: requireNonNegativeNumber(value.runningTaskCount, '统计数据待确认'),
+    failedTaskCount: requireNonNegativeNumber(value.failedTaskCount, '统计数据待确认')
+  }
+  const taskCount = overviewValue.taskCount ?? 0
+  if (
+    distribution.imageTaskCount + distribution.videoTaskCount > taskCount
+    || distribution.successTaskCount + distribution.runningTaskCount + distribution.failedTaskCount > taskCount
+    || distribution.successTaskCount !== overviewValue.successTaskCount
+  ) {
+    throw new Error('统计数据待确认')
+  }
+  return distribution
+}
+
+function normalizeTrends(value: unknown) {
+  if (!Array.isArray(value)) {
+    throw new Error('统计数据待确认')
+  }
+  const normalized = value.map((item) => {
+    if (!isPlainObject(item)) {
+      throw new Error('统计数据待确认')
+    }
+    const date = normalizeOptionalText(item.date)
+    const taskCount = requireNonNegativeNumber(item.taskCount, '统计数据待确认')
+    const quotaUsed = requireNonNegativeNumber(item.quotaUsed, '统计数据待确认')
+    if (!date) {
+      throw new Error('统计数据待确认')
+    }
+    return { date, taskCount, quotaUsed }
+  })
+  const dates = new Set<string>()
+  normalized.forEach(item => {
+    if (dates.has(item.date)) {
+      throw new Error('统计数据待确认')
+    }
+    dates.add(item.date)
+  })
+  return normalized
+}
+
+function normalizeProjectRankings(value: unknown) {
+  if (!Array.isArray(value)) {
+    throw new Error('统计数据待确认')
+  }
+  const normalized = value.map((item) => {
+    if (!isPlainObject(item)) {
+      throw new Error('统计数据待确认')
+    }
+    const projectId = requireNonNegativeNumber(item.projectId, '统计数据待确认')
+    const rank = requireNonNegativeNumber(item.rank, '统计数据待确认')
+    const name = normalizeOptionalText(item.name)
+    const taskCount = requireNonNegativeNumber(item.taskCount, '统计数据待确认')
+    const successTaskCount = requireNonNegativeNumber(item.successTaskCount, '统计数据待确认')
+    const successRate = requireNonNegativeNumber(item.successRate, '统计数据待确认')
+    const assetCount = requireNonNegativeNumber(item.assetCount, '统计数据待确认')
+    const quotaUsed = requireNonNegativeNumber(item.quotaUsed, '统计数据待确认')
+    const weightPercent = requireNonNegativeNumber(item.weightPercent, '统计数据待确认')
+    if (
+      projectId <= 0
+      || rank <= 0
+      || !name
+      || successTaskCount > taskCount
+      || successRate > 100
+      || weightPercent > 100
+    ) {
+      throw new Error('统计数据待确认')
+    }
+    return {
+      rank,
+      projectId,
+      name,
+      description: normalizeOptionalText(item.description),
+      taskCount,
+      successTaskCount,
+      successRate,
+      assetCount,
+      quotaUsed,
+      weightPercent,
+      lastActiveAt: normalizeDateTime(normalizeOptionalText(item.lastActiveAt))
+    }
+  })
+  const projectIds = new Set<number>()
+  const ranks = new Set<number>()
+  normalized.forEach(item => {
+    if (projectIds.has(item.projectId) || ranks.has(item.rank)) {
+      throw new Error('统计数据待确认')
+    }
+    projectIds.add(item.projectId)
+    ranks.add(item.rank)
+  })
+  return normalized
+}
+
+function normalizeRecentActivities(value: unknown) {
+  if (!Array.isArray(value)) {
+    throw new Error('统计数据待确认')
+  }
+  return value.map((item) => {
+    if (!isPlainObject(item)) {
+      throw new Error('统计数据待确认')
+    }
+    const type = normalizeOptionalText(item.type)
+    const title = normalizeOptionalText(item.title)
+    const description = normalizeOptionalText(item.description)
+    const status = normalizeOptionalText(item.status)
+    if (!type || !title || !description || !status) {
+      throw new Error('统计数据待确认')
+    }
+    return {
+      type,
+      title,
+      description,
+      status,
+      createdAt: normalizeDateTime(normalizeOptionalText(item.createdAt))
+    }
+  })
+}
+
 function normalizeDashboard(data: unknown): StatsDashboard {
   if (!isPlainObject(data)) {
     throw new Error('统计数据待确认')
   }
-  if (!isPlainObject(data.overview) || !isPlainObject(data.distribution)) {
-    throw new Error('统计数据待确认')
-  }
-  if (!Array.isArray(data.trends) || !Array.isArray(data.projectRankings) || !Array.isArray(data.recentActivities)) {
-    throw new Error('统计数据待确认')
-  }
-  const base = createEmptyDashboard()
+  const overviewValue = normalizeOverview(data.overview)
   return {
-    overview: {
-      ...base.overview,
-      ...data.overview
-    },
-    distribution: {
-      ...base.distribution,
-      ...data.distribution
-    },
-    trends: data.trends.map((item: any) => ({
-      date: item?.date || '--',
-      taskCount: toOptionalNumber(item?.taskCount),
-      quotaUsed: toOptionalNumber(item?.quotaUsed)
-    })),
-    projectRankings: data.projectRankings.map((item: any) => ({
-      ...item,
-      rank: toOptionalNumber(item?.rank),
-      projectId: toOptionalNumber(item?.projectId),
-      taskCount: toOptionalNumber(item?.taskCount),
-      successTaskCount: toOptionalNumber(item?.successTaskCount),
-      successRate: toOptionalNumber(item?.successRate),
-      assetCount: toOptionalNumber(item?.assetCount),
-      quotaUsed: toOptionalNumber(item?.quotaUsed),
-      weightPercent: toOptionalNumber(item?.weightPercent),
-      lastActiveAt: normalizeDateTime(item?.lastActiveAt)
-    })),
-    recentActivities: data.recentActivities.map((item: any) => ({
-      ...item,
-      createdAt: normalizeDateTime(item?.createdAt)
-    }))
+    overview: overviewValue,
+    distribution: normalizeDistribution(data.distribution, overviewValue),
+    trends: normalizeTrends(data.trends),
+    projectRankings: normalizeProjectRankings(data.projectRankings),
+    recentActivities: normalizeRecentActivities(data.recentActivities)
   }
 }
 
@@ -582,7 +706,7 @@ async function loadStatsData() {
     }
     const res = await request.get('/api/stats/dashboard', {
       params: { projectId: selectedProjectId.value },
-      headers: { 'x-no-cache': '1' }
+      headers: NO_CACHE_HEADERS
     })
     dashboard.value = normalizeDashboard(res.data)
     statsLoadState.value = 'ready'
@@ -608,7 +732,7 @@ async function refreshPageData() {
     clearCache('stats/dashboard')
     const res = await request.get('/api/stats/dashboard', {
       params: { projectId: selectedProjectId.value },
-      headers: { 'x-no-cache': '1' }
+      headers: NO_CACHE_HEADERS
     })
     dashboard.value = normalizeDashboard(res.data)
     statsLoadState.value = 'ready'
