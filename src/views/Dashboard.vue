@@ -181,7 +181,7 @@
 
       <!-- 热门提示词 -->
       <n-col :span="8">
-        <n-card title="热门提示词" class="glass-card panel-card templates-panel" :bordered="false">
+        <n-card title="公共热门提示词" class="glass-card panel-card templates-panel" :bordered="false">
           <div v-if="recommendedTemplates && recommendedTemplates.length > 0" class="templates-list">
             <div
               v-for="tpl in recommendedTemplates"
@@ -196,8 +196,8 @@
               <p class="tpl-content">{{ tpl.content }}</p>
             </div>
           </div>
-          <n-empty v-else-if="recommendedTemplates !== null" description="暂无热门提示词" style="padding: 20px 0;" />
-          <n-empty v-else description="热门提示词待确认，请稍后重试。" style="padding: 20px 0;" />
+          <n-empty v-else-if="recommendedTemplates !== null" description="公共模板库暂无热门提示词" style="padding: 20px 0;" />
+          <n-empty v-else description="公共热门提示词待确认，请稍后重试。" style="padding: 20px 0;" />
         </n-card>
       </n-col>
     </n-row>
@@ -386,7 +386,7 @@ function normalizeBinaryStatus(value: unknown): number | null {
 
 function normalizePromptTemplateRecord(value: unknown) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
-    throw new Error('热门提示词待确认')
+    throw new Error('公共热门提示词待确认')
   }
   const record = value as Record<string, unknown>
   const id = requireNonNegativeNumber(record.id, '热门提示词待确认')
@@ -394,7 +394,7 @@ function normalizePromptTemplateRecord(value: unknown) {
   const name = normalizeOptionalText(record.name)
   const content = normalizeOptionalText(record.content)
   if (id <= 0 || projectId < PUBLIC_TEMPLATE_LIBRARY_PROJECT_ID || !name || !content) {
-    throw new Error('热门提示词待确认')
+    throw new Error('公共热门提示词待确认')
   }
   return {
     id,
@@ -418,13 +418,13 @@ function normalizePromptTemplateRecord(value: unknown) {
 
 function requireTemplatePage(value: unknown) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
-    throw new Error('热门提示词待确认')
+    throw new Error('公共热门提示词待确认')
   }
   const record = value as Record<string, unknown>
   const records = record.records
   const total = record.total
   if (!Array.isArray(records)) {
-    throw new Error('热门提示词待确认')
+    throw new Error('公共热门提示词待确认')
   }
   const normalizedRecords = records.map(item => normalizePromptTemplateRecord(item))
   const ids = new Set<number>()
@@ -436,7 +436,7 @@ function requireTemplatePage(value: unknown) {
   })
   const normalizedTotal = requireNonNegativeNumber(total, '热门提示词待确认')
   if (normalizedRecords.length > normalizedTotal) {
-    throw new Error('热门提示词待确认')
+    throw new Error('公共热门提示词待确认')
   }
   return {
     records: normalizedRecords,
@@ -880,7 +880,7 @@ const handleApplyTemplate = (content: string) => {
     path: '/generate/image',
     query: { prompt: content }
   })
-  message.success('提示词已导入生图面板')
+  message.success('公共模板提示词已导入生图面板')
 }
 
 onBeforeUnmount(() => {

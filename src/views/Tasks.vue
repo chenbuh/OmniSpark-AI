@@ -5,6 +5,10 @@
       <p class="subtitle">跟踪并管理当前项目下所有的生图与生视频异步渲染任务队列进度。</p>
     </div>
 
+    <div v-if="collaborationNotice" class="scope-notice">
+      {{ collaborationNotice }}
+    </div>
+
     <!-- 过滤与统计条 -->
     <n-card class="glass-card filter-card" :bordered="false">
       <div class="filter-bar">
@@ -193,6 +197,19 @@ const providerLoadState = ref<'loading' | 'ready' | 'error'>('loading')
 const assetLoadState = ref<'loading' | 'ready' | 'error'>('loading')
 let autoTimer: ReturnType<typeof setInterval> | null = null
 let isRefreshing = false
+
+const activeProject = computed(() => {
+  return projectStore.projects.find(item => item.id === projectStore.activeProjectId) || null
+})
+const collaborationNotice = computed(() => {
+  if (!activeProject.value || activeProject.value.ownedByCurrentUser) {
+    return ''
+  }
+  if (activeProject.value.accessPermission === 'view') {
+    return '当前打开的是共享查看项目。根据后端真实权限，你仍可在这里查看、重试、删除当前项目任务并查看其产出；只有模型配置、工作流等配置页会保持只读。'
+  }
+  return `当前打开的是共享${formatProjectPermissionLabel(activeProject.value.accessPermission)}项目，这里的任务列表、重试、删除和产出查看都会直接作用到该项目。`
+})
 
 const allSelected = computed(() => filteredTasks.value.length > 0 && filteredTasks.value.every(t => selectedIds.value.has(t.id)))
 const typeOptions = computed(() => {
@@ -544,6 +561,21 @@ const handleClearAll = async () => {
     message.error(err instanceof Error && err.message ? err.message : '清空失败')
   }
 }
+
+function formatProjectPermissionLabel(permission: 'owner' | 'admin' | 'edit' | 'view' | null | undefined) {
+  switch (permission) {
+    case 'owner':
+      return '所有者'
+    case 'admin':
+      return '管理'
+    case 'edit':
+      return '编辑'
+    case 'view':
+      return '查看'
+    default:
+      return '未知'
+  }
+}
 </script>
 
 <style scoped>
@@ -551,6 +583,16 @@ const handleClearAll = async () => {
 .page-header { margin-bottom: 24px; }
 .page-header h2 { font-size: 24px; font-weight: 700; margin: 0 0 6px 0; color: var(--text-primary); }
 .subtitle { font-size: 13px; color: var(--text-muted); margin: 0; }
+.scope-notice {
+  margin-bottom: 16px;
+  padding: 12px 14px;
+  border-radius: 14px;
+  border: 1px solid rgba(59, 130, 246, 0.22);
+  background: linear-gradient(135deg, rgba(59, 130, 246, 0.1), rgba(16, 185, 129, 0.08));
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 1.65;
+}
 .glass-card { background: rgba(15,23,42,0.4) !important; backdrop-filter: blur(16px); border: 1px solid var(--border-color) !important; border-radius: 16px !important; }
 .filter-bar { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px; }
 .search-icon { width: 14px; height: 14px; color: var(--text-muted); }
