@@ -360,6 +360,76 @@ function normalizeTaskField(value: unknown) {
   return typeof value === 'string' ? value.trim() : ''
 }
 
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === 'object' && !Array.isArray(value)
+}
+
+function requireStringValue(value: unknown, errorMessage: string) {
+  const normalized = typeof value === 'string' ? value.trim() : ''
+  if (!normalized) {
+    throw new Error(errorMessage)
+  }
+  return normalized
+}
+
+function requireGenerationMetaOptionList(value: unknown, errorMessage: string) {
+  if (!Array.isArray(value)) {
+    throw new Error(errorMessage)
+  }
+  const seenValues = new Set<string>()
+  return value.map((item: unknown) => {
+    if (!isPlainObject(item)) {
+      throw new Error(errorMessage)
+    }
+    const label = requireStringValue(item.label, errorMessage)
+    const optionValue = requireStringValue(item.value, errorMessage)
+    if (seenValues.has(optionValue)) {
+      throw new Error(errorMessage)
+    }
+    seenValues.add(optionValue)
+    return { label, value: optionValue }
+  })
+}
+
+function requireAllowedProviderTypes(value: unknown, errorMessage: string) {
+  if (!Array.isArray(value)) {
+    throw new Error(errorMessage)
+  }
+  const seenValues = new Set<string>()
+  return value.map((item: unknown) => {
+    const providerType = requireStringValue(item, errorMessage)
+    if (seenValues.has(providerType)) {
+      throw new Error(errorMessage)
+    }
+    seenValues.add(providerType)
+    return providerType
+  })
+}
+
+function requireVideoGenerationMeta(value: unknown): GenerationMetaVO {
+  const errorMessage = '视频配置待确认'
+  if (!isPlainObject(value) || !isPlainObject(value.video)) {
+    throw new Error(errorMessage)
+  }
+  const defaults = value.video.defaults
+  if (defaults != null && !isPlainObject(defaults)) {
+    throw new Error(errorMessage)
+  }
+  return {
+    video: {
+      allowedProviderTypes: requireAllowedProviderTypes(value.video.allowedProviderTypes, errorMessage),
+      durationOptions: requireGenerationMetaOptionList(value.video.durationOptions, errorMessage),
+      cameraMotionOptions: requireGenerationMetaOptionList(value.video.cameraMotionOptions, errorMessage),
+      defaults: defaults
+        ? {
+            duration: typeof defaults.duration === 'string' ? defaults.duration.trim() : undefined,
+            cameraMotion: typeof defaults.cameraMotion === 'string' ? defaults.cameraMotion.trim() : undefined
+          }
+        : undefined
+    }
+  }
+}
+
 function parseTaskRequestJson(task: { requestJson?: string }, errorMessage: string) {
   if (!task.requestJson) {
     throw new Error(errorMessage)
@@ -464,17 +534,7 @@ async function loadGenerationMeta() {
   metaLoadState.value = 'loading'
   try {
     const res = await generationApi.getMeta()
-    const data = (res as any).data
-    if (!data || typeof data !== 'object' || Array.isArray(data)) {
-      throw new Error('视频配置待确认')
-    }
-    if (!data.video || typeof data.video !== 'object' || Array.isArray(data.video)) {
-      throw new Error('视频配置待确认')
-    }
-    if (!Array.isArray(data.video.allowedProviderTypes) || !Array.isArray(data.video.durationOptions) || !Array.isArray(data.video.cameraMotionOptions)) {
-      throw new Error('视频配置待确认')
-    }
-    generationMeta.value = data as GenerationMetaVO
+    generationMeta.value = requireVideoGenerationMeta((res as any).data)
     metaLoadState.value = 'ready'
   } catch {
     generationMeta.value = {}

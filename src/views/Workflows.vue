@@ -866,8 +866,143 @@ function parseRequiredNumber(value: unknown, errorMessage: string) {
   return parsed
 }
 
+function requireStringValue(value: unknown, errorMessage: string) {
+  const normalized = typeof value === 'string' ? value.trim() : ''
+  if (!normalized) {
+    throw new Error(errorMessage)
+  }
+  return normalized
+}
+
 function isPlainObject(value: unknown): value is Record<string, any> {
   return !!value && typeof value === 'object' && !Array.isArray(value)
+}
+
+function requireWorkflowMetaOptionList(value: unknown, errorMessage: string) {
+  if (!Array.isArray(value)) {
+    throw new Error(errorMessage)
+  }
+  const seenValues = new Set<string>()
+  return value.map((item: unknown) => {
+    if (!isPlainObject(item)) {
+      throw new Error(errorMessage)
+    }
+    const label = requireStringValue(item.label, errorMessage)
+    const optionValue = requireStringValue(item.value, errorMessage)
+    if (seenValues.has(optionValue)) {
+      throw new Error(errorMessage)
+    }
+    seenValues.add(optionValue)
+    return { label, value: optionValue }
+  })
+}
+
+function requireAllowedProviderTypes(value: unknown, errorMessage: string) {
+  if (!Array.isArray(value)) {
+    throw new Error(errorMessage)
+  }
+  const seenValues = new Set<string>()
+  return value.map((item: unknown) => {
+    const providerType = requireStringValue(item, errorMessage)
+    if (seenValues.has(providerType)) {
+      throw new Error(errorMessage)
+    }
+    seenValues.add(providerType)
+    return providerType
+  })
+}
+
+function requireGenerationMeta(value: unknown): GenerationMetaVO {
+  const errorMessage = '图像/视频生成参数待确认'
+  if (!isPlainObject(value) || !isPlainObject(value.image) || !isPlainObject(value.video)) {
+    throw new Error(errorMessage)
+  }
+  const imageDefaults = value.image.defaults
+  const videoDefaults = value.video.defaults
+  if (
+    imageDefaults != null && !isPlainObject(imageDefaults)
+    || videoDefaults != null && !isPlainObject(videoDefaults)
+  ) {
+    throw new Error(errorMessage)
+  }
+  return {
+    image: {
+      allowedProviderTypes: requireAllowedProviderTypes(value.image.allowedProviderTypes, errorMessage),
+      resolutionOptions: requireWorkflowMetaOptionList(value.image.resolutionOptions ?? [], errorMessage),
+      qualityOptions: requireWorkflowMetaOptionList(value.image.qualityOptions ?? [], errorMessage),
+      defaults: imageDefaults
+        ? {
+            resolution: typeof imageDefaults.resolution === 'string' ? imageDefaults.resolution.trim() : undefined,
+            quality: typeof imageDefaults.quality === 'string' ? imageDefaults.quality.trim() : undefined
+          }
+        : undefined
+    },
+    video: {
+      allowedProviderTypes: requireAllowedProviderTypes(value.video.allowedProviderTypes, errorMessage),
+      durationOptions: requireWorkflowMetaOptionList(value.video.durationOptions ?? [], errorMessage),
+      cameraMotionOptions: requireWorkflowMetaOptionList(value.video.cameraMotionOptions ?? [], errorMessage),
+      defaults: videoDefaults
+        ? {
+            duration: typeof videoDefaults.duration === 'string' ? videoDefaults.duration.trim() : undefined,
+            cameraMotion: typeof videoDefaults.cameraMotion === 'string' ? videoDefaults.cameraMotion.trim() : undefined
+          }
+        : undefined
+    }
+  }
+}
+
+function requireWorkflowMeta(value: unknown): WorkflowMetaVO {
+  const errorMessage = '工作流步骤模板待确认'
+  if (!isPlainObject(value)) {
+    throw new Error(errorMessage)
+  }
+  const defaults = value.defaults
+  if (defaults != null && !isPlainObject(defaults)) {
+    throw new Error(errorMessage)
+  }
+  return {
+    stepTypes: requireWorkflowMetaOptionList(value.stepTypes, errorMessage),
+    imageSizes: requireWorkflowMetaOptionList(value.imageSizes, errorMessage),
+    videoDurations: requireWorkflowMetaOptionList(value.videoDurations, errorMessage),
+    subtitleLanguages: requireWorkflowMetaOptionList(value.subtitleLanguages, errorMessage),
+    defaults: defaults
+      ? {
+          imageSize: typeof defaults.imageSize === 'string' ? defaults.imageSize.trim() : undefined,
+          videoDuration: typeof defaults.videoDuration === 'string' ? defaults.videoDuration.trim() : undefined,
+          subtitleLanguage: typeof defaults.subtitleLanguage === 'string' ? defaults.subtitleLanguage.trim() : undefined
+        }
+      : {}
+  }
+}
+
+function normalizeWorkflowList(value: unknown) {
+  if (!Array.isArray(value)) {
+    throw new Error('工作流数据待确认')
+  }
+  const normalized = value.map((item: unknown) => normalizeWorkflow(item))
+  const seenIds = new Set<number>()
+  normalized.forEach(item => {
+    if (seenIds.has(item.id)) {
+      throw new Error('工作流数据待确认')
+    }
+    seenIds.add(item.id)
+  })
+  return normalized
+}
+
+function normalizeRunList(value: unknown) {
+  if (!Array.isArray(value)) {
+    throw new Error('工作流运行记录待确认')
+  }
+  const normalized = value.map((item: unknown) => normalizeRun(item))
+  const seenIds = new Set<number>()
+  normalized.forEach(item => {
+    if (seenIds.has(item.id)) {
+      throw new Error('工作流运行记录待确认')
+    }
+    seenIds.add(item.id)
+  })
+  return normalized
 }
 
 async function loadPageData() {
@@ -889,20 +1024,7 @@ async function loadGenerationMeta() {
   generationMetaLoadState.value = 'loading'
   try {
     const res = await generationApi.getMeta()
-    const data = (res as any).data
-    if (!data || typeof data !== 'object' || Array.isArray(data)) {
-      throw new Error('图像/视频生成参数待确认')
-    }
-    if (!data.image || typeof data.image !== 'object' || Array.isArray(data.image)) {
-      throw new Error('图像/视频生成参数待确认')
-    }
-    if (!data.video || typeof data.video !== 'object' || Array.isArray(data.video)) {
-      throw new Error('图像/视频生成参数待确认')
-    }
-    if (!Array.isArray(data.image.allowedProviderTypes) || !Array.isArray(data.video.allowedProviderTypes)) {
-      throw new Error('图像/视频生成参数待确认')
-    }
-    generationMeta.value = data as GenerationMetaVO
+    generationMeta.value = requireGenerationMeta((res as any).data)
     generationMetaLoadState.value = 'ready'
   } catch {
     generationMeta.value = {}
@@ -914,20 +1036,7 @@ async function loadWorkflowMeta() {
   workflowMetaLoadState.value = 'loading'
   try {
     const res = await workflowApi.meta()
-    const data = (res as any).data
-    if (!data || typeof data !== 'object' || Array.isArray(data)) {
-      throw new Error('工作流步骤模板待确认')
-    }
-    if (!Array.isArray(data.stepTypes) || !Array.isArray(data.imageSizes) || !Array.isArray(data.videoDurations) || !Array.isArray(data.subtitleLanguages)) {
-      throw new Error('工作流步骤模板待确认')
-    }
-    workflowMeta.value = {
-      stepTypes: data.stepTypes,
-      imageSizes: data.imageSizes,
-      videoDurations: data.videoDurations,
-      subtitleLanguages: data.subtitleLanguages,
-      defaults: data.defaults && typeof data.defaults === 'object' ? data.defaults : {}
-    }
+    workflowMeta.value = requireWorkflowMeta((res as any).data)
     workflowMetaLoadState.value = 'ready'
   } catch {
     workflowMeta.value = emptyWorkflowMeta()
@@ -948,7 +1057,12 @@ async function loadProviderOptions() {
 async function loadAssetLibrary() {
   assetLibraryLoadState.value = 'loading'
   try {
-    await assetStore.refresh()
+    if (!projectStore.activeProjectId) {
+      assetStore.clear()
+      assetLibraryLoadState.value = 'ready'
+      return
+    }
+    await assetStore.refresh({ projectId: projectStore.activeProjectId })
     assetLibraryLoadState.value = 'ready'
   } catch {
     assetLibraryLoadState.value = 'error'
@@ -958,11 +1072,7 @@ async function loadAssetLibrary() {
 async function loadWorkflows() {
   try {
     const res = await workflowApi.list(projectStore.activeProjectId)
-    const data = (res as any).data
-    if (!Array.isArray(data)) {
-      throw new Error('工作流数据待确认')
-    }
-    const records = data.map((item: unknown) => normalizeWorkflow(item))
+    const records = normalizeWorkflowList((res as any).data)
     workflows.value = records
     if (selectedWorkflow.value) {
       const next = records.find((item: WorkflowRecord) => item.id === selectedWorkflow.value?.id) || null
@@ -989,11 +1099,7 @@ async function loadRuns(workflowId: number) {
   runs.value = null
   try {
     const res = await workflowApi.listRuns(workflowId)
-    const data = (res as any).data
-    if (!Array.isArray(data)) {
-      throw new Error('工作流运行记录待确认')
-    }
-    runs.value = data.map((item: unknown) => normalizeRun(item))
+    runs.value = normalizeRunList((res as any).data)
   } catch {
     runs.value = null
   } finally {

@@ -361,22 +361,68 @@ function requireSavedProviderState(
   return provider
 }
 
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === 'object' && !Array.isArray(value)
+}
+
+function requireStringValue(value: unknown, errorMessage: string) {
+  const normalized = typeof value === 'string' ? value.trim() : ''
+  if (!normalized) {
+    throw new Error(errorMessage)
+  }
+  return normalized
+}
+
+function requireProviderMetaOptionList(value: unknown, errorMessage: string) {
+  if (!Array.isArray(value)) {
+    throw new Error(errorMessage)
+  }
+  const seenValues = new Set<string>()
+  return value.map((item: unknown) => {
+    if (!isPlainObject(item)) {
+      throw new Error(errorMessage)
+    }
+    const label = requireStringValue(item.label, errorMessage)
+    const optionValue = requireStringValue(item.value, errorMessage)
+    if (seenValues.has(optionValue)) {
+      throw new Error(errorMessage)
+    }
+    seenValues.add(optionValue)
+    return {
+      label,
+      value: optionValue,
+      shortLabel: typeof item.shortLabel === 'string' ? item.shortLabel.trim() : undefined,
+      tagType: typeof item.tagType === 'string' ? item.tagType.trim() : undefined
+    }
+  })
+}
+
+function requireProviderMeta(value: unknown): ProviderMetaVO {
+  const errorMessage = '提供商元数据待确认'
+  if (!isPlainObject(value)) {
+    throw new Error(errorMessage)
+  }
+  const defaults = value.defaults
+  if (defaults != null && !isPlainObject(defaults)) {
+    throw new Error(errorMessage)
+  }
+  return {
+    providerTypes: requireProviderMetaOptionList(value.providerTypes, errorMessage),
+    audioResponseFormats: requireProviderMetaOptionList(value.audioResponseFormats, errorMessage),
+    defaults: defaults
+      ? {
+          providerType: typeof defaults.providerType === 'string' ? defaults.providerType.trim() : undefined,
+          audioResponseFormat: typeof defaults.audioResponseFormat === 'string' ? defaults.audioResponseFormat.trim() : undefined
+        }
+      : {}
+  }
+}
+
 async function loadProviderMeta() {
   providerMetaLoadState.value = 'loading'
   try {
     const res = await providerApi.getMeta()
-    const data = (res as any).data
-    if (!data || typeof data !== 'object' || Array.isArray(data)) {
-      throw new Error('提供商元数据待确认')
-    }
-    if (!Array.isArray(data.providerTypes) || !Array.isArray(data.audioResponseFormats)) {
-      throw new Error('提供商元数据待确认')
-    }
-    providerMeta.value = {
-      providerTypes: data.providerTypes,
-      audioResponseFormats: data.audioResponseFormats,
-      defaults: data.defaults && typeof data.defaults === 'object' ? data.defaults : {}
-    }
+    providerMeta.value = requireProviderMeta((res as any).data)
     providerMetaLoadState.value = 'ready'
   } catch {
     providerMeta.value = emptyProviderMeta()
@@ -392,10 +438,7 @@ async function loadProviderList() {
       providerListLoadState.value = 'ready'
       return
     }
-    const providers = await providerStore.refresh(projectStore.activeProjectId)
-    if (!Array.isArray(providers)) {
-      throw new Error('模型提供商数据待确认')
-    }
+    await providerStore.refresh(projectStore.activeProjectId)
     const hasForeignProjectProvider = currentProviders.value.some(provider =>
       provider.projectId !== projectStore.activeProjectId && provider.projectId !== 0
     )

@@ -109,13 +109,36 @@ import { computed, ref, onMounted, onUnmounted } from 'vue'
 import { useMessage } from 'naive-ui'
 import request from '@/api/request'
 
+interface MonitorDiskRow {
+  path: string
+  total: number
+  free: number
+  used: number
+  usagePercent: number
+  totalReadable: string
+  freeReadable: string
+  usedReadable: string
+}
+
+interface MonitorData {
+  cpu: Record<string, unknown>
+  memory: Record<string, unknown>
+  jvm: Record<string, unknown>
+  disks: MonitorDiskRow[]
+  processCpuUsage?: number | null
+  diskTotal?: number | null
+  diskUsed?: number | null
+  diskFree?: number | null
+  diskUsagePercent?: number | null
+}
+
 const message = useMessage()
 
 const loading = ref(false)
-const data = ref<any>({})
+const data = ref<MonitorData>(emptyMonitorData())
 const monitorLoadState = ref<'loading' | 'ready' | 'error'>('loading')
 const circum = 2 * Math.PI * 50 // 314.16
-const diskRows = computed(() => Array.isArray(data.value.disks) ? data.value.disks : [])
+const diskRows = computed(() => data.value.disks)
 
 let autoTimer: any = null
 let inFlight = false
@@ -137,6 +160,20 @@ function isPlainObject(value: unknown): value is Record<string, any> {
   return !!value && typeof value === 'object' && !Array.isArray(value)
 }
 
+function emptyMonitorData(): MonitorData {
+  return {
+    cpu: {},
+    memory: {},
+    jvm: {},
+    disks: [],
+    processCpuUsage: null,
+    diskTotal: null,
+    diskUsed: null,
+    diskFree: null,
+    diskUsagePercent: null
+  }
+}
+
 function requireDiskItem(value: unknown) {
   if (!isPlainObject(value) || typeof value.path !== 'string') {
     throw new Error('监控数据待确认')
@@ -145,11 +182,15 @@ function requireDiskItem(value: unknown) {
   const free = toOptionalNumber(value.free)
   const used = toOptionalNumber(value.used)
   const usagePercent = toOptionalNumber(value.usagePercent)
-  if (total == null || free == null || used == null || usagePercent == null) {
+  if (
+    total == null || free == null || used == null || usagePercent == null
+    || total < 0 || free < 0 || used < 0 || usagePercent < 0 || usagePercent > 100
+    || free > total || used > total
+  ) {
     throw new Error('监控数据待确认')
   }
   return {
-    path: value.path,
+    path: value.path.trim(),
     total,
     free,
     used,
@@ -160,7 +201,7 @@ function requireDiskItem(value: unknown) {
   }
 }
 
-function requireMonitorData(value: unknown) {
+function requireMonitorData(value: unknown): MonitorData {
   if (!isPlainObject(value) || !isPlainObject(value.cpu) || !isPlainObject(value.memory) || !isPlainObject(value.jvm) || !Array.isArray(value.disks)) {
     throw new Error('监控数据待确认')
   }
@@ -176,8 +217,29 @@ function requireMonitorData(value: unknown) {
   if (typeof jvm.uptimeReadable !== 'string' || typeof jvm.vmName !== 'string' || typeof jvm.vmVersion !== 'string') {
     throw new Error('监控数据待确认')
   }
+  const processCpuUsage = toOptionalNumber(value.processCpuUsage)
+  const diskTotal = toOptionalNumber(value.diskTotal)
+  const diskUsed = toOptionalNumber(value.diskUsed)
+  const diskFree = toOptionalNumber(value.diskFree)
+  const diskUsagePercent = toOptionalNumber(value.diskUsagePercent)
+  if (
+    (processCpuUsage != null && (processCpuUsage < 0 || processCpuUsage > 100))
+    || (diskTotal != null && diskTotal < 0)
+    || (diskUsed != null && diskUsed < 0)
+    || (diskFree != null && diskFree < 0)
+    || (diskUsagePercent != null && (diskUsagePercent < 0 || diskUsagePercent > 100))
+  ) {
+    throw new Error('监控数据待确认')
+  }
   return {
-    ...value,
+    cpu,
+    memory,
+    jvm,
+    processCpuUsage,
+    diskTotal,
+    diskUsed,
+    diskFree,
+    diskUsagePercent,
     disks: value.disks.map((disk: unknown) => requireDiskItem(disk))
   }
 }
@@ -195,6 +257,7 @@ async function loadData() {
     monitorLoadState.value = 'ready'
     errorNotified = false
   } catch (err: any) {
+    data.value = emptyMonitorData()
     monitorLoadState.value = 'error'
     // 5 秒轮询,仅首次失败提示,避免重复弹窗刷屏
     if (!errorNotified) {
