@@ -7,7 +7,7 @@
       content-style="display: flex; flex-direction: column; height: 100%;"
       :native-scrollbar="false" class="admin-sider"
     >
-      <div class="admin-logo"><span class="admin-logo-text">⚙ 管理系统</span></div>
+      <div class="admin-logo"><span class="admin-logo-text">⚙ {{ platformName }} 管理系统</span></div>
       <div class="admin-menu-box">
         <n-menu :collapsed="collapsed" :collapsed-width="64" :collapsed-icon-size="22"
           :options="menuOptions" :value="activeKey" @update:value="handleMenuSelect" />
@@ -38,6 +38,7 @@
 import { ref, computed, h, type Component, type Ref } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { NLayout, NLayoutSider, NLayoutHeader, NLayoutContent, NMenu, NButton, NIcon, type MenuOption } from 'naive-ui'
+import { usePlatformStore } from '@/store/platform'
 import { useUserStore } from '@/store/user'
 import {
   BarChart3, ClipboardList, Library, Shield, Settings,
@@ -46,8 +47,10 @@ import {
 
 const router = useRouter()
 const route = useRoute()
+const platformStore = usePlatformStore()
 const userStore = useUserStore()
 const collapsed = ref(false)
+const platformName = computed(() => platformStore.platformName || 'OmniSpark AI')
 
 type ThemeWindow = Window & {
   __toggleTheme?: () => void

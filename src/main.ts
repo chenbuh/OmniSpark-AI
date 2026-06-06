@@ -9,6 +9,7 @@ import { useTaskStore } from './store/task'
 import { useProjectStore } from './store/project'
 import { useModelProviderStore } from './store/provider'
 import { useAssetStore } from './store/asset'
+import { usePlatformStore } from './store/platform'
 import './style.css'
 
 const app = createApp(App)
@@ -23,6 +24,7 @@ const taskStore = useTaskStore()
 const projectStore = useProjectStore()
 const providerStore = useModelProviderStore()
 const assetStore = useAssetStore()
+const platformStore = usePlatformStore()
 const token = localStorage.getItem('satoken')
 if (token) {
   try {
@@ -35,6 +37,7 @@ if (token) {
     assetStore.clear()
   }
 }
+void platformStore.refreshProfile()
 
 app.mount('#app')
 
@@ -48,4 +51,3 @@ if ('serviceWorker' in navigator && ['localhost', '127.0.0.1'].includes(window.l
     })
   })
 }
-

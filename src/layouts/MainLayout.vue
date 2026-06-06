@@ -16,7 +16,7 @@
         <div class="logo-icon-box">
           <Zap class="logo-icon" />
         </div>
-        <span class="logo-text" v-if="!collapsed">OmniSpark AI</span>
+        <span class="logo-text" v-if="!collapsed">{{ platformName }}</span>
       </div>
 
       <!-- 侧边导航菜单 -->
@@ -227,6 +227,7 @@ import { useRouter, useRoute } from 'vue-router'
 import { useMessage, NIcon, type MenuOption, type DropdownOption } from 'naive-ui'
 import type { Client as StompClient, IMessage, IStompSocket } from '@stomp/stompjs'
 import { authApi } from '@/api/auth'
+import { usePlatformStore } from '@/store/platform'
 import { useUserStore } from '@/store/user'
 import { useProjectStore } from '@/store/project'
 import { useTeamStore } from '@/store/team'
@@ -267,8 +268,10 @@ const route = useRoute()
 const message = useMessage()
 
 const userStore = useUserStore()
+const platformStore = usePlatformStore()
 const projectStore = useProjectStore()
 const teamStore = useTeamStore()
+const platformName = computed(() => platformStore.platformName || 'OmniSpark AI')
 
 const collapsed = ref(false)
 const showAddProjectModal = ref(false)

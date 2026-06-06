@@ -25,9 +25,10 @@ import json from 'highlight.js/lib/languages/json'
 import type { Ref } from 'vue'
 hljs.registerLanguage('json', json)
 
-import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useUserStore } from '@/store/user'
+import { usePlatformStore } from '@/store/platform'
 import SliderCaptcha from '@/components/SliderCaptcha.vue'
 import { registerRiskCaptchaHandler, unregisterRiskCaptchaHandler } from '@/utils/riskCaptcha'
 import {
@@ -41,6 +42,7 @@ import {
 } from 'naive-ui'
 
 const router = useRouter()
+const platformStore = usePlatformStore()
 const riskCaptchaVisible = ref(false)
 let resolveRiskCaptcha: ((ticket: string) => void) | null = null
 let rejectRiskCaptcha: ((reason?: unknown) => void) | null = null
@@ -154,6 +156,15 @@ const unauthorizedHandler = () => {
     router.replace({ name: 'Login' })
   }
 }
+
+watch(
+  () => platformStore.platformName,
+  (platformName) => {
+    const normalized = platformName?.trim()
+    document.title = normalized || 'OmniSpark AI'
+  },
+  { immediate: true }
+)
 </script>
 
 <style>

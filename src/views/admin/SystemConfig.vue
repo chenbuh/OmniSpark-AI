@@ -70,6 +70,7 @@
 import { ref, onMounted } from 'vue'
 import { useMessage } from 'naive-ui'
 import request from '@/api/request'
+import { usePlatformStore } from '@/store/platform'
 
 type HealthStatus = 'UP' | 'DOWN' | 'DEGRADED'
 type ServiceHealthStatus = 'UP' | 'DOWN'
@@ -91,6 +92,7 @@ interface SystemHealth {
 }
 
 const message = useMessage()
+const platformStore = usePlatformStore()
 const loadingConfigs = ref(true)
 const configs = ref<SystemConfigItem[] | null>(null)
 const health = ref<SystemHealth | null>(null)
@@ -193,6 +195,10 @@ async function loadConfigs() {
   try {
     const response = await request.get<unknown>('/api/admin/config', { headers: NO_CACHE_HEADERS })
     configs.value = normalizeConfigList(getResponseData(response, '系统配置待确认'))
+    const platformNameConfig = configs.value.find(item => item.configKey === 'platform.name')
+    if (platformNameConfig?.configValue) {
+      platformStore.setPlatformName(platformNameConfig.configValue)
+    }
     configsLoadState.value = 'ready'
   } catch (err: unknown) {
     configs.value = null
@@ -238,6 +244,9 @@ async function handleSave(id: number) {
       || (typeof previousCount === 'number' && configs.value?.length !== previousCount)
     ) {
       throw new Error('配置更新结果待确认')
+    }
+    if (confirmed.configKey === 'platform.name') {
+      platformStore.setPlatformName(confirmed.configValue)
     }
     editingId.value = null
     message.success('配置已更新')

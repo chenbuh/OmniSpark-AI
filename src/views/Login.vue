@@ -12,7 +12,7 @@
         <div class="logo-box">
           <Zap class="logo-icon" />
         </div>
-        <h2>OmniSpark AI</h2>
+        <h2>{{ platformName }}</h2>
         <p class="subtitle">{{ isLoginMode ? '一体化高保真生图与视频创作平台' : '加入多维 AI 创意空间' }}</p>
       </div>
 
@@ -159,18 +159,21 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, nextTick, onMounted, onBeforeUnmount, watch } from 'vue'
+import { ref, reactive, computed, nextTick, onMounted, onBeforeUnmount, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useMessage } from 'naive-ui'
 import type { FormInst } from 'naive-ui'
 import { gsap } from 'gsap'
 import { authApi } from '@/api/auth'
+import { usePlatformStore } from '@/store/platform'
 import { User, Lock, Zap, Smile, ShieldCheck } from 'lucide-vue-next'
 import { PASSWORD_REQUIREMENT_TEXT, validatePasswordStrength } from '@/utils/password'
 import SliderCaptcha from '@/components/SliderCaptcha.vue'
 
 const router = useRouter()
 const message = useMessage()
+const platformStore = usePlatformStore()
+const platformName = computed(() => platformStore.platformName || 'OmniSpark AI')
 const loginRoot = ref<HTMLElement | null>(null)
 
 const isLoginMode = ref(true)
