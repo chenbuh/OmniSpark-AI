@@ -1988,7 +1988,7 @@ const syncTaskStatus = async (taskId: number) => {
     taskCompleted.value = true
     finishGeneratingState()
     message.success('图片生成完成')
-    assetStore.refresh({ projectId: projectStore.activeProjectId }).catch(() => {})
+    assetStore.refresh({ projectId: task.projectId }).catch(() => {})
     return task
   }
   if (task.status === 'failed') {
@@ -2048,7 +2048,7 @@ const ensureTaskAssetsLoaded = async (task: { id: number; resultAssetId?: number
   }
   if (!pendingFetchAsset) {
     pendingFetchAsset = (async () => {
-      const response = await assetApi.getAssets({ taskId: task.id, projectId: projectStore.activeProjectId })
+      const response = await assetApi.getAssets({ taskId: task.id, projectId: taskContext.projectId })
       const assets = normalizeImageAssetList(getResponseData(response, '图片结果待确认'), '图片结果待确认')
       assets.forEach((item) => {
         upsertAsset(item)
@@ -2455,7 +2455,7 @@ const handleStartGenerate = async () => {
       resultVersion.value++
       finishGeneratingState()
       message.success('图片生成完成')
-      assetStore.refresh({ projectId: projectStore.activeProjectId }).catch(() => {})
+      assetStore.refresh({ projectId: task.projectId }).catch(() => {})
     } else if (task.status === 'failed') {
       taskCompleted.value = true
       message.error(task.errorMessage || '图片生成失败')
@@ -2549,7 +2549,7 @@ const handleToggleFavorite = async () => {
   if (currentAsset.value) {
     try {
       const updated = await assetStore.toggleFavorite(currentAsset.value.id)
-      await assetStore.refresh({ projectId: projectStore.activeProjectId })
+      await assetStore.refresh({ projectId: currentAsset.value.projectId })
       const confirmed = assetStore.assets.find(asset => asset.id === updated.id)
       if (!confirmed || confirmed.favorite !== updated.favorite) {
         throw new Error('收藏状态待确认')
