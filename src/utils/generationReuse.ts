@@ -1,8 +1,10 @@
 export interface GenerationReuseSource {
   taskType: 'image' | 'video'
+  providerId?: number
   prompt?: string
   negativePrompt?: string
   modelName?: string
+  options?: Record<string, unknown> | unknown[]
   requestJson?: string
 }
 
@@ -66,7 +68,8 @@ function appendFiniteNumberQuery(query: Record<string, string>, key: string, val
 
 export function buildGenerationReuseLocation(source: GenerationReuseSource, options: ReuseOptions = {}) {
   const payload = getRequestPayload(source.requestJson)
-  const payloadOptions = isPlainObject(payload?.options) ? payload.options : {}
+  const sourceOptions = isPlainObject(source.options) ? source.options : {}
+  const payloadOptions = isPlainObject(payload?.options) ? payload.options : sourceOptions
 
   if (source.taskType === 'image') {
     const query: Record<string, string> = {}
@@ -75,10 +78,10 @@ export function buildGenerationReuseLocation(source: GenerationReuseSource, opti
     appendQuery(query, 'prompt', payload?.prompt ?? source.prompt)
     appendQuery(query, 'negPrompt', payload?.negativePrompt ?? source.negativePrompt)
     appendQuery(query, 'model', payload?.modelName ?? source.modelName)
-    appendPositiveIntegerQuery(query, 'providerId', payload?.providerId)
-    appendPositiveIntegerQuery(query, 'count', payload?.count)
+    appendPositiveIntegerQuery(query, 'providerId', payload?.providerId ?? source.providerId)
+    appendPositiveIntegerQuery(query, 'count', payload?.count ?? payloadOptions.count)
     if (!resolution || resolution === 'custom' || !aspectRatio || aspectRatio === 'custom') {
-      appendQuery(query, 'size', payload?.size)
+      appendQuery(query, 'size', payload?.size ?? payloadOptions.size)
     }
     appendQuery(query, 'resolution', resolution)
     appendQuery(query, 'quality', payloadOptions.quality)
@@ -97,10 +100,13 @@ export function buildGenerationReuseLocation(source: GenerationReuseSource, opti
   }
 
   const query: Record<string, string> = {}
-  const duration = normalizeText(payload?.duration) || normalizeText(payload?.size)
+  const duration = normalizeText(payload?.duration)
+    || normalizeText(payload?.size)
+    || normalizeText(payloadOptions.duration)
+    || normalizeText(payloadOptions.size)
   appendQuery(query, 'prompt', payload?.prompt ?? source.prompt)
   appendQuery(query, 'model', payload?.modelName ?? source.modelName)
-  appendPositiveIntegerQuery(query, 'providerId', payload?.providerId)
+  appendPositiveIntegerQuery(query, 'providerId', payload?.providerId ?? source.providerId)
   appendQuery(query, 'duration', duration)
   appendQuery(query, 'cameraMotion', payloadOptions.cameraMotion)
   appendFiniteNumberQuery(query, 'motionSpeed', payloadOptions.motionSpeed)
