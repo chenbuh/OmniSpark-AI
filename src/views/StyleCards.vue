@@ -321,12 +321,24 @@ function requireStyleCardPage(value: unknown) {
     throw new Error('卡片数据待确认')
   }
   const records = (value as any).records
-  const count = (value as any).total
-  if (!Array.isArray(records) || typeof count !== 'number') {
+  const count = Number((value as any).total)
+  if (!Array.isArray(records) || !Number.isFinite(count) || count < 0) {
+    throw new Error('卡片数据待确认')
+  }
+  const seenIds = new Set<number>()
+  const normalizedRecords = records.map((item: unknown) => {
+    const normalized = requireStyleCardDetail(item, 'update')
+    if (seenIds.has(normalized.id)) {
+      throw new Error('卡片数据待确认')
+    }
+    seenIds.add(normalized.id)
+    return normalized
+  })
+  if (normalizedRecords.length > count) {
     throw new Error('卡片数据待确认')
   }
   return {
-    records: records as StyleCard[],
+    records: normalizedRecords as StyleCard[],
     total: count
   }
 }
@@ -361,6 +373,11 @@ function requireStyleCardDetail(value: unknown, action: 'create' | 'update') {
   const liked = normalizeInteractionLiked(record.liked, action)
   return {
     ...base,
+    projectId: normalizeRequiredPositiveNumber(record.projectId, action),
+    userId: normalizeOptionalPositiveNumber(record.userId),
+    username: normalizeOptionalText(record.username),
+    nickname: normalizeOptionalText(record.nickname),
+    avatar: normalizeOptionalText(record.avatar),
     type,
     negativePrompt: normalizeOptionalText(record.negativePrompt),
     modelName: normalizeOptionalText(record.modelName),
@@ -371,12 +388,22 @@ function requireStyleCardDetail(value: unknown, action: 'create' | 'update') {
     previewUrl: toRelativeUrl(typeof record.previewUrl === 'string' ? record.previewUrl : ''),
     likesCount,
     commentsCount,
-    liked
+    liked,
+    status: normalizeRequiredStatus(record.status, action),
+    createdAt: requireDateText(record.createdAt, action)
   }
 }
 
 function normalizeOptionalText(value: unknown) {
   return typeof value === 'string' ? value.trim() : ''
+}
+
+function normalizeOptionalPositiveNumber(value: unknown) {
+  if (value == null || value === '') {
+    return undefined
+  }
+  const parsed = Number(value)
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : undefined
 }
 
 function normalizeOptionalNumber(value: unknown) {
@@ -385,6 +412,14 @@ function normalizeOptionalNumber(value: unknown) {
   }
   const parsed = Number(value)
   return Number.isFinite(parsed) ? parsed : null
+}
+
+function normalizeRequiredPositiveNumber(value: unknown, action: 'create' | 'update') {
+  const parsed = Number(value)
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    throw new Error(action === 'create' ? '卡片创建结果待确认' : '卡片更新结果待确认')
+  }
+  return parsed
 }
 
 function normalizeInteractionCount(value: unknown, action: 'create' | 'update') {
@@ -403,6 +438,22 @@ function normalizeInteractionLiked(value: unknown, action: 'create' | 'update') 
     return 0
   }
   throw new Error(action === 'create' ? '卡片创建结果待确认' : '卡片更新结果待确认')
+}
+
+function normalizeRequiredStatus(value: unknown, action: 'create' | 'update') {
+  const parsed = Number(value)
+  if (!Number.isFinite(parsed)) {
+    throw new Error(action === 'create' ? '卡片创建结果待确认' : '卡片更新结果待确认')
+  }
+  return parsed
+}
+
+function requireDateText(value: unknown, action: 'create' | 'update') {
+  const text = typeof value === 'string' ? value.trim() : ''
+  if (!text) {
+    throw new Error(action === 'create' ? '卡片创建结果待确认' : '卡片更新结果待确认')
+  }
+  return text
 }
 
 function buildStyleCardExpectation(payload: StyleCardPayload) {

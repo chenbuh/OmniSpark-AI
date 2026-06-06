@@ -329,12 +329,24 @@ function requireCommunityPageData(value: unknown) {
     throw new Error('社区内容待确认')
   }
   const records = (value as any).records
-  const count = (value as any).total
-  if (!Array.isArray(records) || typeof count !== 'number') {
+  const count = Number((value as any).total)
+  if (!Array.isArray(records) || !Number.isFinite(count) || count < 0) {
+    throw new Error('社区内容待确认')
+  }
+  const seenIds = new Set<number>()
+  const normalizedRecords = records.map((item: unknown) => {
+    const normalized = requireCommunityPostResult(item, 'update')
+    if (seenIds.has(normalized.id)) {
+      throw new Error('社区内容待确认')
+    }
+    seenIds.add(normalized.id)
+    return normalized
+  })
+  if (normalizedRecords.length > count) {
     throw new Error('社区内容待确认')
   }
   return {
-    records,
+    records: normalizedRecords,
     total: count
   }
 }
@@ -364,15 +376,18 @@ function requireCommunityPostResult(value: unknown, action: 'create' | 'update')
     id,
     title,
     prompt,
-    userId: Number((value as any).userId),
-    negativePrompt: typeof (value as any).negativePrompt === 'string' ? (value as any).negativePrompt : '',
-    modelName: typeof (value as any).modelName === 'string' ? (value as any).modelName : '',
-    imageUrl: typeof (value as any).imageUrl === 'string' ? (value as any).imageUrl : '',
-    category: typeof (value as any).category === 'string' ? (value as any).category : '',
-    tags: typeof (value as any).tags === 'string' ? (value as any).tags : '',
+    userId: normalizeOptionalPositiveNumber((value as any).userId),
+    username: normalizeOptionalText((value as any).username),
+    nickname: normalizeOptionalText((value as any).nickname),
+    negativePrompt: normalizeOptionalText((value as any).negativePrompt),
+    modelName: normalizeOptionalText((value as any).modelName),
+    imageUrl: normalizeOptionalText((value as any).imageUrl),
+    category: normalizeOptionalText((value as any).category),
+    tags: normalizeOptionalText((value as any).tags),
     likesCount,
     commentsCount,
-    liked
+    liked,
+    createdAt: requireDateText((value as any).createdAt, action)
   }
 }
 
@@ -561,6 +576,22 @@ function syncCommunityPostState(post: ReturnType<typeof requireCommunityPostResu
 
 function normalizeOptionalText(value: unknown) {
   return typeof value === 'string' ? value.trim() : ''
+}
+
+function normalizeOptionalPositiveNumber(value: unknown) {
+  if (value == null || value === '') {
+    return undefined
+  }
+  const parsed = Number(value)
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : undefined
+}
+
+function requireDateText(value: unknown, action: 'create' | 'update') {
+  const text = typeof value === 'string' ? value.trim() : ''
+  if (!text) {
+    throw new Error(action === 'create' ? '发布结果待确认' : '更新结果待确认')
+  }
+  return text
 }
 
 function normalizeFileName(value: string) {

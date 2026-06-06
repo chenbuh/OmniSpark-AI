@@ -150,6 +150,7 @@ const message = useMessage()
 const dialog = useDialog()
 const userStore = useUserStore()
 const displayRoleLabel = computed(() => formatUserRole(userStore.userInfo?.role))
+const NO_CACHE_HEADERS = { 'X-No-Cache': '1' }
 
 // ===== 主题 =====
 const isDark = ref((window as any).__isDark?.value !== false)
@@ -243,7 +244,16 @@ async function handleChangePassword() {
 
 
 // ===== 登录历史 =====
-const loginLogs = ref<any[] | null>(null)
+type LoginLogRecord = {
+  id: number
+  userId: number
+  username: string
+  ip: string
+  userAgent: string
+  createdAt: string
+}
+
+const loginLogs = ref<LoginLogRecord[] | null>(null)
 const loadingLogs = ref(true)
 const logPage = ref(1)
 const logPageSize = 8
@@ -266,6 +276,45 @@ const latestLoginIp = computed(() => latestLoginLog.value ? (latestLoginLog.valu
 function getLogTimestamp(dateStr: string): number {
   const timestamp = Date.parse(String(dateStr || ''))
   return Number.isNaN(timestamp) ? 0 : timestamp
+}
+
+function requireLoginLogRecord(value: unknown): LoginLogRecord {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new Error('登录记录待确认')
+  }
+  const record = value as Record<string, unknown>
+  const id = Number(record.id)
+  const userId = Number(record.userId)
+  const username = typeof record.username === 'string' ? record.username.trim() : ''
+  const createdAt = typeof record.createdAt === 'string' ? record.createdAt.trim() : ''
+  if (!Number.isFinite(id) || id <= 0 || !Number.isFinite(userId) || userId <= 0 || !username || !createdAt) {
+    throw new Error('登录记录待确认')
+  }
+  return {
+    id,
+    userId,
+    username,
+    ip: typeof record.ip === 'string' ? record.ip.trim() : '',
+    userAgent: typeof record.userAgent === 'string' ? record.userAgent.trim() : '',
+    createdAt
+  }
+}
+
+function normalizeLoginLogList(value: unknown) {
+  if (!Array.isArray(value)) {
+    throw new Error('登录记录待确认')
+  }
+  const seenIds = new Set<number>()
+  return value
+    .map(item => requireLoginLogRecord(item))
+    .filter(item => {
+      if (seenIds.has(item.id)) {
+        return false
+      }
+      seenIds.add(item.id)
+      return true
+    })
+    .sort((a, b) => getLogTimestamp(b.createdAt) - getLogTimestamp(a.createdAt))
 }
 
 function requireProfileUser(payload: unknown) {
@@ -317,12 +366,10 @@ function requirePasswordChangeResult(payload: unknown, expectedUserId?: number) 
 onMounted(async () => {
   try {
     loadingLogs.value = true
-    const logsRes = await request.get('/api/auth/login-logs?limit=100')
-    if (!Array.isArray((logsRes as any).data)) {
-      throw new Error('登录记录待确认')
-    }
-    const logs = (logsRes as any).data
-    loginLogs.value = [...logs].sort((a, b) => getLogTimestamp(b?.createdAt) - getLogTimestamp(a?.createdAt))
+    const logsRes = await request.get('/api/auth/login-logs?limit=100', {
+      headers: NO_CACHE_HEADERS
+    })
+    loginLogs.value = normalizeLoginLogList((logsRes as any).data)
   } catch {
     loginLogs.value = null
   } finally {

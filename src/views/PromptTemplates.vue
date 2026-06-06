@@ -219,12 +219,24 @@ function requireTemplatePage(value: unknown) {
     throw new Error('模板数据待确认')
   }
   const records = (value as any).records
-  const count = (value as any).total
-  if (!Array.isArray(records) || typeof count !== 'number') {
+  const count = Number((value as any).total)
+  if (!Array.isArray(records) || !Number.isFinite(count) || count < 0) {
+    throw new Error('模板数据待确认')
+  }
+  const seenIds = new Set<number>()
+  const normalizedRecords = records.map((item: unknown) => {
+    const normalized = requireTemplateDetail(item, 'update')
+    if (seenIds.has(normalized.id)) {
+      throw new Error('模板数据待确认')
+    }
+    seenIds.add(normalized.id)
+    return normalized
+  })
+  if (normalizedRecords.length > count) {
     throw new Error('模板数据待确认')
   }
   return {
-    records: records as PromptTemplate[],
+    records: normalizedRecords as PromptTemplate[],
     total: count
   }
 }
@@ -252,12 +264,18 @@ function requireTemplateDetail(value: unknown, action: 'create' | 'update') {
   return {
     ...base,
     projectId: normalizeTemplateProjectId(record.projectId, action),
+    userId: normalizeOptionalPositiveNumber(record.userId),
+    username: normalizeOptionalText(record.username),
+    nickname: normalizeOptionalText(record.nickname),
+    avatar: normalizeOptionalText(record.avatar),
     tag: normalizeOptionalText(record.tag),
     negativePrompt: normalizeOptionalText(record.negativePrompt),
     modelName: normalizeOptionalText(record.modelName),
     likesCount: normalizeInteractionCount(record.likesCount, action),
     commentsCount: normalizeInteractionCount(record.commentsCount, action),
-    liked: normalizeLikedState(record.liked, action)
+    liked: normalizeLikedState(record.liked, action),
+    status: normalizeTemplateStatus(record.status, action),
+    createdAt: requireDateText(record.createdAt, action)
   }
 }
 
@@ -308,6 +326,14 @@ function normalizeOptionalText(value: unknown) {
   return typeof value === 'string' ? value.trim() : ''
 }
 
+function normalizeOptionalPositiveNumber(value: unknown) {
+  if (value == null || value === '') {
+    return undefined
+  }
+  const parsed = Number(value)
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : undefined
+}
+
 function normalizeTemplateProjectId(value: unknown, action: 'create' | 'update') {
   const parsed = Number(value)
   if (!Number.isFinite(parsed) || parsed <= 0) {
@@ -332,6 +358,22 @@ function normalizeLikedState(value: unknown, action: 'create' | 'update') {
     return 0
   }
   throw new Error(action === 'create' ? '模板创建结果待确认' : '模板更新结果待确认')
+}
+
+function normalizeTemplateStatus(value: unknown, action: 'create' | 'update') {
+  const parsed = Number(value)
+  if (!Number.isFinite(parsed)) {
+    throw new Error(action === 'create' ? '模板创建结果待确认' : '模板更新结果待确认')
+  }
+  return parsed
+}
+
+function requireDateText(value: unknown, action: 'create' | 'update') {
+  const text = typeof value === 'string' ? value.trim() : ''
+  if (!text) {
+    throw new Error(action === 'create' ? '模板创建结果待确认' : '模板更新结果待确认')
+  }
+  return text
 }
 
 function buildTemplateExpectation(payload: {
