@@ -365,6 +365,20 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === 'object' && !Array.isArray(value)
 }
 
+function getResponseData(response: unknown, errorMessage: string): unknown {
+  if (!isPlainObject(response) || !('data' in response)) {
+    throw new Error(errorMessage)
+  }
+  return response.data
+}
+
+function getErrorMessage(error: unknown, fallback: string) {
+  if (error instanceof Error && error.message.trim()) {
+    return error.message
+  }
+  return fallback
+}
+
 function requireStringValue(value: unknown, errorMessage: string) {
   const normalized = typeof value === 'string' ? value.trim() : ''
   if (!normalized) {
@@ -422,7 +436,7 @@ async function loadProviderMeta() {
   providerMetaLoadState.value = 'loading'
   try {
     const res = await providerApi.getMeta()
-    providerMeta.value = requireProviderMeta((res as any).data)
+    providerMeta.value = requireProviderMeta(getResponseData(res, '提供商元数据待确认'))
     providerMetaLoadState.value = 'ready'
   } catch {
     providerMeta.value = emptyProviderMeta()
@@ -446,9 +460,9 @@ async function loadProviderList() {
       throw new Error('模型提供商数据待确认')
     }
     providerListLoadState.value = 'ready'
-  } catch (err: any) {
+  } catch (err: unknown) {
     providerListLoadState.value = 'error'
-    message.error(err.message || '加载模型提供商失败')
+    message.error(getErrorMessage(err, '加载模型提供商失败'))
   }
 }
 
@@ -496,8 +510,8 @@ const handleTestConnection = async (provider: ModelProvider) => {
   try {
     requireConnectionTestResult(await providerStore.testConnection(provider.id))
     message.success(`${provider.name} 连接测试成功`)
-  } catch (err: any) {
-    message.error(err.message || '连接失败')
+  } catch (err: unknown) {
+    message.error(getErrorMessage(err, '连接失败'))
   } finally {
     testingId.value = null
   }
@@ -542,11 +556,15 @@ const handleOpenEditModal = (provider: ModelProvider) => {
   form.enabled = provider.enabled === true
   form.isDefault = provider.isDefault === true
   form.configJson = provider.configJson || ''
-  form.transcriptionModel = config.transcriptionModel || ''
-  form.voice = config.voice || ''
-  form.responseFormat = resolveOptionValue(responseFormatOptions.value, config.responseFormat, defaultResponseFormat.value)
-  form.speed = config.speed ? String(config.speed) : ''
-  form.instructions = config.instructions || ''
+  form.transcriptionModel = readConfigString(config.transcriptionModel)
+  form.voice = readConfigString(config.voice)
+  form.responseFormat = resolveOptionValue(
+    responseFormatOptions.value,
+    readConfigString(config.responseFormat),
+    defaultResponseFormat.value
+  )
+  form.speed = typeof readPositiveConfigNumber(config.speed) === 'number' ? String(readPositiveConfigNumber(config.speed)) : ''
+  form.instructions = readConfigString(config.instructions)
   preserveUnknownEnabled.value = provider.enabled === null
   preserveUnknownDefault.value = provider.isDefault === null
   enabledTouched.value = false
@@ -620,14 +638,27 @@ const handleDelete = async (id: number) => {
   message.success('模型提供商配置已删除')
 }
 
+function readConfigString(value: unknown) {
+  return typeof value === 'string' ? value.trim() : ''
+}
+
+function readPositiveConfigNumber(value: unknown): number | undefined {
+  const parsed = Number(value)
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    return undefined
+  }
+  return parsed
+}
+
 const parseConfigJson = (value?: string) => {
   if (!value) {
-    return {} as Record<string, any>
+    return {} as Record<string, unknown>
   }
   try {
-    return JSON.parse(value)
+    const parsed = JSON.parse(value) as unknown
+    return isPlainObject(parsed) ? parsed : {}
   } catch {
-    return {} as Record<string, any>
+    return {} as Record<string, unknown>
   }
 }
 
@@ -635,13 +666,13 @@ const buildConfigJson = () => {
   if (form.type !== 'audio') {
     return form.configJson || ''
   }
-  const payload: Record<string, any> = {}
+  const payload: Record<string, unknown> = {}
   if (form.transcriptionModel.trim()) payload.transcriptionModel = form.transcriptionModel.trim()
   if (form.voice.trim()) payload.voice = form.voice.trim()
   if (form.responseFormat.trim()) payload.responseFormat = form.responseFormat.trim().toLowerCase()
   if (form.speed.trim()) {
-    const speedValue = Number(form.speed)
-    if (!Number.isNaN(speedValue) && speedValue > 0) {
+    const speedValue = readPositiveConfigNumber(form.speed)
+    if (typeof speedValue === 'number') {
       payload.speed = speedValue
     }
   }
