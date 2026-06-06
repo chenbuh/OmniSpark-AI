@@ -24,7 +24,7 @@ type RiskRetriableConfig = InternalAxiosRequestConfig & {
 
 // ===== SWR 内存缓存 =====
 interface CacheEntry {
-  data: any
+  data: unknown
   timestamp: number
 }
 const cacheStore = new Map<string, CacheEntry>()
@@ -81,9 +81,9 @@ function abbreviateText(value: string, max = 180): string {
   return `${compact.slice(0, max)}...`
 }
 
-function extractErrorMessage(error: any): string {
-  const responseData = error?.response?.data
-  if (typeof responseData?.message === 'string' && responseData.message.trim()) {
+function extractErrorMessage(error: unknown): string {
+  const responseData = getErrorResponseData(error)
+  if (isPlainObject(responseData) && typeof responseData.message === 'string' && responseData.message.trim()) {
     return responseData.message.trim()
   }
   if (typeof responseData === 'string' && responseData.trim()) {
@@ -95,16 +95,20 @@ function extractErrorMessage(error: any): string {
     }
     return abbreviateText(responseData)
   }
-  if (typeof error?.message === 'string' && error.message.trim()) {
+  if (error instanceof Error && error.message.trim()) {
+    return error.message.trim()
+  }
+  if (isPlainObject(error) && typeof error.message === 'string' && error.message.trim()) {
     return error.message.trim()
   }
   return '请求失败，请稍后重试'
 }
 
-function isRiskCaptchaRequired(error: any): boolean {
-  const status = error?.response?.status
-  const message = typeof error?.response?.data?.message === 'string'
-    ? error.response.data.message
+function isRiskCaptchaRequired(error: unknown): boolean {
+  const status = getErrorStatus(error)
+  const responseData = getErrorResponseData(error)
+  const message = isPlainObject(responseData) && typeof responseData.message === 'string'
+    ? responseData.message
     : ''
   return status === 429 && message.includes('二次验证码')
 }
@@ -119,17 +123,39 @@ function shouldSignRequest(config: InternalAxiosRequestConfig): boolean {
     || url.startsWith('/api/admin/users')
 }
 
-function isPlainObject(value: unknown): value is Record<string, any> {
+function isPlainObject(value: unknown): value is Record<string, unknown> {
   return Object.prototype.toString.call(value) === '[object Object]'
+}
+
+function getErrorResponseData(error: unknown): unknown {
+  if (!isPlainObject(error)) {
+    return undefined
+  }
+  const response = error.response
+  if (!isPlainObject(response) || !('data' in response)) {
+    return undefined
+  }
+  return response.data
+}
+
+function getErrorStatus(error: unknown): number | null {
+  if (!isPlainObject(error)) {
+    return null
+  }
+  const response = error.response
+  if (!isPlainObject(response)) {
+    return null
+  }
+  const status = Number(response.status)
+  return Number.isFinite(status) ? status : null
 }
 
 function getHeaderValue(headers: InternalAxiosRequestConfig['headers'], name: string): string {
   if (!headers) {
     return ''
   }
-  const getter = (headers as any).get
-  if (typeof getter === 'function') {
-    const value = getter.call(headers, name)
+  if (headers instanceof AxiosHeaders) {
+    const value = headers.get(name)
     if (typeof value === 'string') {
       return value
     }
@@ -219,7 +245,7 @@ function serializeRequestBody(config: InternalAxiosRequestConfig): string {
   return String(data)
 }
 
-function appendParams(url: URL, params: any) {
+function appendParams(url: URL, params: unknown) {
   if (!params) {
     return
   }
@@ -239,6 +265,22 @@ function appendParams(url: URL, params: any) {
       }
       url.searchParams.append(key, String(value))
     })
+  }
+}
+
+function normalizeApiResult(payload: unknown): ApiResult<unknown> {
+  if (!isPlainObject(payload)) {
+    throw new Error('请求结果待确认')
+  }
+  const code = Number(payload.code)
+  const message = typeof payload.message === 'string' ? payload.message : ''
+  if (!Number.isFinite(code)) {
+    throw new Error('请求结果待确认')
+  }
+  return {
+    code,
+    message,
+    data: payload.data
   }
 }
 
@@ -369,20 +411,20 @@ request.interceptors.request.use(
 // 响应拦截器
 request.interceptors.response.use(
   (response: AxiosResponse) => {
-    const res = response.data
+    const res = normalizeApiResult(response.data)
     if (res.code !== 200 && res.code !== 0) {
       return Promise.reject(new Error(res.message || 'Error'))
     }
 
     // 缓存 GET 成功响应
-    if (isCacheable(response.config.method) && !shouldBypassCache(response.config as any)) {
-      const key = getCacheKey(response.config as any)
+    if (isCacheable(response.config.method) && !shouldBypassCache(response.config)) {
+      const key = getCacheKey(response.config)
       cacheStore.set(key, { data: res, timestamp: Date.now() })
     } else if (!isCacheable(response.config.method)) {
       invalidateByWrite(response.config.url)
     }
 
-    return res
+    return res as unknown as AxiosResponse
   },
   (error) => {
     // 命中缓存的请求直接返回缓存数据
@@ -406,7 +448,7 @@ request.interceptors.response.use(
           originalConfig.headers = headers
           return request(originalConfig)
         })
-        .catch((captchaError: any) => {
+        .catch((captchaError: unknown) => {
           if (captchaError instanceof Error) {
             return Promise.reject(captchaError)
           }
@@ -414,20 +456,26 @@ request.interceptors.response.use(
         })
     }
     // 401 登录失效：清除会话并跳转登录页（由 App.vue 监听处理，避免循环依赖）
-    if (error?.response?.status === 401) {
+    if (getErrorStatus(error) === 401) {
       localStorage.removeItem('isLoggedIn')
       localStorage.removeItem('userInfo')
       localStorage.removeItem('satoken')
       window.dispatchEvent(new CustomEvent('auth-unauthorized'))
     }
     // 503 维护模式处理
-    if (error?.response?.status === 503) {
-      const msg = error?.response?.data?.message || '系统维护中，请稍后再试'
+    if (getErrorStatus(error) === 503) {
+      const responseData = getErrorResponseData(error)
+      const msg = isPlainObject(responseData) && typeof responseData.message === 'string'
+        ? responseData.message
+        : '系统维护中，请稍后再试'
       window.dispatchEvent(new CustomEvent('system-maintenance', { detail: msg }))
     }
     // 429 触发限流：透传后端的具体提示文案（如"登录尝试过于频繁"）
-    if (error?.response?.status === 429) {
-      const msg = error?.response?.data?.message || '操作过于频繁，请稍后再试'
+    if (getErrorStatus(error) === 429) {
+      const responseData = getErrorResponseData(error)
+      const msg = isPlainObject(responseData) && typeof responseData.message === 'string'
+        ? responseData.message
+        : '操作过于频繁，请稍后再试'
       return Promise.reject(new Error(msg))
     }
     return Promise.reject(new Error(extractErrorMessage(error)))

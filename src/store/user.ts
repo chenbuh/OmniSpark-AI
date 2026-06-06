@@ -8,11 +8,48 @@ export interface UserInfo {
   role: string // 'admin' | 'user'
 }
 
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === 'object' && !Array.isArray(value)
+}
+
+function normalizeStoredText(value: unknown): string {
+  return typeof value === 'string' ? value.trim() : ''
+}
+
+function parseStoredUserInfo(value: string | null): UserInfo | null {
+  if (!value) {
+    return null
+  }
+  try {
+    const parsed = JSON.parse(value) as unknown
+    if (!isPlainObject(parsed)) {
+      return null
+    }
+    const id = Number(parsed.id)
+    const username = normalizeStoredText(parsed.username)
+    const nickname = normalizeStoredText(parsed.nickname)
+    const avatar = normalizeStoredText(parsed.avatar)
+    const role = normalizeStoredText(parsed.role)
+    if (!Number.isFinite(id) || id <= 0 || !username || !nickname || !role) {
+      return null
+    }
+    return {
+      id,
+      username,
+      nickname,
+      avatar,
+      role
+    }
+  } catch {
+    return null
+  }
+}
+
 export const useUserStore = defineStore('user', {
   state: () => {
     return {
       isLoggedIn: localStorage.getItem('isLoggedIn') === 'true',
-      userInfo: JSON.parse(localStorage.getItem('userInfo') || 'null') as UserInfo | null,
+      userInfo: parseStoredUserInfo(localStorage.getItem('userInfo')),
       token: localStorage.getItem('satoken') || ''
     }
   },
