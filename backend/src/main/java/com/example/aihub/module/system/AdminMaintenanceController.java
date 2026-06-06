@@ -9,7 +9,6 @@ import com.example.aihub.infrastructure.mapper.SystemConfigMapper;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.*;
 
-import java.time.LocalDateTime;
 import java.util.LinkedHashMap;
 import java.util.Map;
 
@@ -19,27 +18,31 @@ import java.util.Map;
 @SaCheckLogin
 @SaCheckRole("admin")
 public class AdminMaintenanceController {
+    private static final String DEFAULT_MESSAGE = "系统维护中，请稍后再试";
+    private static final String MAINTENANCE_MODE_KEY = "maintenance_mode";
+    private static final String MAINTENANCE_MESSAGE_KEY = "maintenance_message";
+
     private final SystemConfigMapper configMapper;
 
     @GetMapping
     public ApiResult<Map<String, Object>> status() {
         var wrapper = new LambdaQueryWrapper<SystemConfig>()
-                .eq(SystemConfig::getConfigKey, "maintenance_mode");
+                .eq(SystemConfig::getConfigKey, MAINTENANCE_MODE_KEY);
         SystemConfig config = configMapper.selectOne(wrapper);
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("enabled", config != null && "true".equals(config.getConfigValue()));
 
         var msgWrapper = new LambdaQueryWrapper<SystemConfig>()
-                .eq(SystemConfig::getConfigKey, "maintenance_message");
+                .eq(SystemConfig::getConfigKey, MAINTENANCE_MESSAGE_KEY);
         SystemConfig msgConfig = configMapper.selectOne(msgWrapper);
-        result.put("message", msgConfig != null ? msgConfig.getConfigValue() : "系统维护中，请稍后再试");
+        result.put("message", normalizeMessage(msgConfig != null ? msgConfig.getConfigValue() : null));
         return ApiResult.ok(result);
     }
 
     @PostMapping
-    public ApiResult<Void> toggle(@RequestParam boolean enabled, @RequestParam(defaultValue = "系统维护中，请稍后再试") String message) {
-        upsertConfig("maintenance_mode", enabled ? "true" : "false", "maintenance", "维护模式开关");
-        upsertConfig("maintenance_message", message, "maintenance", "维护提示消息");
+    public ApiResult<Void> toggle(@RequestParam boolean enabled, @RequestParam(defaultValue = DEFAULT_MESSAGE) String message) {
+        upsertConfig(MAINTENANCE_MODE_KEY, enabled ? "true" : "false", "maintenance", "维护模式开关");
+        upsertConfig(MAINTENANCE_MESSAGE_KEY, normalizeMessage(message), "maintenance", "维护提示消息");
         return ApiResult.ok();
     }
 
@@ -58,5 +61,9 @@ public class AdminMaintenanceController {
             config.setConfigValue(value);
             configMapper.updateById(config);
         }
+    }
+
+    private String normalizeMessage(String message) {
+        return message == null || message.isBlank() ? DEFAULT_MESSAGE : message.trim();
     }
 }
