@@ -61,7 +61,7 @@ public class StyleCardService {
     public StyleCardVO get(Long id, Long currentUserId) {
         StyleCard card = cardMapper.selectById(id);
         if (card == null
-                || !PUBLIC_LIBRARY_PROJECT_ID.equals(card.getProjectId())
+                || card.getProjectId() != PUBLIC_LIBRARY_PROJECT_ID
                 || card.getStatus() == null
                 || card.getStatus() != 1) {
             throw new BusinessException("卡片不存在");
@@ -93,7 +93,7 @@ public class StyleCardService {
     @Transactional(rollbackFor = Exception.class)
     public StyleCardVO update(Long id, StyleCardSaveDTO dto) {
         StyleCard card = cardMapper.selectById(id);
-        if (card == null || !PUBLIC_LIBRARY_PROJECT_ID.equals(card.getProjectId())) {
+        if (card == null || card.getProjectId() != PUBLIC_LIBRARY_PROJECT_ID) {
             throw new BusinessException("卡片不存在");
         }
         assertOwner(card);
@@ -106,7 +106,7 @@ public class StyleCardService {
     @Transactional(rollbackFor = Exception.class)
     public void delete(Long id) {
         StyleCard card = cardMapper.selectById(id);
-        if (card == null || !PUBLIC_LIBRARY_PROJECT_ID.equals(card.getProjectId())) {
+        if (card == null || card.getProjectId() != PUBLIC_LIBRARY_PROJECT_ID) {
             throw new BusinessException("卡片不存在");
         }
         assertOwner(card);

@@ -59,7 +59,7 @@ public class PromptTemplateService {
     public PromptTemplateVO get(Long id, Long currentUserId) {
         PromptTemplate template = templateMapper.selectById(id);
         if (template == null
-                || !PUBLIC_LIBRARY_PROJECT_ID.equals(template.getProjectId())
+                || template.getProjectId() != PUBLIC_LIBRARY_PROJECT_ID
                 || template.getStatus() == null
                 || template.getStatus() != 1) {
             throw new BusinessException("模板不存在");
@@ -95,7 +95,7 @@ public class PromptTemplateService {
     @Transactional(rollbackFor = Exception.class)
     public PromptTemplateVO update(Long id, PromptTemplateSaveDTO dto) {
         PromptTemplate template = templateMapper.selectById(id);
-        if (template == null || !PUBLIC_LIBRARY_PROJECT_ID.equals(template.getProjectId())) {
+        if (template == null || template.getProjectId() != PUBLIC_LIBRARY_PROJECT_ID) {
             throw new BusinessException("模板不存在");
         }
         assertOwner(template);
@@ -113,7 +113,7 @@ public class PromptTemplateService {
     @Transactional(rollbackFor = Exception.class)
     public void delete(Long id) {
         PromptTemplate template = templateMapper.selectById(id);
-        if (template == null || !PUBLIC_LIBRARY_PROJECT_ID.equals(template.getProjectId())) {
+        if (template == null || template.getProjectId() != PUBLIC_LIBRARY_PROJECT_ID) {
             throw new BusinessException("模板不存在");
         }
         assertOwner(template);
