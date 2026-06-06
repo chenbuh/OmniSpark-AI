@@ -115,10 +115,10 @@
             <span class="size-pill">{{ asset.fileSize }}</span>
           </div>
           <p class="prompt-snippet">
-            {{ asset.prompt || '该资产暂无提示词记录，可继续作为素材参考使用。' }}
+            {{ getAssetDisplayPrompt(asset, getCachedAssetTask(asset)) || '该资产暂无提示词记录，可继续作为素材参考使用。' }}
           </p>
           <div class="meta-row">
-            <span>{{ asset.modelName || '未记录模型' }}</span>
+            <span>{{ getAssetDisplayModelName(asset, getCachedAssetTask(asset)) || '未记录模型' }}</span>
             <span>{{ formatCompactDate(asset.createdAt) }}</span>
           </div>
         </div>
@@ -221,7 +221,7 @@
             </div>
             <div class="info-item">
               <span class="info-label">所属模型</span>
-              <span class="info-val">{{ selectedAsset.modelName || '未记录' }}</span>
+              <span class="info-val">{{ selectedAssetDisplayModelName || '未记录' }}</span>
             </div>
             <div class="info-item">
               <span class="info-label">收藏状态</span>
@@ -229,7 +229,7 @@
             </div>
             <div class="info-item prompt-item">
               <span class="info-label">提示词 Prompt</span>
-              <div class="prompt-text-block">{{ selectedAsset.prompt || '该资产暂无提示词记录。' }}</div>
+              <div class="prompt-text-block">{{ selectedAssetDisplayPrompt || '该资产暂无提示词记录。' }}</div>
             </div>
           </div>
 
@@ -333,7 +333,7 @@ import { taskApi } from '@/api/tasks'
 import { subtitleApi, type SubtitleVO } from '@/api/subtitles'
 import { useAssetStore, type Asset, resolveAssetUrl } from '@/store/asset'
 import { useProjectStore } from '@/store/project'
-import { useTaskStore } from '@/store/task'
+import { useTaskStore, type GenerationTask } from '@/store/task'
 import { buildGenerationReuseLocation } from '@/utils/generationReuse'
 import {
   Library,
@@ -380,10 +380,12 @@ const sortBy = ref<SortKey>('latest')
 const assetTab = ref<'own' | 'shared'>('own')
 const showDetailDrawer = ref(false)
 const selectedAsset = ref<Asset | null>(null)
+const selectedAssetTask = ref<GenerationTask | null>(null)
 const uploadInput = ref<HTMLInputElement | null>(null)
 let refreshTimer: number | null = null
 let searchTimer: number | null = null
 let latestLoadToken = 0
+let latestSelectedAssetTaskToken = 0
 
 const assetStats = ref<AssetStatsState>({
   total: null,
@@ -426,10 +428,10 @@ const versionHistorySubtitle = computed(() => {
   if (!asset) {
     return '按当前项目中的同提示词与同模型名称归并'
   }
-  if (!String(asset.prompt || '').trim()) {
+  if (!selectedAssetDisplayPrompt.value) {
     return '当前资产没有提示词记录，暂时无法匹配版本历史'
   }
-  if (!String(asset.modelName || '').trim()) {
+  if (!selectedAssetDisplayModelName.value) {
     return '按当前项目中的同提示词归并，仅匹配未记录模型名的结果'
   }
   return '按当前项目中的同提示词与同模型名称归并'
@@ -487,6 +489,11 @@ const subtitleRows = computed(() => {
     ...item,
     voiceUrl: resolveAssetUrl(item.voiceUrl)
   }))
+})
+
+const taskLookup = computed(() => {
+  const entries = taskStore.tasks.map(task => [task.id, task] as const)
+  return new Map<number, GenerationTask>(entries)
 })
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
@@ -579,6 +586,43 @@ function requireSubtitleResult(value: unknown, action: 'generate' | 'update' | '
 function formatSummaryValue(value: number | null) {
   return value == null ? '-' : value
 }
+
+function normalizeTaskField(value: unknown) {
+  return typeof value === 'string' ? value.trim() : ''
+}
+
+function tryParseTaskRequestJson(task?: { requestJson?: string } | null) {
+  if (!task?.requestJson) {
+    return null
+  }
+  try {
+    const parsed = JSON.parse(task.requestJson)
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+      ? parsed as Record<string, unknown>
+      : null
+  } catch {
+    return null
+  }
+}
+
+function getCachedAssetTask(asset?: Asset | null) {
+  if (!asset?.taskId) {
+    return null
+  }
+  const cachedTask = taskLookup.value.get(asset.taskId) || null
+  return cachedTask?.projectId === asset.projectId ? cachedTask : null
+}
+
+function getAssetDisplayPrompt(asset?: Asset | null, task?: GenerationTask | null) {
+  return normalizeTaskField(tryParseTaskRequestJson(task)?.prompt) || asset?.prompt || ''
+}
+
+function getAssetDisplayModelName(asset?: Asset | null, task?: GenerationTask | null) {
+  return normalizeTaskField(tryParseTaskRequestJson(task)?.modelName) || task?.modelName || asset?.modelName || ''
+}
+
+const selectedAssetDisplayPrompt = computed(() => getAssetDisplayPrompt(selectedAsset.value, selectedAssetTask.value))
+const selectedAssetDisplayModelName = computed(() => getAssetDisplayModelName(selectedAsset.value, selectedAssetTask.value))
 
 const currentAssetType = computed(() => {
   return activeTab.value === 'all' || activeTab.value === 'favorite' ? undefined : activeTab.value
@@ -812,6 +856,16 @@ async function openAssetFromRoute() {
   } catch {}
 }
 
+async function warmCurrentProjectTasks() {
+  const activeProjectId = projectStore.activeProjectId
+  if (!activeProjectId || assetTab.value !== 'own') {
+    return
+  }
+  try {
+    await taskStore.refresh({ projectId: activeProjectId })
+  } catch {}
+}
+
 async function loadVersionHistory() {
   if (!selectedAsset.value?.id) {
     versionHistory.value = []
@@ -926,13 +980,14 @@ function handleOpenOriginal(asset: Asset) {
 }
 
 async function handleCopyPrompt() {
-  if (!selectedAsset.value?.prompt) {
+  const prompt = selectedAssetDisplayPrompt.value
+  if (!prompt) {
     message.warning('该资产暂无提示词可复制')
     return
   }
   try {
-    await navigator.clipboard.writeText(selectedAsset.value.prompt)
-    message.success('提示词已复制到剪贴板')
+    await navigator.clipboard.writeText(prompt)
+    message.success(normalizeTaskField(tryParseTaskRequestJson(selectedAssetTask.value)?.prompt) ? '真实提示词已复制到剪贴板' : '已复制资产当前已记录的提示词')
   } catch {
     message.error('复制失败，请稍后再试')
   }
@@ -942,22 +997,46 @@ async function loadAssetTask(asset: Asset) {
   if (!asset.taskId) {
     return null
   }
-  const cachedTask = taskStore.tasks.find(task => task.id === asset.taskId) || null
+  const cachedTask = getCachedAssetTask(asset)
   if (cachedTask) {
-    return cachedTask.projectId === asset.projectId ? cachedTask : null
+    return cachedTask
   }
   const response = await taskApi.getTask(asset.taskId)
-  const task = taskStore.normalizeTask(getResponseData(response, '资产关联任务待确认'))
+  const task = taskStore.upsertTask(getResponseData(response, '资产关联任务待确认'))
   if (task.projectId !== asset.projectId) {
     throw new Error('资产关联任务待确认')
   }
   return task
 }
 
+async function syncSelectedAssetTask() {
+  const asset = selectedAsset.value
+  const loadToken = ++latestSelectedAssetTaskToken
+  if (!asset?.taskId) {
+    selectedAssetTask.value = null
+    return
+  }
+  const cachedTask = getCachedAssetTask(asset)
+  selectedAssetTask.value = cachedTask
+  try {
+    const linkedTask = await loadAssetTask(asset)
+    if (loadToken !== latestSelectedAssetTaskToken) {
+      return
+    }
+    selectedAssetTask.value = linkedTask
+  } catch {
+    if (loadToken === latestSelectedAssetTaskToken) {
+      selectedAssetTask.value = cachedTask
+    }
+  }
+}
+
 async function handleReusePrompt() {
   const asset = selectedAsset.value
   if (!asset) return
-  if (!asset.prompt && !asset.taskId) {
+  const fallbackPrompt = getAssetDisplayPrompt(asset, selectedAssetTask.value)
+  const fallbackModelName = getAssetDisplayModelName(asset, selectedAssetTask.value)
+  if (!fallbackPrompt && !asset.taskId) {
     message.warning('该资产暂无提示词，暂时无法复用')
     return
   }
@@ -968,12 +1047,12 @@ async function handleReusePrompt() {
     } else if (asset.assetType === 'video') {
       router.push({
         path: '/generate/video',
-        query: { prompt: asset.prompt || '', model: asset.modelName || '' }
+        query: { prompt: fallbackPrompt, model: fallbackModelName }
       })
     } else {
       router.push({
         path: '/generate/image',
-        query: { prompt: asset.prompt || '', model: asset.modelName || '' }
+        query: { prompt: fallbackPrompt, model: fallbackModelName }
       })
     }
     showDetailDrawer.value = false
@@ -989,6 +1068,8 @@ async function handleApplyAsReference() {
 
   try {
     const linkedTask = await loadAssetTask(asset)
+    const fallbackPrompt = getAssetDisplayPrompt(asset, linkedTask || selectedAssetTask.value)
+    const fallbackModelName = getAssetDisplayModelName(asset, linkedTask || selectedAssetTask.value)
     if (asset.assetType === 'video') {
       if (linkedTask) {
         router.push(buildGenerationReuseLocation(linkedTask))
@@ -997,8 +1078,8 @@ async function handleApplyAsReference() {
         router.push({
           path: '/generate/video',
           query: {
-            prompt: asset.prompt || '',
-            model: asset.modelName || ''
+            prompt: fallbackPrompt,
+            model: fallbackModelName
           }
         })
         message.success('已将该视频已记录的提示词与模型带入视频工作台')
@@ -1014,8 +1095,8 @@ async function handleApplyAsReference() {
           path: '/generate/image',
           query: {
             sourceAssetId: String(asset.id),
-            prompt: asset.prompt || '',
-            model: asset.modelName || ''
+            prompt: fallbackPrompt,
+            model: fallbackModelName
           }
         })
         message.success('已将该素材设为图生图参考图，并带入已记录的提示词与模型')
@@ -1054,7 +1135,7 @@ async function handleGenerateSubtitle() {
     const response = await subtitleApi.generate({
       assetId: selectedAsset.value.id,
       projectId: selectedAsset.value.projectId,
-      prompt: selectedAsset.value.prompt || undefined,
+      prompt: selectedAssetDisplayPrompt.value || undefined,
       language: 'zh'
     })
     const generated = requireSubtitleResult(getResponseData(response, '字幕识别结果待确认'), 'generate')
@@ -1184,11 +1265,15 @@ function normalizeOptionalText(value: unknown): string {
 }
 
 watch(selectedAsset, () => {
+  void syncSelectedAssetTask()
   loadSubtitles()
   loadVersionHistory()
 })
 
 watch([activeTab, assetTab, sortBy], () => {
+  if (assetTab.value === 'own') {
+    void warmCurrentProjectTasks()
+  }
   if (page.value !== 1) {
     page.value = 1
     return
@@ -1214,10 +1299,12 @@ watch([page, pageSize], () => {
 
 watch(() => projectStore.activeProjectId, () => {
   selectedAsset.value = null
+  selectedAssetTask.value = null
   showDetailDrawer.value = false
   subtitles.value = []
   versionHistory.value = []
   assetStatsLoadState.value = 'loading'
+  void warmCurrentProjectTasks()
   if (page.value !== 1) {
     page.value = 1
     return
@@ -1231,7 +1318,10 @@ watch(() => route.query.assetId, () => {
 
 onMounted(async () => {
   await loadAssetTypeItems()
-  await loadAssets()
+  await Promise.all([
+    loadAssets(),
+    warmCurrentProjectTasks()
+  ])
   // 自动刷新
   refreshTimer = window.setInterval(() => { if (document.visibilityState === 'visible') loadAssets() }, 30000)
 })
