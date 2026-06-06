@@ -382,7 +382,7 @@
           <!-- 历史大图列表 -->
           <div class="history-section" v-if="historyLoadState === 'ready' && taskHistory.length > 0">
             <div class="history-head">
-              <span class="history-label">本空间生成历史 ({{ taskHistory.length }})</span>
+              <span class="history-label">当前项目生成历史 ({{ taskHistory.length }})</span>
               <n-space>
                 <n-button size="tiny" quaternary @click="showHistoryModal = true">查看全部</n-button>
                 <n-button size="tiny" type="error" tertiary @click="handleBatchClear">清空</n-button>

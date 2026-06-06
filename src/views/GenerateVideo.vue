@@ -240,10 +240,10 @@
             <p>{{ emptyStateDescription }}</p>
           </div>
 
-          <!-- 本空间视频历史 -->
+          <!-- 当前项目视频历史 -->
           <div class="history-section" v-if="historyLoadState === 'ready' && taskHistory.length > 0">
             <div class="history-head">
-              <span class="history-label">本空间视频历史 ({{ taskHistory.length }})</span>
+              <span class="history-label">当前项目视频历史 ({{ taskHistory.length }})</span>
               <n-button size="tiny" type="error" tertiary @click="handleBatchClear">清空</n-button>
             </div>
             <n-scrollbar x-scrollable>
