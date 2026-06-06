@@ -22,7 +22,7 @@
         <n-card class="glass-card" :bordered="false">
           <template #header>
             <div class="card-header-row">
-              <span>我的工作流 ({{ workflowCountDisplay }})</span>
+              <span>当前项目工作流 ({{ workflowCountDisplay }})</span>
               <n-input
                 v-model:value="searchQuery"
                 clearable
