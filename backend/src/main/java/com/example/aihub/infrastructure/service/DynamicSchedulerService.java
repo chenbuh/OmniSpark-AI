@@ -8,6 +8,7 @@ import com.example.aihub.common.util.PagingUtil;
 import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.scheduling.support.CronExpression;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -31,8 +32,8 @@ public class DynamicSchedulerService {
 
     @PostConstruct
     public void init() {
-        // 每小时检查一次是否有需要执行的任务
-        executor.scheduleAtFixedRate(this::checkAndRun, 1, 1, TimeUnit.HOURS);
+        // 每分钟检查一次，由真实 Cron 表达式决定是否命中执行窗口
+        executor.scheduleAtFixedRate(this::checkAndRun, 1, 1, TimeUnit.MINUTES);
         log.info("Dynamic scheduler initialized");
     }
 
@@ -108,30 +109,25 @@ public class DynamicSchedulerService {
 
     private boolean shouldRun(ScheduledTask task) {
         String cron = task.getCron();
-        // 简化 cron 解析：支持 "0 0 3 * * ?" (每天3点), "0 0 * * * ?" (每小时)
-        if (cron == null) return false;
-        LocalDateTime now = LocalDateTime.now();
-        LocalDateTime lastRun = task.getLastRunAt();
-
-        if (lastRun == null) return true;
-
-        String[] parts = cron.trim().split("\\s+");
-        if (parts.length >= 3) {
-            String minute = parts[1]; // 分钟
-            String hour = parts[2];   // 小时
-
-            if ("0".equals(minute) && "*".equals(hour)) {
-                // 每小时整点
-                return lastRun.getHour() != now.getHour() || lastRun.getDayOfYear() != now.getDayOfYear();
-            }
-            if ("0".equals(minute)) {
-                try {
-                    int h = Integer.parseInt(hour);
-                    if (h == now.getHour() && lastRun.getDayOfYear() != now.getDayOfYear()) return true;
-                } catch (NumberFormatException ignored) {}
-            }
+        if (cron == null || cron.isBlank()) return false;
+        CronExpression cronExpression;
+        try {
+            cronExpression = CronExpression.parse(cron.trim());
+        } catch (IllegalArgumentException e) {
+            log.warn("Skipping invalid cron expression: id={}, name={}, cron={}", task.getId(), task.getName(), cron);
+            return false;
         }
-        return false;
+
+        LocalDateTime now = LocalDateTime.now();
+        LocalDateTime referenceTime = task.getLastRunAt();
+        if (referenceTime == null) {
+            referenceTime = task.getUpdatedAt() != null ? task.getUpdatedAt() : task.getCreatedAt();
+        }
+        if (referenceTime == null) {
+            referenceTime = now.minusMinutes(1);
+        }
+        LocalDateTime nextRun = cronExpression.next(referenceTime.minusSeconds(1));
+        return nextRun != null && !nextRun.isAfter(now);
     }
 
     private void executeTask(ScheduledTask task) {
@@ -167,6 +163,16 @@ public class DynamicSchedulerService {
         if (task == null) {
             throw new BusinessException("任务不能为空");
         }
+        String cron = task.getCron() == null ? "" : task.getCron().trim();
+        if (cron.isBlank()) {
+            throw new BusinessException("Cron 表达式不能为空");
+        }
+        try {
+            CronExpression.parse(cron);
+        } catch (IllegalArgumentException e) {
+            throw new BusinessException("Cron 表达式无效，请填写真实可执行的调度规则");
+        }
+        task.setCron(cron);
         String normalizedType = normalizeTaskType(task.getTaskType());
         if (!isSupportedTaskType(normalizedType)) {
             throw new BusinessException("当前仅支持真实可执行的“数据清理”任务类型");
