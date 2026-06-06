@@ -68,20 +68,20 @@ export const useTeamStore = defineStore('team', {
       this.currentMembers = normalizeMemberList(data, this.normalizeMember)
     },
     async refresh() {
-      const res = await teamApi.getTeams()
-      this.setTeams(res.data)
+      const response = await teamApi.getTeams()
+      this.setTeams(getResponseData(response, '团队数据待确认'))
       return this.teams
     },
     async refreshMembers(teamId: number) {
-      const res = await teamApi.getMembers(teamId)
-      this.setMembers(res.data)
+      const response = await teamApi.getMembers(teamId)
+      this.setMembers(getResponseData(response, '成员数据待确认'))
       if (this.currentMembers.some(item => item.teamId !== teamId)) {
         throw new Error('成员数据待确认')
       }
       return this.currentMembers
     },
     async createTeam(name: string, description?: string) {
-      const res = await teamApi.createTeam({ name, description })
+      const response = await teamApi.createTeam({ name, description })
       const beforeIds = new Set(
         this.teams
           .map(item => item.id)
@@ -93,7 +93,8 @@ export const useTeamStore = defineStore('team', {
       const hasExpectedFields = (team: Team) =>
         normalizeOptionalText(team.name) === expectedName
         && normalizeOptionalText(team.description) === expectedDescription
-      const responseId = parseRequiredTeamId((res as any).data?.id)
+      const responseData = getResponseData(response, '团队创建结果待确认')
+      const responseId = parseRequiredTeamId(isPlainObject(responseData) ? responseData.id : null)
       if (responseId !== null) {
         const createdById = this.teams.find(item => item.id === responseId)
         if (createdById && hasExpectedFields(createdById)) {
@@ -122,6 +123,17 @@ export const useTeamStore = defineStore('team', {
     }
   }
 })
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === 'object' && !Array.isArray(value)
+}
+
+function getResponseData(response: unknown, errorMessage: string) {
+  if (!isPlainObject(response) || !('data' in response)) {
+    throw new Error(errorMessage)
+  }
+  return response.data
+}
 
 function normalizeTeamList(value: unknown, normalizeTeam: (team: unknown) => Team): Team[] {
   if (!Array.isArray(value)) {

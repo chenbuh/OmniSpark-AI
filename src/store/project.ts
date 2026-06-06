@@ -52,8 +52,8 @@ export const useProjectStore = defineStore('project', {
     async refresh() {
       this.loadState = 'loading'
       try {
-        const res = await projectApi.getProjects()
-        this.setProjects(res.data)
+        const response = await projectApi.getProjects()
+        this.setProjects(getResponseData(response, '项目数据待确认'))
         this.loadState = 'ready'
         return this.projects
       } catch (error) {
@@ -66,9 +66,10 @@ export const useProjectStore = defineStore('project', {
     },
     async addProject(name: string, description: string) {
       const previousProjectIds = new Set(this.projects.map(item => item.id))
-      const res = await projectApi.createProject({ name, description })
+      const response = await projectApi.createProject({ name, description })
       await this.refresh()
-      const createdId = parseRequiredProjectId(res.data?.id)
+      const responseData = getResponseData(response, '项目创建结果待确认')
+      const createdId = parseRequiredProjectId(isPlainObject(responseData) ? responseData.id : null)
       const expectedName = normalizeOptionalText(name)
       const expectedDescription = normalizeOptionalText(description)
       const hasExpectedFields = (project: Project) =>
@@ -123,6 +124,13 @@ export const useProjectStore = defineStore('project', {
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === 'object' && !Array.isArray(value)
+}
+
+function getResponseData(response: unknown, errorMessage: string) {
+  if (!isPlainObject(response) || !('data' in response)) {
+    throw new Error(errorMessage)
+  }
+  return response.data
 }
 
 function normalizeProjectList(

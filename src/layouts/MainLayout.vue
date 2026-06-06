@@ -222,9 +222,10 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, h, reactive, watch, onMounted, onUnmounted } from 'vue'
+import { ref, computed, h, reactive, watch, onMounted, onUnmounted, type Component, type Ref } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
-import { useMessage, NIcon } from 'naive-ui'
+import { useMessage, NIcon, type MenuOption, type DropdownOption } from 'naive-ui'
+import type { Client as StompClient, IMessage, IStompSocket } from '@stomp/stompjs'
 import { authApi } from '@/api/auth'
 import { useUserStore } from '@/store/user'
 import { useProjectStore } from '@/store/project'
@@ -252,6 +253,14 @@ type NotificationItem = {
   relatedId: number | null
   createdAt: string
 }
+
+type ThemeWindow = Window & {
+  __toggleTheme?: () => void
+  __isDark?: Ref<boolean>
+  SockJS?: new (url: string) => IStompSocket
+}
+
+type MaintenanceEvent = CustomEvent<string>
 
 const router = useRouter()
 const route = useRoute()
@@ -652,12 +661,14 @@ const projectSelectorStatusText = computed(() => {
 })
 
 // 侧边栏菜单配置
-const renderIcon = (icon: any) => {
+const getThemeWindow = (): ThemeWindow => window as ThemeWindow
+
+const renderIcon = (icon: Component) => {
   return () => h(NIcon, null, { default: () => h(icon) })
 }
 
-const menuOptions = computed(() => {
-  const items: any[] = [
+const menuOptions = computed<MenuOption[]>(() => {
+  const items: MenuOption[] = [
     { label: '控制台', key: 'dashboard', icon: renderIcon(LayoutDashboard) },
     { label: '文生/图生图', key: 'generate-image', icon: renderIcon(Image) },
     { label: '生视频中心', key: 'generate-video', icon: renderIcon(Video) },
@@ -682,8 +693,8 @@ const menuOptions = computed(() => {
 })
 
 // 用户下拉菜单
-const userDropdownOptions = computed(() => [
-  { label: (window as any).__isDark?.value ? '☀️ 亮色模式' : '🌙 暗黑模式', key: 'toggle-theme' },
+const userDropdownOptions = computed<DropdownOption[]>(() => [
+  { label: getThemeWindow().__isDark?.value ? '☀️ 亮色模式' : '🌙 暗黑模式', key: 'toggle-theme' },
   { label: '系统设置', key: 'settings' },
   { label: '退出登录', key: 'logout' }
 ])
@@ -729,7 +740,7 @@ const handleAddProject = async () => {
   }
   try {
     const createdProject = await projectStore.addProject(addProjectForm.name, addProjectForm.description)
-    const createdId = Number((createdProject as any)?.id ?? projectStore.activeProjectId)
+    const createdId = Number(createdProject.id ?? projectStore.activeProjectId)
     if (!Number.isFinite(createdId) || createdId <= 0 || !projectStore.projects.some(project => project.id === createdId)) {
       throw new Error('项目创建结果待确认')
     }
@@ -985,7 +996,7 @@ const handleExportProject = async () => {
 // ===== 通知系统 =====
 const notifications = ref<NotificationItem[] | null>(null)
 const unreadCount = ref<number | null>(null)
-let stompClient: any = null
+let stompClient: StompClient | null = null
 let notificationPollTimer: ReturnType<typeof setInterval> | null = null
 const NOTIFICATION_HEADERS = { 'X-No-Cache': '1' }
 let notificationErrorNotified = false
@@ -1031,7 +1042,7 @@ const connectWebSocket = async () => {
   const userId = userStore.userInfo?.id
   if (!userId) return
   try {
-    const SockJS = (window as any).SockJS
+    const SockJS = getThemeWindow().SockJS
     if (!SockJS) return
     const StompJs = await import('@stomp/stompjs')
     const socket = new SockJS(new URL('/ws', API_BASE_URL).toString())
@@ -1039,7 +1050,7 @@ const connectWebSocket = async () => {
       webSocketFactory: () => socket,
       reconnectDelay: 5000,
       onConnect: () => {
-        stompClient?.subscribe(`/topic/notifications/${userId}`, (msg: any) => {
+        stompClient?.subscribe(`/topic/notifications/${userId}`, (msg: IMessage) => {
           try {
             const notif = normalizeNotificationItem(JSON.parse(msg.body))
             if (notifications.value === null) {
@@ -1049,7 +1060,7 @@ const connectWebSocket = async () => {
               notif,
               ...notifications.value.filter((item) => Number(item.id) !== notif.id)
             ].slice(0, 20)
-            if (normalizeNotificationReadFlag(notif.isRead) !== true) {
+            if (!notif.isRead) {
               unreadCount.value = (unreadCount.value ?? 0) + 1
             }
           } catch {
@@ -1099,11 +1110,16 @@ watch(() => userStore.isLoggedIn, (val) => {
 })
 
 // 监听维护通知
+const handleMaintenanceNotice = (event: Event) => {
+  const maintenanceEvent = event as MaintenanceEvent
+  const msg = typeof maintenanceEvent.detail === 'string' && maintenanceEvent.detail.trim()
+    ? maintenanceEvent.detail
+    : '系统维护中'
+  message.warning(msg, { duration: 0, closable: true })
+}
+
 onMounted(() => {
-  window.addEventListener('notify-maintenance', (e: Event) => {
-    const msg = (e as CustomEvent).detail || '系统维护中'
-    message.warning(msg, { duration: 0, closable: true })
-  })
+  window.addEventListener('notify-maintenance', handleMaintenanceNotice as EventListener)
   if (userStore.isLoggedIn) {
     void loadNotifications()
     void connectWebSocket()
@@ -1112,6 +1128,7 @@ onMounted(() => {
 })
 
 onUnmounted(() => {
+  window.removeEventListener('notify-maintenance', handleMaintenanceNotice as EventListener)
   stopNotificationRealtime()
 })
 
@@ -1165,7 +1182,7 @@ const handleMarkAllRead = async () => {
 // 头像下拉选择
 const handleUserDropdownSelect = async (key: string) => {
   if (key === 'toggle-theme') {
-    ;(window as any).__toggleTheme?.()
+    getThemeWindow().__toggleTheme?.()
     return
   }
   if (key === 'logout') {
