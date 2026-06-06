@@ -11,7 +11,7 @@
         <n-card class="glass-card" :bordered="false">
           <template #header>
             <div class="card-header-row">
-              <span>我的团队 ({{ teamsCountDisplay }})</span>
+              <span>我加入的团队 ({{ teamsCountDisplay }})</span>
               <n-button type="primary" size="small" @click="showCreateModal = true">
                 <template #icon><Plus /></template>新建团队
               </n-button>
