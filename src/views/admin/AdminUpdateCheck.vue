@@ -115,39 +115,41 @@ import { useMessage } from 'naive-ui'
 import { RefreshCw } from 'lucide-vue-next'
 import request from '@/api/request'
 
+type UpdateSourceType = 'release' | 'tag' | 'commit' | 'unknown'
+
 interface VersionInfo {
-  currentVersion?: string
-  buildTime?: string
-  currentBranch?: string
-  currentCommitSha?: string
-  currentCommitShortSha?: string
-  serverTime?: string
-  javaVersion?: string
-  osName?: string
-  osArch?: string
-  updateSource?: string
-  defaultBranch?: string
-  repositoryUrl?: string
+  currentVersion: string
+  buildTime: string
+  currentBranch: string
+  currentCommitSha: string
+  currentCommitShortSha: string
+  serverTime: string
+  javaVersion: string
+  osName: string
+  osArch: string
+  updateSource: string
+  defaultBranch: string
+  repositoryUrl: string
 }
 
 interface UpdateCheckInfo {
-  currentVersion?: string
-  currentBranch?: string
-  currentCommitSha?: string
-  currentCommitShortSha?: string
-  latestVersion?: string
-  sourceType?: string
-  sourceLabel?: string
-  checkTime?: string
-  releasePublishedAt?: string
-  latestCommitShortSha?: string
-  latestCommitMessage?: string
-  hasUpdate?: boolean
-  releaseUrl?: string
-  repositoryUrl?: string
-  releaseNotes?: string
-  downloadUrl?: string
-  error?: string
+  currentVersion: string
+  currentBranch: string
+  currentCommitSha: string
+  currentCommitShortSha: string
+  latestVersion: string
+  sourceType: UpdateSourceType
+  sourceLabel: string
+  checkTime: string
+  releasePublishedAt: string
+  latestCommitShortSha: string
+  latestCommitMessage: string
+  hasUpdate: boolean
+  releaseUrl: string
+  repositoryUrl: string
+  releaseNotes: string
+  downloadUrl: string
+  error: string
 }
 
 const message = useMessage()
@@ -157,11 +159,34 @@ const checking = ref(false)
 const versionLoadState = ref<'loading' | 'ready' | 'error'>('loading')
 const updateCheckLoadState = ref<'loading' | 'ready' | 'error'>('loading')
 
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === 'object' && !Array.isArray(value)
+}
+
+function getResponseData(response: unknown, errorMessage: string) {
+  if (!isPlainObject(response) || !('data' in response)) {
+    throw new Error(errorMessage)
+  }
+  return response.data
+}
+
+function normalizeOptionalText(value: unknown) {
+  return typeof value === 'string' ? value.trim() : ''
+}
+
+function normalizeSourceType(value: unknown): UpdateSourceType {
+  const normalized = normalizeOptionalText(value)
+  if (normalized === 'release' || normalized === 'tag' || normalized === 'commit' || normalized === 'unknown') {
+    return normalized
+  }
+  throw new Error('更新信息待确认')
+}
+
 async function loadVersion() {
   versionLoadState.value = 'loading'
   try {
-    const res = await request.get<VersionInfo>('/api/admin/version')
-    version.value = normalizeVersionInfo((res as any).data)
+    const response = await request.get<unknown>('/api/admin/version')
+    version.value = normalizeVersionInfo(getResponseData(response, '当前版本信息待确认'))
     versionLoadState.value = 'ready'
   } catch (err: any) {
     version.value = null
@@ -174,10 +199,10 @@ async function checkUpdate() {
   checking.value = true
   updateCheckLoadState.value = 'loading'
   try {
-    const res = await request.get<UpdateCheckInfo>('/api/admin/version/check', {
+    const response = await request.get<unknown>('/api/admin/version/check', {
       params: { refresh: true }
     })
-    updateCheck.value = normalizeUpdateCheckInfo((res as any).data)
+    updateCheck.value = normalizeUpdateCheckInfo(getResponseData(response, '更新信息待确认'))
     updateCheckLoadState.value = 'ready'
   } catch (err: any) {
     updateCheck.value = null
@@ -204,31 +229,30 @@ function normalizeVersionInfo(payload: unknown): VersionInfo {
   if (!isPlainObject(payload)) {
     throw new Error('当前版本信息待确认')
   }
-  if (
-    typeof payload.currentVersion !== 'string'
-    || typeof payload.buildTime !== 'string'
-    || typeof payload.serverTime !== 'string'
-    || typeof payload.javaVersion !== 'string'
-    || typeof payload.osName !== 'string'
-    || typeof payload.osArch !== 'string'
-    || typeof payload.updateSource !== 'string'
-  ) {
+  const currentVersion = normalizeOptionalText(payload.currentVersion)
+  const buildTime = normalizeOptionalText(payload.buildTime)
+  const serverTime = normalizeOptionalText(payload.serverTime)
+  const javaVersion = normalizeOptionalText(payload.javaVersion)
+  const osName = normalizeOptionalText(payload.osName)
+  const osArch = normalizeOptionalText(payload.osArch)
+  const updateSource = normalizeOptionalText(payload.updateSource)
+  if (!currentVersion || !buildTime || !serverTime || !javaVersion || !osName || !osArch || !updateSource) {
     throw new Error('当前版本信息待确认')
   }
 
   return {
-    currentVersion: payload.currentVersion,
-    buildTime: payload.buildTime,
-    currentBranch: typeof payload.currentBranch === 'string' ? payload.currentBranch : '',
-    currentCommitSha: typeof payload.currentCommitSha === 'string' ? payload.currentCommitSha : '',
-    currentCommitShortSha: typeof payload.currentCommitShortSha === 'string' ? payload.currentCommitShortSha : '',
-    serverTime: payload.serverTime,
-    javaVersion: payload.javaVersion,
-    osName: payload.osName,
-    osArch: payload.osArch,
-    updateSource: payload.updateSource,
-    defaultBranch: typeof payload.defaultBranch === 'string' ? payload.defaultBranch : '',
-    repositoryUrl: typeof payload.repositoryUrl === 'string' ? payload.repositoryUrl : ''
+    currentVersion,
+    buildTime,
+    currentBranch: normalizeOptionalText(payload.currentBranch),
+    currentCommitSha: normalizeOptionalText(payload.currentCommitSha),
+    currentCommitShortSha: normalizeOptionalText(payload.currentCommitShortSha),
+    serverTime,
+    javaVersion,
+    osName,
+    osArch,
+    updateSource,
+    defaultBranch: normalizeOptionalText(payload.defaultBranch),
+    repositoryUrl: normalizeOptionalText(payload.repositoryUrl)
   }
 }
 
@@ -236,38 +260,33 @@ function normalizeUpdateCheckInfo(payload: unknown): UpdateCheckInfo {
   if (!isPlainObject(payload)) {
     throw new Error('更新信息待确认')
   }
-  if (
-    typeof payload.currentVersion !== 'string'
-    || typeof payload.sourceType !== 'string'
-    || typeof payload.sourceLabel !== 'string'
-    || typeof payload.checkTime !== 'string'
-  ) {
+  const currentVersion = normalizeOptionalText(payload.currentVersion)
+  const sourceType = normalizeSourceType(payload.sourceType)
+  const sourceLabel = normalizeOptionalText(payload.sourceLabel)
+  const checkTime = normalizeOptionalText(payload.checkTime)
+  if (!currentVersion || !sourceLabel || !checkTime) {
     throw new Error('更新信息待确认')
   }
 
   return {
-    currentVersion: payload.currentVersion,
-    currentBranch: typeof payload.currentBranch === 'string' ? payload.currentBranch : '',
-    currentCommitSha: typeof payload.currentCommitSha === 'string' ? payload.currentCommitSha : '',
-    currentCommitShortSha: typeof payload.currentCommitShortSha === 'string' ? payload.currentCommitShortSha : '',
-    latestVersion: typeof payload.latestVersion === 'string' ? payload.latestVersion : '',
-    sourceType: payload.sourceType,
-    sourceLabel: payload.sourceLabel,
-    checkTime: payload.checkTime,
-    releasePublishedAt: typeof payload.releasePublishedAt === 'string' ? payload.releasePublishedAt : '',
-    latestCommitShortSha: typeof payload.latestCommitShortSha === 'string' ? payload.latestCommitShortSha : '',
-    latestCommitMessage: typeof payload.latestCommitMessage === 'string' ? payload.latestCommitMessage : '',
+    currentVersion,
+    currentBranch: normalizeOptionalText(payload.currentBranch),
+    currentCommitSha: normalizeOptionalText(payload.currentCommitSha),
+    currentCommitShortSha: normalizeOptionalText(payload.currentCommitShortSha),
+    latestVersion: normalizeOptionalText(payload.latestVersion),
+    sourceType,
+    sourceLabel,
+    checkTime,
+    releasePublishedAt: normalizeOptionalText(payload.releasePublishedAt),
+    latestCommitShortSha: normalizeOptionalText(payload.latestCommitShortSha),
+    latestCommitMessage: normalizeOptionalText(payload.latestCommitMessage),
     hasUpdate: typeof payload.hasUpdate === 'boolean' ? payload.hasUpdate : false,
-    releaseUrl: typeof payload.releaseUrl === 'string' ? payload.releaseUrl : '',
-    repositoryUrl: typeof payload.repositoryUrl === 'string' ? payload.repositoryUrl : '',
-    releaseNotes: typeof payload.releaseNotes === 'string' ? payload.releaseNotes : '',
-    downloadUrl: typeof payload.downloadUrl === 'string' ? payload.downloadUrl : '',
-    error: typeof payload.error === 'string' ? payload.error : ''
+    releaseUrl: normalizeOptionalText(payload.releaseUrl),
+    repositoryUrl: normalizeOptionalText(payload.repositoryUrl),
+    releaseNotes: normalizeOptionalText(payload.releaseNotes),
+    downloadUrl: normalizeOptionalText(payload.downloadUrl),
+    error: normalizeOptionalText(payload.error)
   }
-}
-
-function isPlainObject(value: unknown): value is Record<string, any> {
-  return !!value && typeof value === 'object' && !Array.isArray(value)
 }
 
 onMounted(() => {

@@ -289,14 +289,29 @@ const currentProjectName = computed(() => {
   return p?.name || ''
 })
 
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === 'object' && !Array.isArray(value)
+}
+
+function getResponseData(response: unknown, errorMessage: string) {
+  if (!isPlainObject(response) || !('data' in response)) {
+    throw new Error(errorMessage)
+  }
+  return response.data
+}
+
+function normalizeOptionalText(value: unknown) {
+  return typeof value === 'string' ? value.trim() : ''
+}
+
 function requireProjectShare(value: unknown) {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+  if (!isPlainObject(value)) {
     throw new Error('共享结果待确认')
   }
-  const id = Number((value as any).id)
-  const projectId = Number((value as any).projectId)
-  const teamId = Number((value as any).teamId)
-  const permission = typeof (value as any).permission === 'string' ? (value as any).permission.trim() : ''
+  const id = Number(value.id)
+  const projectId = Number(value.projectId)
+  const teamId = Number(value.teamId)
+  const permission = normalizeOptionalText(value.permission)
   if (
     !Number.isFinite(id) || id <= 0
     || !Number.isFinite(projectId) || projectId <= 0
@@ -315,14 +330,13 @@ function requireProjectShare(value: unknown) {
 }
 
 function normalizeProjectShareRecord(value: unknown, expectedProjectId?: number): ProjectShare {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+  if (!isPlainObject(value)) {
     throw new Error('共享列表待确认')
   }
-  const item = value as Record<string, unknown>
-  const base = requireProjectShare(item)
-  const projectName = typeof item.projectName === 'string' ? item.projectName.trim() : ''
-  const teamName = typeof item.teamName === 'string' ? item.teamName.trim() : ''
-  const createdAt = typeof item.createdAt === 'string' ? item.createdAt.trim() : ''
+  const base = requireProjectShare(value)
+  const projectName = normalizeOptionalText(value.projectName)
+  const teamName = normalizeOptionalText(value.teamName)
+  const createdAt = normalizeOptionalText(value.createdAt)
   if (typeof expectedProjectId === 'number' && base.projectId !== expectedProjectId) {
     throw new Error('共享列表待确认')
   }
@@ -374,41 +388,31 @@ function requireImportedProjectId(value: unknown) {
 }
 
 function requireExportPayload(value: unknown) {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+  if (!isPlainObject(value)) {
     throw new Error('项目导出结果待确认')
   }
-  const payload = value as Record<string, any>
-  const version = typeof payload.version === 'string' ? payload.version.trim() : ''
-  const exportedAt = typeof payload.exportedAt === 'string' ? payload.exportedAt.trim() : ''
-  const project = payload.project
-  if (!version || !exportedAt || !project || typeof project !== 'object' || Array.isArray(project)) {
+  const version = normalizeOptionalText(value.version)
+  const exportedAt = normalizeOptionalText(value.exportedAt)
+  const project = value.project
+  if (!version || !exportedAt || !isPlainObject(project)) {
     throw new Error('项目导出结果待确认')
   }
-  const projectId = Number((project as Record<string, any>).id)
-  const projectName = typeof (project as Record<string, any>).name === 'string'
-    ? (project as Record<string, any>).name.trim()
-    : ''
-  const projectDescription = typeof (project as Record<string, any>).description === 'string'
-    ? (project as Record<string, any>).description.trim()
-    : ''
+  const projectId = Number(project.id)
+  const projectName = normalizeOptionalText(project.name)
+  const projectDescription = normalizeOptionalText(project.description)
   if (!Number.isFinite(projectId) || projectId <= 0 || !projectName) {
     throw new Error('项目导出结果待确认')
   }
-  const providers = requireObjectArray(payload.providers, '项目导出结果待确认')
-  const promptTemplates = requireObjectArray(payload.promptTemplates, '项目导出结果待确认')
-  const styleCards = requireObjectArray(payload.styleCards, '项目导出结果待确认')
-  const workflows = requireObjectArray(payload.workflows, '项目导出结果待确认')
-  const assets = requireObjectArray(payload.assets, '项目导出结果待确认')
-  if (!providers || !promptTemplates || !styleCards || !workflows || !assets) {
-    throw new Error('项目导出结果待确认')
-  }
+  const providers = requireObjectArray(value.providers, '项目导出结果待确认')
+  const promptTemplates = requireObjectArray(value.promptTemplates, '项目导出结果待确认')
+  const styleCards = requireObjectArray(value.styleCards, '项目导出结果待确认')
+  const workflows = requireObjectArray(value.workflows, '项目导出结果待确认')
+  const assets = requireObjectArray(value.assets, '项目导出结果待确认')
   return {
-    ...payload,
     version,
     exportedAt,
-    canaryToken: typeof payload.canaryToken === 'string' ? payload.canaryToken : '',
+    canaryToken: typeof value.canaryToken === 'string' ? value.canaryToken : '',
     project: {
-      ...(project as Record<string, any>),
       id: projectId,
       name: projectName,
       description: projectDescription
@@ -454,10 +458,10 @@ function requireImportedProjectRecord(
 }
 
 function requirePageTotal(value: unknown, errorMessage: string) {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+  if (!isPlainObject(value)) {
     throw new Error(errorMessage)
   }
-  const total = Number((value as Record<string, unknown>).total)
+  const total = Number(value.total)
   if (!Number.isFinite(total) || total < 0) {
     throw new Error(errorMessage)
   }
@@ -469,10 +473,10 @@ function requireObjectArray(value: unknown, errorMessage: string) {
     throw new Error(errorMessage)
   }
   return value.map((item: unknown) => {
-    if (!item || typeof item !== 'object' || Array.isArray(item)) {
+    if (!isPlainObject(item)) {
       throw new Error(errorMessage)
     }
-    return item as Record<string, unknown>
+    return item
   })
 }
 
@@ -511,10 +515,10 @@ async function verifyImportedProjectData(
     styleCardApi.list({ projectId, page: 1, pageSize: 1 }),
     workflowApi.list(projectId)
   ])
-  const providers = requirePositiveIdList((providersRes as any).data, '项目导入结果待确认')
-  const templateTotal = requirePageTotal((templatesRes as any).data, '项目导入结果待确认')
-  const styleCardTotal = requirePageTotal((styleCardsRes as any).data, '项目导入结果待确认')
-  const workflows = requirePositiveIdList((workflowsRes as any).data, '项目导入结果待确认')
+  const providers = requirePositiveIdList(getResponseData(providersRes, '项目导入结果待确认'), '项目导入结果待确认')
+  const templateTotal = requirePageTotal(getResponseData(templatesRes, '项目导入结果待确认'), '项目导入结果待确认')
+  const styleCardTotal = requirePageTotal(getResponseData(styleCardsRes, '项目导入结果待确认'), '项目导入结果待确认')
+  const workflows = requirePositiveIdList(getResponseData(workflowsRes, '项目导入结果待确认'), '项目导入结果待确认')
   if (providers.length !== payload.providers.length) {
     throw new Error('项目导入结果待确认')
   }
@@ -530,18 +534,17 @@ async function verifyImportedProjectData(
   return importedProject
 }
 
-function normalizeNotificationItem(value: unknown) {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+function normalizeNotificationItem(value: unknown): NotificationItem {
+  if (!isPlainObject(value)) {
     throw new Error('通知数据待确认')
   }
-  const item = value as Record<string, any>
-  const id = Number(item.id)
-  const title = typeof item.title === 'string' ? item.title.trim() : ''
-  const content = typeof item.content === 'string' ? item.content.trim() : ''
-  const type = typeof item.type === 'string' ? item.type.trim() : ''
-  const isRead = normalizeNotificationReadFlag(item.isRead)
-  const relatedId = item.relatedId == null || item.relatedId === '' ? null : Number(item.relatedId)
-  const createdAt = typeof item.createdAt === 'string' ? item.createdAt.trim() : ''
+  const id = Number(value.id)
+  const title = normalizeOptionalText(value.title)
+  const content = normalizeOptionalText(value.content)
+  const type = normalizeOptionalText(value.type)
+  const isRead = normalizeNotificationReadFlag(value.isRead)
+  const relatedId = value.relatedId == null || value.relatedId === '' ? null : Number(value.relatedId)
+  const createdAt = normalizeOptionalText(value.createdAt)
   if (
     !Number.isFinite(id) || id <= 0
     || !title || !content || !type || isRead === null
@@ -551,7 +554,6 @@ function normalizeNotificationItem(value: unknown) {
     throw new Error('通知数据待确认')
   }
   return {
-    ...item,
     id,
     title,
     content,
@@ -562,7 +564,7 @@ function normalizeNotificationItem(value: unknown) {
   }
 }
 
-function normalizeNotificationList(value: unknown) {
+function normalizeNotificationList(value: unknown): NotificationItem[] {
   if (!Array.isArray(value)) {
     throw new Error('通知数据待确认')
   }
@@ -779,8 +781,8 @@ const loadShares = async () => {
   sharesLoadState.value = 'loading'
   try {
     const activeProjectId = projectStore.activeProjectId
-    const res = await projectShareApi.getShares(activeProjectId)
-    shares.value = normalizeProjectShareList((res as any).data, activeProjectId)
+    const response = await projectShareApi.getShares(activeProjectId)
+    shares.value = normalizeProjectShareList(getResponseData(response, '共享列表待确认'), activeProjectId)
     sharesLoadState.value = 'ready'
   } catch {
     shares.value = null
@@ -804,7 +806,7 @@ const handleAddShare = async () => {
       teamId: shareTeamId,
       permission: sharePermission
     })
-    const created = requireProjectShare((res as any).data)
+    const created = requireProjectShare(getResponseData(res, '共享结果待确认'))
     await Promise.all([loadTeamOptions(), loadShares()])
     const createdShare = shares.value?.find(share => Number(share.id) === created.id)
       || shares.value?.find(share =>
@@ -837,7 +839,7 @@ const handleUpdateShare = async (shareId: number, permission: string) => {
     const expectedTeamId = Number(currentShare?.teamId)
     const previousShareCount = shares.value?.length
     const res = await projectShareApi.updatePermission(shareId, permission)
-    requireProjectShare((res as any).data)
+    requireProjectShare(getResponseData(res, '共享权限待确认'))
     await Promise.all([loadTeamOptions(), loadShares()])
     const updatedShare = shares.value?.find(share => Number(share.id) === shareId)
     if (!updatedShare) {
@@ -905,14 +907,16 @@ const handleProjectAction = async (key: string) => {
     const input = document.createElement('input')
     input.type = 'file'
     input.accept = '.json'
-    input.onchange = async (e: any) => {
-        const file = e.target?.files?.[0]
+    input.onchange = async (event: Event) => {
+        const target = event.target
+        const file = target instanceof HTMLInputElement ? target.files?.[0] : undefined
         if (!file) return
         try {
           const text = await file.text()
           const data = requireImportPayload(JSON.parse(text))
-          const res = await request.post('/api/projects/import', data)
-          const importedProjectId = requireImportedProjectId((res as any).data?.projectId)
+          const response = await request.post<unknown>('/api/projects/import', data)
+          const responseData = getResponseData(response, '项目导入结果待确认')
+          const importedProjectId = requireImportedProjectId(isPlainObject(responseData) ? responseData.projectId : null)
           const importedProject = await verifyImportedProjectData(importedProjectId, data)
           projectStore.setActiveProject(importedProject.id)
           message.success('项目导入成功！')
@@ -953,8 +957,8 @@ const handleExportProject = async () => {
     return
   }
   try {
-    const res = await request.post(`/api/projects/${projectStore.activeProjectId}/export`)
-    const exportPayload = requireExportPayload((res as any).data)
+    const response = await request.post<unknown>(`/api/projects/${projectStore.activeProjectId}/export`)
+    const exportPayload = requireExportPayload(getResponseData(response, '项目导出结果待确认'))
     if (exportPayload.project.id !== projectStore.activeProjectId) {
       throw new Error('项目导出结果待确认')
     }
@@ -993,17 +997,17 @@ const hasUnreadNotifications = computed(() => (unreadCount.value ?? 0) > 0)
 const loadNotifications = async () => {
   try {
     const [unreadRes, allRes] = await Promise.all([
-      request.get('/api/notifications/unread', {
+      request.get<unknown>('/api/notifications/unread', {
         params: { limit: 50 },
         headers: NOTIFICATION_HEADERS
       }),
-      request.get('/api/notifications', {
+      request.get<unknown>('/api/notifications', {
         params: { limit: 20 },
         headers: NOTIFICATION_HEADERS
       })
     ])
-    const unreadItems = normalizeNotificationList((unreadRes as any).data)
-    const allItems = normalizeNotificationList((allRes as any).data)
+    const unreadItems = normalizeNotificationList(getResponseData(unreadRes, '通知数据待确认'))
+    const allItems = normalizeNotificationList(getResponseData(allRes, '通知数据待确认'))
     unreadCount.value = unreadItems.length
     notifications.value = allItems
     notificationErrorNotified = false
@@ -1043,7 +1047,7 @@ const connectWebSocket = async () => {
             }
             notifications.value = [
               notif,
-              ...notifications.value.filter((item: any) => Number(item.id) !== notif.id)
+              ...notifications.value.filter((item) => Number(item.id) !== notif.id)
             ].slice(0, 20)
             if (normalizeNotificationReadFlag(notif.isRead) !== true) {
               unreadCount.value = (unreadCount.value ?? 0) + 1
@@ -1111,12 +1115,12 @@ onUnmounted(() => {
   stopNotificationRealtime()
 })
 
-const handleMarkRead = async (n: any) => {
+const handleMarkRead = async (n: NotificationItem) => {
   if (normalizeNotificationReadFlag(n?.isRead) === true) return
   try {
     await request.post(`/api/notifications/${n.id}/read`, null, { headers: NOTIFICATION_HEADERS })
     await loadNotifications()
-    const confirmed = notifications.value?.find((item: any) => Number(item.id) === Number(n.id))
+    const confirmed = notifications.value?.find((item) => Number(item.id) === Number(n.id))
     if (!confirmed || normalizeNotificationReadFlag(confirmed.isRead) !== true) {
       throw new Error('通知已读结果待确认')
     }
@@ -1126,7 +1130,7 @@ const handleMarkRead = async (n: any) => {
 }
 
 // 点击通知查看详情
-const handleNotificationClick = async (n: any) => {
+const handleNotificationClick = async (n: NotificationItem) => {
   await handleMarkRead(n)
   // 根据通知类型跳转
   if (n.type === 'success' || n.type === 'error') {
@@ -1150,7 +1154,7 @@ const handleMarkAllRead = async () => {
     if (unreadCount.value !== 0) {
       throw new Error('通知全部已读结果待确认')
     }
-    if (notifications.value?.some((item: any) => normalizeNotificationReadFlag(item.isRead) !== true)) {
+    if (notifications.value?.some((item) => normalizeNotificationReadFlag(item.isRead) !== true)) {
       throw new Error('通知全部已读结果待确认')
     }
   } catch (err: any) {

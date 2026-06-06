@@ -138,7 +138,7 @@ interface AccessLogRecord {
   queryString: string
   statusCode: number
   durationMs: number
-  rateLimited: number
+  rateLimited: boolean
   riskReason: string
   createdAt: string
 }
@@ -177,8 +177,15 @@ const summaryTopIps = computed(() => summary.value?.topIps || [])
 const summaryTopPaths = computed(() => summary.value?.topPaths || [])
 const summaryStatusCodes = computed(() => summary.value?.statusCodes || [])
 
-function isPlainObject(value: unknown): value is Record<string, any> {
+function isPlainObject(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === 'object' && !Array.isArray(value)
+}
+
+function getResponseData(response: unknown, errorMessage: string) {
+  if (!isPlainObject(response) || !('data' in response)) {
+    throw new Error(errorMessage)
+  }
+  return response.data
 }
 
 function normalizeSummaryRows(value: unknown): AccessLogSummaryRow[] {
@@ -232,7 +239,6 @@ function normalizeAccessLogRecord(value: unknown): AccessLogRecord {
     throw new Error('访问日志数据待确认')
   }
   return {
-    ...value,
     id,
     userId,
     apiKeyId,
@@ -243,7 +249,7 @@ function normalizeAccessLogRecord(value: unknown): AccessLogRecord {
     queryString: normalizeOptionalText(value.queryString),
     statusCode,
     durationMs,
-    rateLimited,
+    rateLimited: rateLimited === 1,
     riskReason: normalizeOptionalText(value.riskReason),
     createdAt
   }
@@ -301,11 +307,11 @@ async function loadSummary() {
   summaryLoading.value = true
   summaryLoadState.value = 'loading'
   try {
-    const res = await request.get('/api/admin/access-logs/summary', {
+    const response = await request.get<unknown>('/api/admin/access-logs/summary', {
       params: { minutes: 60 },
       headers: NO_CACHE_HEADERS
     })
-    summary.value = requireAccessLogSummary((res as any).data)
+    summary.value = requireAccessLogSummary(getResponseData(response, '访问日志汇总待确认'))
     summaryLoadState.value = 'ready'
   } catch (err: any) {
     summary.value = null
@@ -319,12 +325,12 @@ async function loadSummary() {
 async function loadLogs() {
   loading.value = true
   try {
-    const params: Record<string, any> = { page: page.value, pageSize }
+    const params: Record<string, number | string> = { page: page.value, pageSize }
     Object.entries(filters).forEach(([key, value]) => {
       if (value !== null && value !== '') params[key] = value
     })
-    const res = await request.get('/api/admin/access-logs', { params, headers: NO_CACHE_HEADERS })
-    const data = requireAccessLogPage((res as any).data)
+    const response = await request.get<unknown>('/api/admin/access-logs', { params, headers: NO_CACHE_HEADERS })
+    const data = requireAccessLogPage(getResponseData(response, '访问日志数据待确认'))
     logs.value = data.records
     total.value = data.total
   } catch (err: any) {
