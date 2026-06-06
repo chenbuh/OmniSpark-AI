@@ -4,13 +4,11 @@ import cn.dev33.satoken.annotation.SaCheckLogin;
 import cn.dev33.satoken.annotation.SaCheckRole;
 import cn.dev33.satoken.stp.StpUtil;
 import com.example.aihub.common.result.ApiResult;
-import com.example.aihub.common.util.PagingUtil;
+import com.example.aihub.common.result.PageResult;
 import com.example.aihub.infrastructure.entity.Announcement;
 import com.example.aihub.infrastructure.service.AnnouncementService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.*;
-
-import java.util.List;
 
 @RestController
 @RequiredArgsConstructor
@@ -21,8 +19,14 @@ public class AdminAnnouncementController {
     private final AnnouncementService announcementService;
 
     @GetMapping
-    public ApiResult<List<Announcement>> list(@RequestParam(defaultValue = "100") int limit) {
-        return ApiResult.ok(announcementService.list(false, PagingUtil.clampLimit(limit, 100, 100)));
+    public ApiResult<PageResult<Announcement>> list(@RequestParam(defaultValue = "1") long page,
+                                                    @RequestParam(defaultValue = "20") long pageSize) {
+        return ApiResult.ok(announcementService.page(false, page, pageSize));
+    }
+
+    @GetMapping("/{id}")
+    public ApiResult<Announcement> get(@PathVariable Long id) {
+        return ApiResult.ok(announcementService.get(id));
     }
 
     @PostMapping

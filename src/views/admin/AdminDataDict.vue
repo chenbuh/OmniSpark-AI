@@ -27,6 +27,9 @@
           </div>
           <n-empty v-if="dicts !== null && dicts.length === 0" description="暂无字典" style="padding:20px" />
           <n-empty v-else-if="dicts === null" description="字典数据待确认，请稍后重试。" style="padding:20px" />
+          <div class="pager" v-if="(dictTotal ?? 0) > dictPageSize">
+            <n-pagination v-model:page="dictPage" :page-size="dictPageSize" :item-count="dictTotal" @update:page="loadDicts" />
+          </div>
         </n-card>
       </n-col>
 
@@ -72,6 +75,9 @@
               </tr>
             </tbody>
           </n-table>
+          <div class="pager" v-if="(itemTotal ?? 0) > itemPageSize">
+            <n-pagination v-model:page="itemPage" :page-size="itemPageSize" :item-count="itemTotal" @update:page="loadItems" />
+          </div>
         </n-card>
         <n-card class="glass-card" :bordered="false" v-else>
           <n-empty description="请从左侧选择一个字典" style="padding:40px" />
@@ -150,8 +156,14 @@ const editingItem = ref<number | null>(null)
 const itemForm = reactive({ code: '', name: '', sortOrder: 0 })
 const dictsLoadState = ref<'loading' | 'ready' | 'error'>('loading')
 const itemsLoadState = ref<'loading' | 'ready' | 'error'>('ready')
-const dictCountDisplay = computed(() => dicts.value === null ? '-' : dicts.value.length)
-const itemCountDisplay = computed(() => items.value === null ? '-' : items.value.length)
+const dictPage = ref(1)
+const dictPageSize = 10
+const dictTotal = ref<number | null>(null)
+const itemPage = ref(1)
+const itemPageSize = 10
+const itemTotal = ref<number | null>(null)
+const dictCountDisplay = computed(() => dictTotal.value == null ? '-' : dictTotal.value)
+const itemCountDisplay = computed(() => itemTotal.value == null ? '-' : itemTotal.value)
 const NO_CACHE_HEADERS = { 'X-No-Cache': '1' }
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
@@ -232,11 +244,15 @@ function normalizeDictRecord(value: unknown): DictRecord {
   }
 }
 
-function normalizeDictList(value: unknown): DictRecord[] {
-  if (!Array.isArray(value)) {
+function requireDictPage(value: unknown): { records: DictRecord[]; total: number } {
+  if (!isPlainObject(value) || !Array.isArray(value.records)) {
     throw new Error('字典数据待确认')
   }
-  const normalized = value.map((item: unknown) => normalizeDictRecord(item))
+  const totalValue = Number(value.total)
+  if (!Number.isFinite(totalValue) || totalValue < 0) {
+    throw new Error('字典数据待确认')
+  }
+  const normalized = value.records.map((item: unknown) => normalizeDictRecord(item))
   const ids = new Set<number>()
   const codes = new Set<string>()
   for (const item of normalized) {
@@ -246,7 +262,13 @@ function normalizeDictList(value: unknown): DictRecord[] {
     ids.add(item.id)
     codes.add(item.dictCode)
   }
-  return normalized
+  if (normalized.length > totalValue) {
+    throw new Error('字典数据待确认')
+  }
+  return {
+    records: normalized,
+    total: totalValue
+  }
 }
 
 function normalizeDictItemRecord(value: unknown): DictItemRecord {
@@ -266,11 +288,15 @@ function normalizeDictItemRecord(value: unknown): DictItemRecord {
   }
 }
 
-function normalizeDictItemList(value: unknown): DictItemRecord[] {
-  if (!Array.isArray(value)) {
+function requireDictItemPage(value: unknown): { records: DictItemRecord[]; total: number } {
+  if (!isPlainObject(value) || !Array.isArray(value.records)) {
     throw new Error('字典条目待确认')
   }
-  const normalized = value.map((item: unknown) => normalizeDictItemRecord(item))
+  const totalValue = Number(value.total)
+  if (!Number.isFinite(totalValue) || totalValue < 0) {
+    throw new Error('字典条目待确认')
+  }
+  const normalized = value.records.map((item: unknown) => normalizeDictItemRecord(item))
   const ids = new Set<number>()
   const codes = new Set<string>()
   for (const item of normalized) {
@@ -280,11 +306,21 @@ function normalizeDictItemList(value: unknown): DictItemRecord[] {
     ids.add(item.id)
     codes.add(item.itemCode)
   }
-  return normalized
+  if (normalized.length > totalValue) {
+    throw new Error('字典条目待确认')
+  }
+  return {
+    records: normalized,
+    total: totalValue
+  }
 }
 
 function syncActiveDictFromList() {
-  if (!activeDict.value || !dicts.value) {
+  if (!dicts.value) {
+    activeDict.value = null
+    return
+  }
+  if (!activeDict.value) {
     return
   }
   activeDict.value = dicts.value.find(item => Number(item.id) === Number(activeDict.value?.id)) || null
@@ -295,12 +331,23 @@ onMounted(loadDicts)
 async function loadDicts() {
   dictsLoadState.value = 'loading'
   try {
-    const response = await request.get<unknown>('/api/admin/dict', { headers: NO_CACHE_HEADERS })
-    dicts.value = normalizeDictList(getResponseData(response, '字典数据待确认'))
+    const response = await request.get<unknown>('/api/admin/dict', {
+      params: { page: dictPage.value, pageSize: dictPageSize },
+      headers: NO_CACHE_HEADERS
+    })
+    const data = requireDictPage(getResponseData(response, '字典数据待确认'))
+    dicts.value = data.records
+    dictTotal.value = data.total
     syncActiveDictFromList()
     dictsLoadState.value = 'ready'
+    if (!activeDict.value) {
+      items.value = []
+      itemTotal.value = 0
+      itemsLoadState.value = 'ready'
+    }
   } catch (err: unknown) {
     dicts.value = null
+    dictTotal.value = null
     dictsLoadState.value = 'error'
     message.error(getErrorMessage(err, '加载数据字典失败'))
   }
@@ -308,23 +355,45 @@ async function loadDicts() {
 
 async function selectDict(d: DictRecord) {
   activeDict.value = d
+  itemPage.value = 1
+  await loadItems()
+}
+
+async function loadItems() {
+  if (!activeDict.value) {
+    items.value = []
+    itemTotal.value = 0
+    itemsLoadState.value = 'ready'
+    return
+  }
   items.value = null
   itemsLoadState.value = 'loading'
   try {
-    const response = await request.get<unknown>(`/api/admin/dict/${d.id}/items`, { headers: NO_CACHE_HEADERS })
-    items.value = normalizeDictItemList(getResponseData(response, '字典条目待确认'))
+    const response = await request.get<unknown>(`/api/admin/dict/${activeDict.value.id}/items`, {
+      params: { page: itemPage.value, pageSize: itemPageSize },
+      headers: NO_CACHE_HEADERS
+    })
+    const data = requireDictItemPage(getResponseData(response, '字典条目待确认'))
+    items.value = data.records
+    itemTotal.value = data.total
     itemsLoadState.value = 'ready'
   } catch (err: unknown) {
     items.value = null
+    itemTotal.value = null
     itemsLoadState.value = 'error'
     message.error(getErrorMessage(err, '加载字典项失败'))
   }
 }
 
+async function loadItemById(id: number) {
+  const response = await request.get<unknown>(`/api/admin/dict/items/${id}`, { headers: NO_CACHE_HEADERS })
+  return normalizeDictItemRecord(getResponseData(response, '字典条目待确认'))
+}
+
 async function handleSaveDict() {
   if (!dictForm.code || !dictForm.name) { message.error('编码和名称为必填'); return false }
   try {
-    const previousCount = dicts.value?.length
+    const previousTotal = dictTotal.value
     if (editingDict.value) {
       const currentEditingId = editingDict.value
       const response = await request.put<unknown>(`/api/admin/dict/${currentEditingId}?name=${encodeURIComponent(dictForm.name)}&description=${encodeURIComponent(dictForm.description)}`)
@@ -335,16 +404,17 @@ async function handleSaveDict() {
         !refreshed
         || refreshed.dictName !== dictForm.name
         || (refreshed.description || '') !== dictForm.description
-        || (typeof previousCount === 'number' && dicts.value?.length !== previousCount)
+        || (typeof previousTotal === 'number' && dictTotal.value !== previousTotal)
       ) {
         throw new Error('字典更新结果待确认')
       }
       if (activeDict.value?.id === currentEditingId) {
-        activeDict.value = refreshed
+        activeDict.value = refreshed || null
       }
     } else {
       const response = await request.post<unknown>(`/api/admin/dict?code=${encodeURIComponent(dictForm.code)}&name=${encodeURIComponent(dictForm.name)}&description=${encodeURIComponent(dictForm.description)}`)
       const created = requireDict(getResponseData(response, '字典创建结果待确认'), 'create')
+      dictPage.value = 1
       await loadDicts()
       const refreshed = dicts.value?.find(item => Number(item.id) === created.id)
       if (
@@ -352,7 +422,7 @@ async function handleSaveDict() {
         || refreshed.dictCode !== dictForm.code
         || refreshed.dictName !== dictForm.name
         || (refreshed.description || '') !== dictForm.description
-        || (typeof previousCount === 'number' && typeof dicts.value?.length === 'number' && dicts.value.length < previousCount + 1)
+        || (typeof previousTotal === 'number' && dictTotal.value !== previousTotal + 1)
       ) {
         throw new Error('字典创建结果待确认')
       }
@@ -363,18 +433,22 @@ async function handleSaveDict() {
 
 async function handleDeleteDict(id: number) {
   try {
-    const previousCount = dicts.value?.length
+    const previousTotal = dictTotal.value
     await request.delete(`/api/admin/dict/${id}`)
+    if ((dicts.value?.length || 0) === 1 && dictPage.value > 1) {
+      dictPage.value--
+    }
     await loadDicts()
     if (dicts.value?.some(d => Number(d.id) === id)) {
       throw new Error('字典删除结果待确认')
     }
-    if (typeof previousCount === 'number' && typeof dicts.value?.length === 'number' && dicts.value.length > Math.max(0, previousCount - 1)) {
+    if (typeof previousTotal === 'number' && dictTotal.value !== Math.max(0, previousTotal - 1)) {
       throw new Error('字典删除结果待确认')
     }
     if (activeDict.value?.id === id) {
       activeDict.value = null
       items.value = []
+      itemTotal.value = 0
       itemsLoadState.value = 'ready'
     }
     message.success('已删除')
@@ -386,7 +460,7 @@ async function handleSaveItem() {
   if (!itemForm.code || !itemForm.name || !activeDict.value) { message.error('编码和名称为必填'); return false }
   try {
     const activeDictId = Number(activeDict.value.id)
-    const previousCount = items.value?.length
+    const previousTotal = itemTotal.value
     const currentActiveDict = activeDict.value
     if (!currentActiveDict) {
       throw new Error('字典条目待确认')
@@ -395,27 +469,27 @@ async function handleSaveItem() {
       const currentEditingId = editingItem.value
       const response = await request.put<unknown>(`/api/admin/dict/items/${currentEditingId}?name=${encodeURIComponent(itemForm.name)}&sortOrder=${itemForm.sortOrder}`)
       requireDictItem(getResponseData(response, '条目更新结果待确认'), 'update')
-      await selectDict(currentActiveDict)
-      const refreshed = items.value?.find(item => Number(item.id) === currentEditingId)
+      const refreshed = await loadItemById(currentEditingId)
+      await loadItems()
       if (
         !refreshed
         || refreshed.itemName !== itemForm.name
         || Number(refreshed.sortOrder) !== itemForm.sortOrder
-        || (typeof previousCount === 'number' && items.value?.length !== previousCount)
+        || (typeof previousTotal === 'number' && itemTotal.value !== previousTotal)
       ) {
         throw new Error('条目更新结果待确认')
       }
     } else {
       const response = await request.post<unknown>(`/api/admin/dict/${activeDictId}/items?code=${encodeURIComponent(itemForm.code)}&name=${encodeURIComponent(itemForm.name)}&sortOrder=${itemForm.sortOrder}`)
       const created = requireDictItem(getResponseData(response, '条目创建结果待确认'), 'create')
-      await selectDict(currentActiveDict)
-      const refreshed = items.value?.find(item => Number(item.id) === created.id)
+      const refreshed = await loadItemById(created.id)
+      await loadItems()
       if (
         !refreshed
         || refreshed.itemCode !== itemForm.code
         || refreshed.itemName !== itemForm.name
         || Number(refreshed.sortOrder) !== itemForm.sortOrder
-        || (typeof previousCount === 'number' && typeof items.value?.length === 'number' && items.value.length < previousCount + 1)
+        || (typeof previousTotal === 'number' && itemTotal.value !== previousTotal + 1)
       ) {
         throw new Error('条目创建结果待确认')
       }
@@ -431,13 +505,11 @@ function editItem(item: DictItemRecord) {
 async function toggleItemStatus(item: DictItemRecord) {
   const current = normalizeBinaryStatus(item.status)
   if (current === null) { message.error('条目状态尚未明确，暂时无法切换'); return }
-  const currentActiveDict = activeDict.value
-  if (!currentActiveDict) { message.error('字典条目待确认'); return }
   try {
     const response = await request.put<unknown>(`/api/admin/dict/items/${item.id}?status=${current ? 0 : 1}`)
     requireDictItem(getResponseData(response, '条目更新结果待确认'), 'update')
-    await selectDict(currentActiveDict)
-    const refreshed = items.value?.find(entry => Number(entry.id) === Number(item.id))
+    const refreshed = await loadItemById(item.id)
+    await loadItems()
     if (!refreshed || normalizeBinaryStatus(refreshed.status) !== !current) {
       throw new Error('条目状态待确认')
     }
@@ -452,16 +524,18 @@ function normalizeBinaryStatus(value: unknown): boolean | null {
 }
 
 async function handleDeleteItem(id: number) {
-  const currentActiveDict = activeDict.value
-  if (!currentActiveDict) { message.error('字典条目待确认'); return }
+  if (!activeDict.value) { message.error('字典条目待确认'); return }
   try {
-    const previousCount = items.value?.length
+    const previousTotal = itemTotal.value
     await request.delete(`/api/admin/dict/items/${id}`)
-    await selectDict(currentActiveDict)
+    if ((items.value?.length || 0) === 1 && itemPage.value > 1) {
+      itemPage.value--
+    }
+    await loadItems()
     if (items.value?.some(i => Number(i.id) === id)) {
       throw new Error('条目删除结果待确认')
     }
-    if (typeof previousCount === 'number' && typeof items.value?.length === 'number' && items.value.length > Math.max(0, previousCount - 1)) {
+    if (typeof previousTotal === 'number' && itemTotal.value !== Math.max(0, previousTotal - 1)) {
       throw new Error('条目删除结果待确认')
     }
     message.success('已删除')
@@ -488,4 +562,5 @@ async function handleDeleteItem(id: number) {
 .dict-table th { background: rgba(255,255,255,0.02) !important; color: #9ca3af !important; font-size: 12px; }
 .dict-table td { color: #e5e7eb; padding: 6px 8px; font-size: 13px; }
 .empty-cell { text-align: center; padding: 24px !important; color: #9ca3af; }
+.pager { display: flex; justify-content: flex-end; margin-top: 16px; }
 </style>

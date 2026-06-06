@@ -46,6 +46,9 @@
           </tr>
         </tbody>
       </n-table>
+      <div class="pager" v-if="(total ?? 0) > pageSize">
+        <n-pagination v-model:page="page" :page-size="pageSize" :item-count="total" @update:page="load" />
+      </div>
     </n-card>
 
     <!-- 编辑弹窗 -->
@@ -89,7 +92,10 @@ const showEditor = ref(false)
 const editingId = ref<number | null>(null)
 const form = reactive({ title: '', content: '', priority: 'normal' })
 const listLoadState = ref<'loading' | 'ready' | 'error'>('loading')
-const listCountDisplay = computed(() => list.value === null ? '-' : list.value.length)
+const page = ref(1)
+const pageSize = 10
+const total = ref<number | null>(null)
+const listCountDisplay = computed(() => total.value == null ? '-' : total.value)
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === 'object' && !Array.isArray(value)
@@ -147,11 +153,15 @@ function normalizeAnnouncementRecord(value: unknown): AnnouncementRecord {
   }
 }
 
-function normalizeAnnouncementList(value: unknown) {
-  if (!Array.isArray(value)) {
+function requireAnnouncementPage(value: unknown): { records: AnnouncementRecord[]; total: number } {
+  if (!isPlainObject(value) || !Array.isArray(value.records)) {
     throw new Error('公告数据待确认')
   }
-  const normalized = value.map((item: unknown) => normalizeAnnouncementRecord(item))
+  const totalValue = Number(value.total)
+  if (!Number.isFinite(totalValue) || totalValue < 0) {
+    throw new Error('公告数据待确认')
+  }
+  const normalized = value.records.map((item: unknown) => normalizeAnnouncementRecord(item))
   const seenIds = new Set<number>()
   normalized.forEach(item => {
     if (seenIds.has(item.id)) {
@@ -159,20 +169,34 @@ function normalizeAnnouncementList(value: unknown) {
     }
     seenIds.add(item.id)
   })
-  return normalized
+  if (normalized.length > totalValue) {
+    throw new Error('公告数据待确认')
+  }
+  return {
+    records: normalized,
+    total: totalValue
+  }
 }
 
 onMounted(load)
+
+async function loadAnnouncementById(id: number) {
+  const response = await request.get(`/api/admin/announcements/${id}`)
+  return normalizeAnnouncementRecord(getResponseData(response, '公告数据待确认'))
+}
 
 async function load() {
   loadingList.value = true
   listLoadState.value = 'loading'
   try {
-    const res = await request.get('/api/admin/announcements')
-    list.value = normalizeAnnouncementList(getResponseData(res, '公告数据待确认'))
+    const res = await request.get('/api/admin/announcements', { params: { page: page.value, pageSize } })
+    const data = requireAnnouncementPage(getResponseData(res, '公告数据待确认'))
+    list.value = data.records
+    total.value = data.total
     listLoadState.value = 'ready'
   } catch (err: unknown) {
     list.value = null
+    total.value = null
     listLoadState.value = 'error'
     message.error(getErrorMessage(err, '加载公告失败'))
   } finally {
@@ -187,29 +211,29 @@ function editAnnouncement(a: AnnouncementRecord) {
 async function handleSave() {
   if (!form.title || !form.content) { message.error('标题和内容不能为空'); return }
   try {
-    const previousCount = list.value?.length
+    const previousTotal = total.value
     if (editingId.value) {
       const currentEditingId = editingId.value
       const res = await request.put(`/api/admin/announcements/${currentEditingId}?title=${encodeURIComponent(form.title)}&content=${encodeURIComponent(form.content)}&priority=${form.priority}`)
       requireAnnouncement(getResponseData(res, '公告更新结果待确认'), 'update')
+      const refreshed = await loadAnnouncementById(currentEditingId)
       await load()
-      const refreshed = list.value?.find(item => Number(item.id) === currentEditingId)
       if (!refreshed || refreshed.title !== form.title || refreshed.content !== form.content || refreshed.priority !== form.priority) {
         throw new Error('公告更新结果待确认')
       }
-      if (typeof previousCount === 'number' && list.value?.length !== previousCount) {
+      if (typeof previousTotal === 'number' && total.value !== previousTotal) {
         throw new Error('公告更新结果待确认')
       }
       message.success('已更新')
     } else {
       const res = await request.post(`/api/admin/announcements?title=${encodeURIComponent(form.title)}&content=${encodeURIComponent(form.content)}&priority=${form.priority}`)
       const created = requireAnnouncement(getResponseData(res, '公告发布结果待确认'), 'create')
+      const refreshed = await loadAnnouncementById(created.id)
       await load()
-      const refreshed = list.value?.find(item => Number(item.id) === created.id)
       if (!refreshed || refreshed.title !== form.title || refreshed.content !== form.content || refreshed.priority !== form.priority) {
         throw new Error('公告发布结果待确认')
       }
-      if (typeof previousCount === 'number' && typeof list.value?.length === 'number' && list.value.length < previousCount + 1) {
+      if (typeof previousTotal === 'number' && total.value !== previousTotal + 1) {
         throw new Error('公告发布结果待确认')
       }
       message.success('已发布')
@@ -237,13 +261,16 @@ async function handleToggle(id: number) {
 
 async function handleDelete(id: number) {
   try {
-    const previousCount = list.value?.length
+    const previousTotal = total.value
     await request.delete(`/api/admin/announcements/${id}`)
+    if ((list.value?.length || 0) === 1 && page.value > 1) {
+      page.value--
+    }
     await load()
     if (list.value?.some(item => Number(item.id) === id)) {
       throw new Error('公告删除结果待确认')
     }
-    if (typeof previousCount === 'number' && typeof list.value?.length === 'number' && list.value.length > Math.max(0, previousCount - 1)) {
+    if (typeof previousTotal === 'number' && total.value !== Math.max(0, previousTotal - 1)) {
       throw new Error('公告删除结果待确认')
     }
     message.success('已删除')
@@ -272,4 +299,5 @@ function normalizeBinaryStatus(value: unknown): boolean | null {
 .admin-table th { background: rgba(255,255,255,0.02) !important; color: #9ca3af !important; border-bottom: 1px solid rgba(255,255,255,0.06) !important; font-size: 12px; }
 .admin-table td { border-bottom: 1px solid rgba(255,255,255,0.04) !important; color: #e5e7eb; padding: 8px; font-size: 13px; }
 .empty-cell { text-align: center; padding: 24px !important; color: #9ca3af; }
+.pager { display: flex; justify-content: flex-end; margin-top: 16px; }
 </style>

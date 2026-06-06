@@ -1,7 +1,9 @@
 package com.example.aihub.infrastructure.service;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.example.aihub.common.exception.BusinessException;
+import com.example.aihub.common.result.PageResult;
 import com.example.aihub.common.util.PagingUtil;
 import com.example.aihub.infrastructure.entity.DataDict;
 import com.example.aihub.infrastructure.entity.DataDictItem;
@@ -20,6 +22,16 @@ public class DataDictService {
     private final DataDictItemMapper itemMapper;
 
     // ===== 字典 CRUD =====
+
+    public PageResult<DataDict> pageDicts(long page, long pageSize) {
+        long safePage = PagingUtil.normalizePage(page);
+        long safePageSize = PagingUtil.clampPageSize(pageSize, 20);
+        Page<DataDict> result = dictMapper.selectPage(
+                new Page<>(safePage, safePageSize),
+                new LambdaQueryWrapper<DataDict>().orderByDesc(DataDict::getId)
+        );
+        return new PageResult<>(result.getTotal(), result.getPages(), result.getRecords());
+    }
 
     public List<DataDict> listDicts(int limit) {
         return dictMapper.selectList(new LambdaQueryWrapper<DataDict>()
@@ -68,12 +80,31 @@ public class DataDictService {
 
     // ===== 字典条目 CRUD =====
 
+    public PageResult<DataDictItem> pageItems(Long dictId, long page, long pageSize) {
+        long safePage = PagingUtil.normalizePage(page);
+        long safePageSize = PagingUtil.clampPageSize(pageSize, 20);
+        Page<DataDictItem> result = itemMapper.selectPage(
+                new Page<>(safePage, safePageSize),
+                new LambdaQueryWrapper<DataDictItem>()
+                        .eq(DataDictItem::getDictId, dictId)
+                        .orderByAsc(DataDictItem::getSortOrder)
+                        .orderByAsc(DataDictItem::getId)
+        );
+        return new PageResult<>(result.getTotal(), result.getPages(), result.getRecords());
+    }
+
     public List<DataDictItem> listItems(Long dictId, int limit) {
         return itemMapper.selectList(new LambdaQueryWrapper<DataDictItem>()
                 .eq(DataDictItem::getDictId, dictId)
                 .orderByAsc(DataDictItem::getSortOrder)
                 .orderByAsc(DataDictItem::getId)
                 .last("LIMIT " + PagingUtil.clampLimit(limit, 100, 100)));
+    }
+
+    public DataDictItem getItem(Long id) {
+        DataDictItem item = itemMapper.selectById(id);
+        if (item == null) throw new BusinessException("条目不存在");
+        return item;
     }
 
     public List<DataDictItem> getItemsByCode(String dictCode, int limit) {

@@ -3,14 +3,12 @@ package com.example.aihub.module.dict;
 import cn.dev33.satoken.annotation.SaCheckLogin;
 import cn.dev33.satoken.annotation.SaCheckRole;
 import com.example.aihub.common.result.ApiResult;
-import com.example.aihub.common.util.PagingUtil;
+import com.example.aihub.common.result.PageResult;
 import com.example.aihub.infrastructure.entity.DataDict;
 import com.example.aihub.infrastructure.entity.DataDictItem;
 import com.example.aihub.infrastructure.service.DataDictService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.*;
-
-import java.util.List;
 
 @RestController
 @RequiredArgsConstructor
@@ -21,8 +19,9 @@ public class DataDictController {
     private final DataDictService dataDictService;
 
     @GetMapping
-    public ApiResult<List<DataDict>> listDicts(@RequestParam(defaultValue = "100") int limit) {
-        return ApiResult.ok(dataDictService.listDicts(PagingUtil.clampLimit(limit, 100, 100)));
+    public ApiResult<PageResult<DataDict>> listDicts(@RequestParam(defaultValue = "1") long page,
+                                                     @RequestParam(defaultValue = "20") long pageSize) {
+        return ApiResult.ok(dataDictService.pageDicts(page, pageSize));
     }
 
     @PostMapping
@@ -46,9 +45,15 @@ public class DataDictController {
     // ===== 条目管理 =====
 
     @GetMapping("/{dictId}/items")
-    public ApiResult<List<DataDictItem>> listItems(@PathVariable Long dictId,
-                                                   @RequestParam(defaultValue = "100") int limit) {
-        return ApiResult.ok(dataDictService.listItems(dictId, PagingUtil.clampLimit(limit, 100, 100)));
+    public ApiResult<PageResult<DataDictItem>> listItems(@PathVariable Long dictId,
+                                                         @RequestParam(defaultValue = "1") long page,
+                                                         @RequestParam(defaultValue = "20") long pageSize) {
+        return ApiResult.ok(dataDictService.pageItems(dictId, page, pageSize));
+    }
+
+    @GetMapping("/items/{id}")
+    public ApiResult<DataDictItem> getItem(@PathVariable Long id) {
+        return ApiResult.ok(dataDictService.getItem(id));
     }
 
     @PostMapping("/{dictId}/items")
