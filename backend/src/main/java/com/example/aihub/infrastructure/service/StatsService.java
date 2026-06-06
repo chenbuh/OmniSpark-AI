@@ -2,6 +2,7 @@ package com.example.aihub.infrastructure.service;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.example.aihub.common.exception.BusinessException;
+import com.example.aihub.common.security.ProjectAccessGuard;
 import com.example.aihub.common.util.SecurityUtil;
 import com.example.aihub.infrastructure.entity.GenerationTask;
 import com.example.aihub.infrastructure.entity.Project;
@@ -37,6 +38,7 @@ public class StatsService {
     private final AssetMapper assetMapper;
     private final QuotaRecordMapper quotaRecordMapper;
     private final QuotaService quotaService;
+    private final ProjectAccessGuard projectAccessGuard;
 
     public StatsOverviewVO overview(Long projectId) {
         StatsScope scope = loadScope(projectId);
@@ -189,14 +191,23 @@ public class StatsService {
 
     private StatsScope loadScope(Long projectId) {
         Long userId = SecurityUtil.loginUserId();
-        LambdaQueryWrapper<Project> projectWrapper = new LambdaQueryWrapper<Project>().eq(Project::getUserId, userId);
+        List<Project> projects;
         if (projectId != null) {
-            projectWrapper.eq(Project::getId, projectId);
-        }
-
-        List<Project> projects = projectMapper.selectList(projectWrapper);
-        if (projectId != null && projects.isEmpty()) {
-            throw new BusinessException("项目不存在或无权访问");
+            projectAccessGuard.assertAccess(projectId);
+            Project project = projectMapper.selectById(projectId);
+            if (project == null) {
+                throw new BusinessException("项目不存在或无权访问");
+            }
+            projects = List.of(project);
+        } else {
+            List<Long> accessibleProjectIds = projectAccessGuard.accessibleProjectIds();
+            if (accessibleProjectIds.isEmpty()) {
+                projects = List.of();
+            } else {
+                projects = projectMapper.selectList(new LambdaQueryWrapper<Project>()
+                        .in(Project::getId, accessibleProjectIds)
+                        .orderByDesc(Project::getId));
+            }
         }
 
         List<Long> projectIds = new ArrayList<>(projects.stream().map(Project::getId).toList());

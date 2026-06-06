@@ -59,6 +59,7 @@ public class TeamService {
         if (team == null) {
             throw new BusinessException("团队不存在");
         }
+        requireTeamMember(team);
         return toTeamVO(team);
     }
 
@@ -106,7 +107,8 @@ public class TeamService {
     // ===== 成员管理 =====
 
     public List<TeamMemberVO> listMembers(Long teamId, int limit) {
-        requireTeam(teamId);
+        Team team = requireTeam(teamId);
+        requireTeamMember(team);
         List<TeamMember> members = memberMapper.selectList(
                 new LambdaQueryWrapper<TeamMember>()
                         .eq(TeamMember::getTeamId, teamId)
@@ -252,6 +254,16 @@ public class TeamService {
         if (team.getOwnerId().equals(userId)) return;
         if (!isTeamAdmin(team.getId(), userId)) {
             throw new BusinessException("没有足够的权限");
+        }
+    }
+
+    private void requireTeamMember(Team team) {
+        Long userId = SecurityUtil.loginUserId();
+        if (team.getOwnerId().equals(userId)) {
+            return;
+        }
+        if (!isTeamMember(team.getId(), userId)) {
+            throw new BusinessException("您不在该团队中");
         }
     }
 
