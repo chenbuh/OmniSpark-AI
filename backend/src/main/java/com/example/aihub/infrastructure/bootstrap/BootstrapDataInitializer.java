@@ -27,7 +27,8 @@ import java.security.SecureRandom;
 @Order(1)
 @Slf4j
 @RequiredArgsConstructor
-public class DemoDataInitializer implements CommandLineRunner {
+// 仅补齐系统运行所需的启动基础记录，不写入演示业务数据。
+public class BootstrapDataInitializer implements CommandLineRunner {
     private static final String GENERATED_PASSWORD_CHARS = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789";
 
     private final UserMapper userMapper;

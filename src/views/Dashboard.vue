@@ -832,7 +832,11 @@ watch(
 // 复用提示词
 const handleReuse = (task: GenerationTask) => {
   router.push(buildGenerationReuseLocation(task))
-  message.success('已将参数复用至生成面板！')
+  message.success(
+    task.requestJson
+      ? '已将该任务的真实生成参数带入对应面板'
+      : '已将该任务已记录的提示词与基础参数带入对应面板'
+  )
 }
 
 // 删除任务
