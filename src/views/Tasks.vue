@@ -131,7 +131,7 @@
             </div>
           </div>
           <div class="detail-section" v-if="selectedTask.requestJson">
-            <h4 class="section-title">请求参数</h4>
+            <h4 class="section-title">{{ getTaskRequestSectionTitle(selectedTask) }}</h4>
             <n-code :code="formatJson(selectedTask.requestJson)" language="json" />
           </div>
           <div class="detail-section" v-if="selectedTask.responseJson">
@@ -258,6 +258,10 @@ function getTaskDisplayNegativePrompt(task?: GenerationTask | null) {
 function getTaskDisplayModelName(task?: GenerationTask | null) {
   const payload = tryParseTaskRequestJson(task)
   return normalizeTaskField(payload?.modelName) || task?.modelName || ''
+}
+
+function getTaskRequestSectionTitle(task?: GenerationTask | null) {
+  return tryParseTaskRequestJson(task) ? '请求参数' : '原始请求记录'
 }
 
 function syncSelectedTaskFromStore() {

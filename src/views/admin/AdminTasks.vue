@@ -77,7 +77,7 @@
           </div>
           <div class="ds-section"><h4 class="ds-title">提示词</h4><div class="ds-code">{{ getTaskDisplayPrompt(detail) }}</div></div>
           <div class="ds-section" v-if="getTaskDisplayNegativePrompt(detail)"><h4 class="ds-title">负向提示词</h4><div class="ds-code">{{ getTaskDisplayNegativePrompt(detail) }}</div></div>
-          <div class="ds-section" v-if="detail.requestJson"><h4 class="ds-title">请求参数</h4><n-code :code="formatJson(detail.requestJson)" language="json" /></div>
+          <div class="ds-section" v-if="detail.requestJson"><h4 class="ds-title">{{ getTaskRequestSectionTitle(detail) }}</h4><n-code :code="formatJson(detail.requestJson)" language="json" /></div>
           <div class="ds-section" v-if="detail.responseJson"><h4 class="ds-title">响应数据</h4><n-code :code="formatJson(detail.responseJson)" language="json" /></div>
           <div class="ds-section" v-if="detail.errorMessage">
             <h4 class="ds-title" style="color:#ef4444;">错误信息</h4>
@@ -190,6 +190,10 @@ function getTaskDisplayNegativePrompt(task?: AdminTaskRecord | null) {
 function getTaskDisplayModelName(task?: AdminTaskRecord | null) {
   const payload = tryParseTaskRequestJson(task)
   return normalizeTaskField(payload?.modelName) || task?.modelName || ''
+}
+
+function getTaskRequestSectionTitle(task?: AdminTaskRecord | null) {
+  return tryParseTaskRequestJson(task) ? '请求参数' : '原始请求记录'
 }
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
