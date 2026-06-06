@@ -400,7 +400,7 @@
                   <div v-if="task.status === 'running' || task.status === 'pending'" class="thumb-loading-overlay">
                     <n-spin size="small" />
                   </div>
-                  <img v-else-if="task.status === 'success' && task.resultAssetId" :src="getAssetThumbUrl(task.resultAssetId)" :alt="getImageTaskDisplayPrompt(task) || '历史任务缩略图'" class="history-thumb-img" />
+                  <img v-else-if="task.status === 'success'" :src="getTaskThumbUrl(task)" :alt="getImageTaskDisplayPrompt(task) || '历史任务缩略图'" class="history-thumb-img" />
                   <div v-else class="thumb-failed-overlay">
                     <span class="thumb-failed-text">失败</span>
                   </div>
@@ -434,8 +434,8 @@
               <n-spin size="small" />
               <span class="gallery-loading-text">进行中</span>
             </div>
-            <img v-else-if="task.status === 'success' && task.resultAssetId"
-              :src="getAssetThumbUrl(task.resultAssetId)" :alt="getImageTaskDisplayPrompt(task) || '生成结果缩略图'" class="gallery-img" loading="lazy" />
+            <img v-else-if="task.status === 'success'"
+              :src="getTaskThumbUrl(task)" :alt="getImageTaskDisplayPrompt(task) || '生成结果缩略图'" class="gallery-img" loading="lazy" />
             <div v-else class="gallery-failed">
               <span>❌ 失败</span>
             </div>
@@ -2104,6 +2104,16 @@ const currentAssets = computed(() => {
   return assetStore.assets.filter(a => a.taskId === task.id)
 })
 
+const getTaskPreviewAsset = (task: { id: number; resultAssetId?: number }) => {
+  if (task.resultAssetId) {
+    const exact = assetStore.assets.find(asset => asset.id === task.resultAssetId && asset.taskId === task.id)
+    if (exact) {
+      return exact
+    }
+  }
+  return assetStore.assets.find(asset => asset.taskId === task.id) || null
+}
+
 // 批量张数（用于 UI 显示）
 const batchTotal = computed(() => currentAssets.value.length)
 const taskHistorySignature = computed(() => taskHistory.value.map(t => `${t.id}-${t.status}`).join('|'))
@@ -2143,10 +2153,8 @@ watch(taskHistorySignature, (current, previous) => {
 })
 
 // 获取缩略图
-const getAssetThumbUrl = (assetId?: number) => {
-  if (!assetId) return ''
-  const asset = assetStore.assets.find(a => a.id === assetId)
-  return asset ? asset.thumbUrl : ''
+const getTaskThumbUrl = (task: { id: number; resultAssetId?: number }) => {
+  return getTaskPreviewAsset(task)?.thumbUrl || ''
 }
 
 const handleOptimizePrompt = async () => {
