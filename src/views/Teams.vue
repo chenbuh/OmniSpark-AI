@@ -2,7 +2,7 @@
   <div class="teams-container">
     <div class="page-header">
       <h2>团队管理 (Teams)</h2>
-      <p class="subtitle">创建和管理您的创意团队，共享项目空间与资产。</p>
+      <p class="subtitle">创建团队、加入协作并共享项目空间与资产。</p>
     </div>
 
     <n-row :gutter="24">
@@ -38,7 +38,7 @@
                 <span class="team-name">{{ team.name }}</span>
                 <span class="team-meta">{{ formatMemberCount(team.memberCount) }}</span>
               </div>
-              <n-dropdown v-if="team.ownerId === userStore.userInfo?.id" trigger="click" :options="teamActions" @select="(key: string) => handleTeamAction(key, team)">
+              <n-dropdown v-if="isTeamOwner(team)" trigger="click" :options="teamActions" @select="(key: string) => handleTeamAction(key, team)">
                 <n-button size="tiny" quaternary @click.stop><template #icon><MoreVertical /></template></n-button>
               </n-dropdown>
             </div>
@@ -64,7 +64,10 @@
                 <n-input v-model:value="memberSearch" placeholder="搜索成员..." style="width:160px;" size="small" clearable>
                   <template #prefix><Search class="s-icon" /></template>
                 </n-input>
-                <n-button type="primary" size="small" secondary @click="showInviteModal = true">
+                <n-button v-if="canLeaveSelectedTeam" size="small" secondary :loading="leaving" @click="handleLeaveTeam">
+                  退出团队
+                </n-button>
+                <n-button v-if="canInviteMembers" type="primary" size="small" secondary @click="showInviteModal = true">
                   <template #icon><UserPlus /></template>邀请成员
                 </n-button>
               </n-space>
@@ -167,6 +170,7 @@ const showEditModal = ref(false)
 const showInviteModal = ref(false)
 const creating = ref(false)
 const inviting = ref(false)
+const leaving = ref(false)
 const memberSearch = ref('')
 const teamsLoading = ref(true)
 const teamsReady = ref(false)
@@ -199,6 +203,26 @@ const filteredMembers = computed(() => {
     memberDisplayName(m).toLowerCase().includes(q) || m.username?.toLowerCase().includes(q)
   )
 })
+const currentUserId = computed(() => {
+  const parsed = Number(userStore.userInfo?.id)
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : null
+})
+const selectedTeamMembership = computed(() => {
+  if (!selectedTeam.value || currentUserId.value == null) {
+    return null
+  }
+  return teamStore.currentMembers.find(member => member.userId === currentUserId.value) || null
+})
+const selectedTeamRole = computed(() => {
+  if (selectedTeamMembership.value?.role) {
+    return selectedTeamMembership.value.role
+  }
+  return isTeamOwner(selectedTeam.value) ? 'owner' : ''
+})
+const canInviteMembers = computed(() => selectedTeamRole.value === 'owner' || selectedTeamRole.value === 'admin')
+const canLeaveSelectedTeam = computed(() => {
+  return !!selectedTeam.value && !!selectedTeamMembership.value && !isTeamOwner(selectedTeam.value)
+})
 
 function formatMemberCount(memberCount?: number) {
   return typeof memberCount === 'number' ? `${memberCount} 成员` : '成员数待确认'
@@ -221,8 +245,11 @@ function roleLabel(role: string) {
   if (role === 'member') return '成员'
   return role || '未知角色'
 }
+function isTeamOwner(team: Team | null | undefined) {
+  return !!team && currentUserId.value !== null && team.ownerId === currentUserId.value
+}
 function canManage(member: TeamMember) {
-  return selectedTeam.value?.ownerId === userStore.userInfo?.id && member.role !== 'owner'
+  return canInviteMembers.value && member.role !== 'owner' && member.userId !== currentUserId.value
 }
 
 function hasValidTeamId(team: Team | null | undefined) {
@@ -420,6 +447,10 @@ const handleEditTeam = async () => {
 }
 
 const handleInviteMember = async () => {
+  if (!canInviteMembers.value) {
+    message.error('当前角色没有邀请成员权限')
+    return
+  }
   if (!inviteForm.value.username || !selectedTeam.value) { message.error('请输入用户名'); return }
   inviting.value = true
   try {
@@ -470,7 +501,41 @@ const handleInviteMember = async () => {
   finally { inviting.value = false }
 }
 
+const handleLeaveTeam = async () => {
+  if (!selectedTeam.value || !canLeaveSelectedTeam.value) {
+    message.error('当前团队暂时无法退出')
+    return
+  }
+  const teamId = selectedTeam.value.id
+  const teamName = selectedTeam.value.name
+  leaving.value = true
+  try {
+    const previousCount = teamStore.teams.length
+    await teamApi.leaveTeam(teamId)
+    await loadTeams()
+    selectedTeam.value = null
+    teamStore.currentMembers = []
+    membersReady.value = false
+    memberSearch.value = ''
+    if (teamStore.teams.some(team => team.id === teamId)) {
+      throw new Error('退出团队结果待确认')
+    }
+    if (teamStore.teams.length > Math.max(0, previousCount - 1)) {
+      throw new Error('退出团队结果待确认')
+    }
+    message.success(`已退出团队「${teamName}」`)
+  } catch (err: unknown) {
+    message.error(err instanceof Error && err.message ? err.message : '退出团队失败')
+  } finally {
+    leaving.value = false
+  }
+}
+
 const handleRemoveMember = async (member: TeamMember) => {
+  if (!canInviteMembers.value) {
+    message.error('当前角色没有移除成员权限')
+    return
+  }
   if (!selectedTeam.value) return
   dialog.warning({
     title: '移除成员',
