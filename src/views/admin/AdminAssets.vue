@@ -129,6 +129,13 @@ function getResponseData(response: unknown) {
   return response.data
 }
 
+function getErrorMessage(error: unknown, fallback: string) {
+  if (error instanceof Error && error.message.trim()) {
+    return error.message
+  }
+  return fallback
+}
+
 function normalizeOptionalNumber(value: unknown) {
   if (value == null || value === '') {
     return null
@@ -300,10 +307,10 @@ async function loadAssets(noCache = false) {
     const data = requireAssetPage(getResponseData(response))
     assets.value = data.records
     total.value = data.total
-  } catch (err: any) {
+  } catch (err: unknown) {
     assets.value = null
     total.value = null
-    message.error(err.message || '加载资产失败')
+    message.error(getErrorMessage(err, '加载资产失败'))
   } finally {
     loadingAssets.value = false
   }
@@ -313,8 +320,8 @@ async function isAssetDeleted(id: number) {
   try {
     await request.get(`/api/admin/assets/${id}`, { headers: NO_CACHE_HEADERS })
     return false
-  } catch (err: any) {
-    const errorMessage = String(err?.message || '')
+  } catch (err: unknown) {
+    const errorMessage = getErrorMessage(err, '')
     if (errorMessage.includes('资产不存在')) {
       return true
     }
@@ -344,7 +351,7 @@ async function handleDelete(id: number) {
       previewAsset.value = null
     }
     message.success('已删除')
-  } catch (err: any) { message.error(err.message || '删除失败') }
+  } catch (err: unknown) { message.error(getErrorMessage(err, '删除失败')) }
 }
 
 function handleDeletePreview() {

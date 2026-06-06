@@ -163,6 +163,13 @@ function getResponseData(response: unknown, errorMessage: string) {
   return response.data
 }
 
+function getErrorMessage(error: unknown, fallback: string) {
+  if (error instanceof Error && error.message.trim()) {
+    return error.message
+  }
+  return fallback
+}
+
 function normalizeScheduledTaskType(value: unknown): ScheduledTaskType {
   const normalized = normalizeOptionalText(value)
   if (normalized !== 'cleanup') {
@@ -211,7 +218,7 @@ function requireScheduledTaskResult(value: unknown, action: 'create' | 'update' 
   }
   return {
     id,
-    enabled: normalizeBinaryStatus((value as any).enabled)
+    enabled: normalizeBinaryStatus(value.enabled)
   }
 }
 
@@ -290,10 +297,10 @@ async function load() {
     const data = requireScheduledTasks(getResponseData(response, '定时任务数据待确认'))
     tasks.value = data
     tasksLoadState.value = 'ready'
-  } catch (err: any) {
+  } catch (err: unknown) {
     tasks.value = null
     tasksLoadState.value = 'error'
-    message.error(err.message || '加载定时任务失败')
+    message.error(getErrorMessage(err, '加载定时任务失败'))
   } finally {
     loadingTasks.value = false
   }
@@ -365,7 +372,7 @@ async function handleSave() {
       message.success('任务已创建')
     }
     showEditor.value = false
-  } catch (err: any) { message.error(err.message || '操作失败') }
+  } catch (err: unknown) { message.error(getErrorMessage(err, '操作失败')) }
 }
 
 async function handleDelete(id: number) {
@@ -381,7 +388,7 @@ async function handleDelete(id: number) {
     }
     message.success('已删除')
   }
-  catch (err: any) { message.error(err.message || '删除失败') }
+  catch (err: unknown) { message.error(getErrorMessage(err, '删除失败')) }
 }
 
 async function handleToggle(id: number) {
@@ -399,8 +406,8 @@ async function handleToggle(id: number) {
     if (!refreshed || refreshed.enabled !== expectedEnabled) {
       throw new Error('任务状态待确认')
     }
-  } catch (err: any) {
-    message.error(err.message || '操作失败')
+  } catch (err: unknown) {
+    message.error(getErrorMessage(err, '操作失败'))
   }
 }
 
@@ -438,7 +445,7 @@ async function handleRunNow(id: number) {
       throw new Error('任务触发结果待确认')
     }
     message.success('任务已触发')
-  } catch (err: any) { message.error(err.message || '执行失败') }
+  } catch (err: unknown) { message.error(getErrorMessage(err, '执行失败')) }
   finally { runningId.value = null }
 }
 </script>

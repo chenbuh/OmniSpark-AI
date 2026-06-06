@@ -165,6 +165,13 @@ function getResponseData(response: unknown, errorMessage: string) {
   return response.data
 }
 
+function getErrorMessage(error: unknown, fallback: string) {
+  if (error instanceof Error && error.message.trim()) {
+    return error.message
+  }
+  return fallback
+}
+
 function normalizeOptionalText(value: unknown): string {
   return typeof value === 'string' ? value.trim() : ''
 }
@@ -292,10 +299,10 @@ async function loadDicts() {
     dicts.value = normalizeDictList(getResponseData(response, '字典数据待确认'))
     syncActiveDictFromList()
     dictsLoadState.value = 'ready'
-  } catch (err: any) {
+  } catch (err: unknown) {
     dicts.value = null
     dictsLoadState.value = 'error'
-    message.error(err.message || '加载数据字典失败')
+    message.error(getErrorMessage(err, '加载数据字典失败'))
   }
 }
 
@@ -307,10 +314,10 @@ async function selectDict(d: DictRecord) {
     const response = await request.get<unknown>(`/api/admin/dict/${d.id}/items`, { headers: NO_CACHE_HEADERS })
     items.value = normalizeDictItemList(getResponseData(response, '字典条目待确认'))
     itemsLoadState.value = 'ready'
-  } catch (err: any) {
+  } catch (err: unknown) {
     items.value = null
     itemsLoadState.value = 'error'
-    message.error(err.message || '加载字典项失败')
+    message.error(getErrorMessage(err, '加载字典项失败'))
   }
 }
 
@@ -351,7 +358,7 @@ async function handleSaveDict() {
       }
     }
     message.success('已保存'); showDictEditor.value = false; return true
-  } catch (err: any) { message.error(err.message || '操作失败'); return false }
+  } catch (err: unknown) { message.error(getErrorMessage(err, '操作失败')); return false }
 }
 
 async function handleDeleteDict(id: number) {
@@ -372,7 +379,7 @@ async function handleDeleteDict(id: number) {
     }
     message.success('已删除')
   }
-  catch (err: any) { message.error(err.message || '删除失败') }
+  catch (err: unknown) { message.error(getErrorMessage(err, '删除失败')) }
 }
 
 async function handleSaveItem() {
@@ -414,7 +421,7 @@ async function handleSaveItem() {
       }
     }
     message.success('已保存'); showItemEditor.value = false; return true
-  } catch (err: any) { message.error(err.message || '操作失败'); return false }
+  } catch (err: unknown) { message.error(getErrorMessage(err, '操作失败')); return false }
 }
 
 function editItem(item: DictItemRecord) {
@@ -435,7 +442,7 @@ async function toggleItemStatus(item: DictItemRecord) {
       throw new Error('条目状态待确认')
     }
   }
-  catch (err: any) { message.error(err.message || '操作失败') }
+  catch (err: unknown) { message.error(getErrorMessage(err, '操作失败')) }
 }
 
 function normalizeBinaryStatus(value: unknown): boolean | null {
@@ -459,7 +466,7 @@ async function handleDeleteItem(id: number) {
     }
     message.success('已删除')
   }
-  catch (err: any) { message.error(err.message || '删除失败') }
+  catch (err: unknown) { message.error(getErrorMessage(err, '删除失败')) }
 }
 </script>
 
