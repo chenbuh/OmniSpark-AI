@@ -312,6 +312,23 @@ const categoryOptions = computed(() => {
   }))
 })
 
+function requireStringList(value: unknown, errorMessage: string) {
+  if (!Array.isArray(value)) {
+    throw new Error(errorMessage)
+  }
+  const normalized: string[] = []
+  const seen = new Set<string>()
+  value.forEach((item: unknown) => {
+    const text = typeof item === 'string' ? item.trim() : ''
+    if (!text || seen.has(text)) {
+      throw new Error(errorMessage)
+    }
+    seen.add(text)
+    normalized.push(text)
+  })
+  return normalized
+}
+
 function canDelete(post: any) {
   return post.userId && currentUserId.value && post.userId === currentUserId.value
 }
@@ -483,13 +500,7 @@ async function loadCategories() {
   categoriesLoadState.value = 'loading'
   try {
     const res = await request.get('/api/community/categories')
-    if (!Array.isArray((res as any).data)) {
-      throw new Error('社区分类待确认')
-    }
-    const values = (res as any).data
-    categories.value = values
-      .map((item: unknown) => typeof item === 'string' ? item.trim() : '')
-      .filter((item: string) => !!item)
+    categories.value = requireStringList((res as any).data, '社区分类待确认')
     if (activeCategory.value !== 'all' && !categories.value.includes(activeCategory.value)) {
       activeCategory.value = 'all'
     }
@@ -501,7 +512,7 @@ async function loadCategories() {
 }
 
 onMounted(async () => {
-  currentUserId.value = userStore.userInfo?.id || null
+  currentUserId.value = normalizeOptionalPositiveNumber(userStore.userInfo?.id) ?? null
 
   if (route.query.sharePrompt) {
     form.prompt = route.query.sharePrompt as string

@@ -30,10 +30,10 @@ export const useTaskStore = defineStore('task', {
     normalizeTask(task: unknown): GenerationTask {
       return normalizeTaskPayload(task)
     },
-    setTasks(tasks: any[]) {
+    setTasks(tasks: unknown) {
       this.tasks = normalizeTaskList(tasks, this.normalizeTask)
     },
-    upsertTask(task: any) {
+    upsertTask(task: unknown) {
       const normalized = this.normalizeTask(task)
       const index = this.tasks.findIndex(item => item.id === normalized.id)
       if (index === -1) {
@@ -45,9 +45,6 @@ export const useTaskStore = defineStore('task', {
     },
     async refresh(params?: { projectId?: number; status?: string }) {
       const res = await taskApi.getTasks(params)
-      if (!Array.isArray(res.data)) {
-        throw new Error('任务数据待确认')
-      }
       this.setTasks(res.data)
       return this.tasks
     },
@@ -144,7 +141,10 @@ function normalizeTaskPayload(task: unknown): GenerationTask {
   }
 }
 
-function normalizeTaskList(tasks: unknown[], normalizeTask: (task: unknown) => GenerationTask) {
+function normalizeTaskList(tasks: unknown, normalizeTask: (task: unknown) => GenerationTask) {
+  if (!Array.isArray(tasks)) {
+    throw new Error('任务数据待确认')
+  }
   const normalized = tasks.map(item => normalizeTask(item))
   const ids = new Set<number>()
   normalized.forEach(item => {

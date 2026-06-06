@@ -316,6 +316,23 @@ const sortOptions = [
   { label: '最多评论', value: 'comments' }
 ]
 
+function requireStringList(value: unknown, errorMessage: string) {
+  if (!Array.isArray(value)) {
+    throw new Error(errorMessage)
+  }
+  const normalized: string[] = []
+  const seen = new Set<string>()
+  value.forEach((item: unknown) => {
+    const text = typeof item === 'string' ? item.trim() : ''
+    if (!text || seen.has(text)) {
+      throw new Error(errorMessage)
+    }
+    seen.add(text)
+    normalized.push(text)
+  })
+  return normalized
+}
+
 function requireStyleCardPage(value: unknown) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
     throw new Error('卡片数据待确认')
@@ -599,13 +616,7 @@ async function loadStyleCardTags() {
   tagLoadState.value = 'loading'
   try {
     const res = await styleCardApi.getTags()
-    if (!Array.isArray((res as any).data)) {
-      throw new Error('风格卡标签待确认')
-    }
-    const values = (res as any).data
-    styleCardTags.value = values
-      .map((item: unknown) => typeof item === 'string' ? item.trim() : '')
-      .filter((item: string) => !!item)
+    styleCardTags.value = requireStringList((res as any).data, '风格卡标签待确认')
     tagLoadState.value = 'ready'
   } catch {
     styleCardTags.value = []
@@ -625,7 +636,7 @@ function scheduleLoadCards(delay = 180) {
 onMounted(async () => {
   try {
     const info = JSON.parse(localStorage.getItem('userInfo') || '{}')
-    currentUserId.value = info.id || null
+    currentUserId.value = normalizeOptionalPositiveNumber(info?.id) ?? null
   } catch {}
   await Promise.all([loadStyleCardTags(), loadCards()])
   await loadAssetLibrary()

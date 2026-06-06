@@ -592,6 +592,21 @@ function requireAssetTypeItems(value: unknown) {
   })
 }
 
+function requireSubtitleList(value: unknown) {
+  if (!Array.isArray(value)) {
+    throw new Error('字幕数据待确认')
+  }
+  const seenIds = new Set<number>()
+  return value.map((item: unknown) => {
+    const normalized = normalizeSubtitleRecord(item)
+    if (seenIds.has(normalized.id)) {
+      throw new Error('字幕数据待确认')
+    }
+    seenIds.add(normalized.id)
+    return normalized
+  })
+}
+
 function normalizeAssetList(value: unknown, errorMessage: string) {
   if (!Array.isArray(value)) {
     throw new Error(errorMessage)
@@ -938,18 +953,7 @@ async function loadSubtitles() {
   }
   try {
     const res = await subtitleApi.list(selectedAsset.value.id)
-    if (!Array.isArray(res.data)) {
-      throw new Error('字幕数据待确认')
-    }
-    const normalizedSubtitles = res.data.map((item: unknown) => normalizeSubtitleRecord(item))
-    const seenIds = new Set<number>()
-    subtitles.value = normalizedSubtitles.filter(item => {
-      if (seenIds.has(item.id)) {
-        throw new Error('字幕数据待确认')
-      }
-      seenIds.add(item.id)
-      return true
-    })
+    subtitles.value = requireSubtitleList(res.data)
   } catch {
     subtitles.value = null
   }

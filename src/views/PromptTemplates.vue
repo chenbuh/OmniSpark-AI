@@ -214,6 +214,23 @@ const sortOptions = [
   { label: '最多评论', value: 'comments' }
 ]
 
+function requireStringList(value: unknown, errorMessage: string) {
+  if (!Array.isArray(value)) {
+    throw new Error(errorMessage)
+  }
+  const normalized: string[] = []
+  const seen = new Set<string>()
+  value.forEach((item: unknown) => {
+    const text = typeof item === 'string' ? item.trim() : ''
+    if (!text || seen.has(text)) {
+      throw new Error(errorMessage)
+    }
+    seen.add(text)
+    normalized.push(text)
+  })
+  return normalized
+}
+
 function requireTemplatePage(value: unknown) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
     throw new Error('模板数据待确认')
@@ -437,13 +454,7 @@ async function loadTemplateTags() {
   tagLoadState.value = 'loading'
   try {
     const res = await templateApi.getTags()
-    if (!Array.isArray((res as any).data)) {
-      throw new Error('模板标签待确认')
-    }
-    const values = (res as any).data
-    templateTags.value = values
-      .map((item: unknown) => typeof item === 'string' ? item.trim() : '')
-      .filter((item: string) => !!item)
+    templateTags.value = requireStringList((res as any).data, '模板标签待确认')
     if (activeTag.value !== 'all' && !templateTags.value.includes(activeTag.value)) {
       activeTag.value = 'all'
     }
@@ -466,7 +477,7 @@ function scheduleLoadTemplates(delay = 180) {
 onMounted(() => {
   try {
     const info = JSON.parse(localStorage.getItem('userInfo') || '{}')
-    currentUserId.value = info.id || null
+    currentUserId.value = normalizeOptionalPositiveNumber(info?.id) ?? null
   } catch {}
   loadTemplateTags()
   loadTemplates()

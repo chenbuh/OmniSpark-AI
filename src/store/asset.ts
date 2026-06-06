@@ -94,14 +94,11 @@ export const useAssetStore = defineStore('asset', {
         createdAt
       }
     },
-    setAssets(assets: any[]) {
+    setAssets(assets: unknown) {
       this.assets = normalizeAssetList(assets, this.normalizeAsset)
     },
     async refresh(params?: { projectId?: number; assetType?: string; taskId?: number; limit?: number }) {
       const res = await assetApi.getAssets(params)
-      if (!Array.isArray(res.data)) {
-        throw new Error('资产数据待确认')
-      }
       this.setAssets(res.data)
       return this.assets
     },
@@ -177,7 +174,10 @@ function parseOptionalPositiveNumber(value: unknown): number | undefined {
   return parsed
 }
 
-function normalizeAssetList(assets: unknown[], normalizeAsset: (asset: unknown) => Asset) {
+function normalizeAssetList(assets: unknown, normalizeAsset: (asset: unknown) => Asset) {
+  if (!Array.isArray(assets)) {
+    throw new Error('资产数据待确认')
+  }
   const normalized = assets.map(item => normalizeAsset(item))
   const ids = new Set<number>()
   normalized.forEach(item => {
