@@ -167,7 +167,6 @@
 import { computed, ref, reactive, onMounted, onBeforeUnmount, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useMessage, useDialog } from 'naive-ui'
-import { useProjectStore } from '@/store/project'
 import request from '@/api/request'
 import PublicCommentThread from '@/components/PublicCommentThread.vue'
 import { templateApi, type PromptTemplate } from '@/api/templates'
@@ -176,7 +175,6 @@ import { Plus, Trash2, BookOpen, Search, Edit3, Zap, Video, Copy, ThumbsUp, Mess
 const router = useRouter()
 const message = useMessage()
 const dialog = useDialog()
-const projectStore = useProjectStore()
 
 const activeTag = ref('all')
 const sortBy = ref('newest')
@@ -647,7 +645,7 @@ const handleSave = async () => {
   saving.value = true
   try {
     const payload = {
-      projectId: projectStore.activeProjectId ?? PUBLIC_TEMPLATE_LIBRARY_PROJECT_ID,
+      projectId: PUBLIC_TEMPLATE_LIBRARY_PROJECT_ID,
       name: form.name,
       tag: form.tag.trim() || undefined,
       content: form.content,

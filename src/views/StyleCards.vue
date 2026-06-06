@@ -843,7 +843,7 @@ async function handleSave() {
     return
   }
   const payload = {
-    projectId: projectStore.activeProjectId ?? PUBLIC_STYLE_CARD_LIBRARY_PROJECT_ID,
+    projectId: PUBLIC_STYLE_CARD_LIBRARY_PROJECT_ID,
     name: form.name,
     type: form.type,
     content: form.content,
