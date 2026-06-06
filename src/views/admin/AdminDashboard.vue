@@ -150,6 +150,7 @@ const dailyTasks = ref<{date:string;count:number}[] | null>(null)
 const dailyUsers = ref<{date:string;count:number}[] | null>(null)
 const trendStatus = ref<'loading' | 'ready' | 'error'>('loading')
 const recentUsersStatus = ref<'loading' | 'ready' | 'error'>('loading')
+const NO_CACHE_HEADERS = { 'X-No-Cache': '1' }
 
 const statCards = [
   { key: 'totalUsers', label: '总用户数', color: '#3b82f6' },
@@ -236,6 +237,102 @@ function requireStatsExportCsv(value: string) {
   return normalized
 }
 
+function requireOverviewStats(value: unknown) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new Error('统计概览待确认')
+  }
+  const record = value as Record<string, unknown>
+  const normalized = {
+    totalUsers: requireNonNegativeNumber(record.totalUsers, '统计概览待确认'),
+    totalProjects: requireNonNegativeNumber(record.totalProjects, '统计概览待确认'),
+    totalTasks: requireNonNegativeNumber(record.totalTasks, '统计概览待确认'),
+    totalAssets: requireNonNegativeNumber(record.totalAssets, '统计概览待确认'),
+    pendingTasks: requireNonNegativeNumber(record.pendingTasks, '统计概览待确认'),
+    runningTasks: requireNonNegativeNumber(record.runningTasks, '统计概览待确认'),
+    successTasks: requireNonNegativeNumber(record.successTasks, '统计概览待确认'),
+    failedTasks: requireNonNegativeNumber(record.failedTasks, '统计概览待确认')
+  }
+  if (normalized.pendingTasks + normalized.runningTasks + normalized.successTasks + normalized.failedTasks > normalized.totalTasks) {
+    throw new Error('统计概览待确认')
+  }
+  return normalized
+}
+
+function requireTrendSeries(value: unknown, errorMessage: string) {
+  if (!Array.isArray(value)) {
+    throw new Error(errorMessage)
+  }
+  const normalized = value.map((item) => {
+    if (!item || typeof item !== 'object' || Array.isArray(item)) {
+      throw new Error(errorMessage)
+    }
+    const record = item as Record<string, unknown>
+    const date = typeof record.date === 'string' ? record.date.trim() : ''
+    const count = requireNonNegativeNumber(record.count, errorMessage)
+    if (!date) {
+      throw new Error(errorMessage)
+    }
+    return { date, count, key: date }
+  })
+  const keys = new Set<string>()
+  normalized.forEach(item => {
+    if (keys.has(item.key)) {
+      throw new Error(errorMessage)
+    }
+    keys.add(item.key)
+  })
+  return normalized.map(({ date, count }) => ({ date, count }))
+}
+
+function requireRecentUsersPage(value: unknown) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new Error('最近注册用户待确认')
+  }
+  const record = value as Record<string, unknown>
+  const total = requireNonNegativeNumber(record.total, '最近注册用户待确认')
+  const rows = record.records
+  if (!Array.isArray(rows)) {
+    throw new Error('最近注册用户待确认')
+  }
+  const normalizedRecords = rows.map(item => normalizeRecentUserRecord(item))
+  const ids = new Set<number>()
+  normalizedRecords.forEach(item => {
+    if (ids.has(item.id)) {
+      throw new Error('最近注册用户待确认')
+    }
+    ids.add(item.id)
+  })
+  if (normalizedRecords.length > total) {
+    throw new Error('最近注册用户待确认')
+  }
+  return {
+    total,
+    records: normalizedRecords
+  }
+}
+
+function normalizeRecentUserRecord(value: unknown) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new Error('最近注册用户待确认')
+  }
+  const record = value as Record<string, unknown>
+  const id = requireNonNegativeNumber(record.id, '最近注册用户待确认')
+  const username = typeof record.username === 'string' ? record.username.trim() : ''
+  const role = typeof record.role === 'string' ? record.role.trim() : ''
+  const status = normalizeUserStatus(record.status)
+  if (id <= 0 || !username || !role || status === null) {
+    throw new Error('最近注册用户待确认')
+  }
+  return {
+    ...record,
+    id,
+    username,
+    nickname: typeof record.nickname === 'string' ? record.nickname.trim() : '',
+    role,
+    status
+  }
+}
+
 const handleExportCsv = async () => {
   const token = localStorage.getItem('satoken')
   const href = `${API_BASE_URL}/api/admin/stats/export/csv`
@@ -268,17 +365,16 @@ const loadDashboard = async () => {
     trendStatus.value = 'loading'
     recentUsersStatus.value = 'loading'
     const [overviewRes, trendsRes, usersRes] = await Promise.allSettled([
-      request.get('/api/admin/stats/overview'),
-      request.get('/api/admin/stats/trends'),
-      request.get('/api/admin/stats/users', { params: { page: 1, pageSize: 10 } })
+      request.get('/api/admin/stats/overview', { headers: NO_CACHE_HEADERS }),
+      request.get('/api/admin/stats/trends', { headers: NO_CACHE_HEADERS }),
+      request.get('/api/admin/stats/users', { params: { page: 1, pageSize: 10 }, headers: NO_CACHE_HEADERS })
     ])
     let failedCount = 0
 
     if (overviewRes.status === 'fulfilled') {
-      const overviewData = (overviewRes.value as any).data
-      if (overviewData && typeof overviewData === 'object' && !Array.isArray(overviewData)) {
-        stats.value = overviewData
-      } else {
+      try {
+        stats.value = requireOverviewStats((overviewRes.value as any).data)
+      } catch {
         stats.value = {}
         failedCount += 1
       }
@@ -288,17 +384,15 @@ const loadDashboard = async () => {
     }
 
     if (trendsRes.status === 'fulfilled') {
-      const trends = (trendsRes.value as any).data
-      const hasValidTrendPayload = !!trends
-        && typeof trends === 'object'
-        && !Array.isArray(trends)
-        && Array.isArray((trends as any).dailyTasks)
-        && Array.isArray((trends as any).dailyUsers)
-      if (hasValidTrendPayload) {
-        dailyTasks.value = (trends as any).dailyTasks
-        dailyUsers.value = (trends as any).dailyUsers
+      try {
+        const trends = (trendsRes.value as any).data
+        if (!trends || typeof trends !== 'object' || Array.isArray(trends)) {
+          throw new Error('趋势数据待确认')
+        }
+        dailyTasks.value = requireTrendSeries((trends as any).dailyTasks, '任务趋势待确认')
+        dailyUsers.value = requireTrendSeries((trends as any).dailyUsers, '用户趋势待确认')
         trendStatus.value = 'ready'
-      } else {
+      } catch {
         dailyTasks.value = null
         dailyUsers.value = null
         trendStatus.value = 'error'
@@ -312,11 +406,11 @@ const loadDashboard = async () => {
     }
 
     if (usersRes.status === 'fulfilled') {
-      const records = (usersRes.value as any).data?.records
-      if (Array.isArray(records)) {
-        recentUsers.value = records
+      try {
+        const pageData = requireRecentUsersPage((usersRes.value as any).data)
+        recentUsers.value = pageData.records
         recentUsersStatus.value = 'ready'
-      } else {
+      } catch {
         recentUsers.value = null
         recentUsersStatus.value = 'error'
         failedCount += 1
@@ -370,7 +464,15 @@ function toOptionalNumber(value: unknown): number | null {
     return null
   }
   const normalized = Number(value)
-  return Number.isNaN(normalized) ? null : normalized
+  return Number.isFinite(normalized) ? normalized : null
+}
+
+function requireNonNegativeNumber(value: unknown, errorMessage: string) {
+  const normalized = toOptionalNumber(value)
+  if (normalized == null || normalized < 0) {
+    throw new Error(errorMessage)
+  }
+  return normalized
 }
 </script>
 

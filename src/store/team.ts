@@ -7,37 +7,79 @@ export const useTeamStore = defineStore('team', {
     currentMembers: [] as TeamMember[]
   }),
   actions: {
-    normalizeTeam(team: any): Team {
+    normalizeTeam(team: unknown): Team {
+      if (!team || typeof team !== 'object' || Array.isArray(team)) {
+        throw new Error('团队数据待确认')
+      }
+      const record = team as Record<string, unknown>
+      const id = parseRequiredPositiveNumber(record.id, '团队数据待确认')
+      const ownerId = parseRequiredPositiveNumber(record.ownerId, '团队数据待确认')
+      const name = normalizeOptionalText(record.name)
+      if (!name) {
+        throw new Error('团队数据待确认')
+      }
+      const memberCountValue = parseOptionalNumber(record.memberCount)
+      if (memberCountValue != null && memberCountValue < 0) {
+        throw new Error('团队数据待确认')
+      }
       return {
-        id: Number(team.id),
-        name: team.name || '',
-        description: team.description || undefined,
-        ownerId: Number(team.ownerId),
-        ownerName: team.ownerName || undefined,
-        avatar: team.avatar || undefined,
-        status: parseOptionalNumber(team.status),
-        memberCount: team.memberCount == null ? undefined : Number(team.memberCount),
-        createdAt: String(team.createdAt || '').replace('T', ' ').substring(0, 19)
+        id,
+        name,
+        description: normalizeOptionalText(record.description) || undefined,
+        ownerId,
+        ownerName: normalizeOptionalText(record.ownerName) || undefined,
+        avatar: normalizeOptionalText(record.avatar) || undefined,
+        status: parseOptionalNumber(record.status),
+        memberCount: memberCountValue ?? undefined,
+        createdAt: normalizeDateTime(record.createdAt)
       }
     },
-    normalizeMember(m: any): TeamMember {
+    normalizeMember(m: unknown): TeamMember {
+      if (!m || typeof m !== 'object' || Array.isArray(m)) {
+        throw new Error('成员数据待确认')
+      }
+      const record = m as Record<string, unknown>
+      const id = parseRequiredPositiveNumber(record.id, '成员数据待确认')
+      const teamId = parseRequiredPositiveNumber(record.teamId, '成员数据待确认')
+      const userId = parseRequiredPositiveNumber(record.userId, '成员数据待确认')
+      const username = normalizeOptionalText(record.username)
+      const role = normalizeOptionalText(record.role)
+      if (!username || !role) {
+        throw new Error('成员数据待确认')
+      }
       return {
-        id: Number(m.id),
-        teamId: Number(m.teamId),
-        userId: Number(m.userId),
-        username: m.username || '',
-        nickname: m.nickname || undefined,
-        avatar: m.avatar || undefined,
-        role: typeof m.role === 'string' ? m.role.trim() : '',
-        status: parseOptionalNumber(m.status),
-        createdAt: String(m.createdAt || '').replace('T', ' ').substring(0, 19)
+        id,
+        teamId,
+        userId,
+        username,
+        nickname: normalizeOptionalText(record.nickname) || undefined,
+        avatar: normalizeOptionalText(record.avatar) || undefined,
+        role,
+        status: parseOptionalNumber(record.status),
+        createdAt: normalizeDateTime(record.createdAt)
       }
     },
     setTeams(data: any[]) {
-      this.teams = data.map(item => this.normalizeTeam(item))
+      const normalized = data.map(item => this.normalizeTeam(item))
+      const ids = new Set<number>()
+      normalized.forEach(item => {
+        if (ids.has(item.id)) {
+          throw new Error('团队数据待确认')
+        }
+        ids.add(item.id)
+      })
+      this.teams = normalized
     },
     setMembers(data: any[]) {
-      this.currentMembers = data.map(item => this.normalizeMember(item))
+      const normalized = data.map(item => this.normalizeMember(item))
+      const ids = new Set<number>()
+      normalized.forEach(item => {
+        if (ids.has(item.id)) {
+          throw new Error('成员数据待确认')
+        }
+        ids.add(item.id)
+      })
+      this.currentMembers = normalized
     },
     async refresh() {
       const res = await teamApi.getTeams()
@@ -53,6 +95,9 @@ export const useTeamStore = defineStore('team', {
         throw new Error('成员数据待确认')
       }
       this.setMembers(res.data)
+      if (this.currentMembers.some(item => item.teamId !== teamId)) {
+        throw new Error('成员数据待确认')
+      }
       return this.currentMembers
     },
     async createTeam(name: string, description?: string) {
@@ -103,7 +148,7 @@ function parseOptionalNumber(value: unknown): number | null {
     return null
   }
   const parsed = Number(value)
-  return Number.isNaN(parsed) ? null : parsed
+  return Number.isFinite(parsed) ? parsed : null
 }
 
 function parseRequiredTeamId(value: unknown): number | null {
@@ -116,4 +161,16 @@ function parseRequiredTeamId(value: unknown): number | null {
 
 function normalizeOptionalText(value: unknown): string {
   return typeof value === 'string' ? value.trim() : ''
+}
+
+function parseRequiredPositiveNumber(value: unknown, errorMessage: string): number {
+  const parsed = parseRequiredTeamId(value)
+  if (parsed == null) {
+    throw new Error(errorMessage)
+  }
+  return parsed
+}
+
+function normalizeDateTime(value: unknown): string {
+  return String(value || '').replace('T', ' ').substring(0, 19)
 }
