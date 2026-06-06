@@ -203,10 +203,10 @@
             <!-- 参数详情 -->
             <div class="params-details-card">
               <div class="params-head">
-                <span class="model-badge">视频模型: {{ actualVideoModelName || currentAsset.modelName }}</span>
+                <span class="model-badge">视频模型: {{ actualVideoModelName || '未记录模型' }}</span>
                 <span class="date">{{ currentAsset.createdAt }}</span>
               </div>
-              <p class="prompt-display"><strong>视频 Prompt:</strong> {{ actualVideoPrompt || currentAsset.prompt }}</p>
+              <p class="prompt-display"><strong>视频 Prompt:</strong> {{ actualVideoPrompt || '待确认' }}</p>
               <div class="param-compare-grid">
                 <div class="param-item">
                   <span class="param-label">生成模式</span>
@@ -261,7 +261,7 @@
                   <div v-else-if="task.status === 'success'" class="thumb-video-badge">
                     <Tv class="thumb-badge-icon" />
                   </div>
-                  <img v-if="task.status === 'success'" :src="getAssetThumbUrl(task.resultAssetId)" :alt="getVideoTaskDisplayPrompt(task) || '视频任务缩略图'" class="history-thumb-img" />
+                  <img v-if="task.status === 'success'" :src="getTaskThumbUrl(task)" :alt="getVideoTaskDisplayPrompt(task) || '视频任务缩略图'" class="history-thumb-img" />
                   <div v-else-if="task.status === 'failed'" class="thumb-failed-overlay">
                     <span class="thumb-failed-text">失败</span>
                   </div>
@@ -1021,16 +1021,14 @@ const startTaskPolling = (taskId: number) => {
 }
 
 const currentAsset = computed(() => {
-  if (activeTask.value && activeTask.value.status === 'success' && activeTask.value.resultAssetId) {
-    return assetStore.assets.find(a => a.id === activeTask.value?.resultAssetId)
+  if (activeTask.value && activeTask.value.status === 'success') {
+    return findTaskResultAsset(activeTask.value)
   }
   return null
 })
 
-const getAssetThumbUrl = (assetId?: number) => {
-  if (!assetId) return ''
-  const asset = assetStore.assets.find(a => a.id === assetId)
-  return asset ? asset.thumbUrl : ''
+const getTaskThumbUrl = (task: { id: number; resultAssetId?: number }) => {
+  return findTaskResultAsset(task)?.thumbUrl || ''
 }
 
 // 清除表单
@@ -1211,7 +1209,7 @@ const handleSelectHistory = (task: VideoHistoryTask) => {
 }
 
 const handleInspectHistoryTask = async (task: VideoHistoryTask) => {
-  if (task.status !== 'success' || !task.resultAssetId) {
+  if (task.status !== 'success') {
     message.error(task.errorMessage || '该任务生成失败，没有可查看的视频结果')
     return
   }

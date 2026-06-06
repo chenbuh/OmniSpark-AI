@@ -318,7 +318,7 @@
                 :class="{ 'active': idx === selectedBatchIndex }"
                 @click="selectedBatchIndex = idx"
               >
-                <img :src="asset.thumbUrl" :alt="actualImagePrompt || asset.prompt || '批次图片缩略图'" class="batch-thumb-img" loading="lazy" />
+                <img :src="asset.thumbUrl" :alt="actualImagePrompt || getImageTaskDisplayPrompt(activeTask) || '批次图片缩略图'" class="batch-thumb-img" loading="lazy" />
                 <div class="batch-thumb-overlay">
                   <span class="batch-thumb-idx">{{ idx + 1 }}</span>
                 </div>
@@ -327,11 +327,11 @@
 
             <div class="params-details-card">
               <div class="params-head">
-                <span class="model-badge">模型: {{ actualImageModelName || currentAsset.modelName }}</span>
+                <span class="model-badge">模型: {{ actualImageModelName || '未记录模型' }}</span>
                 <span class="date">{{ currentAsset.createdAt }}</span>
                 <span class="batch-badge" v-if="batchTotal > 1">共 {{ batchTotal }} 张</span>
               </div>
-              <p class="prompt-display"><strong>Prompt:</strong> {{ actualImagePrompt || currentAsset.prompt }}</p>
+              <p class="prompt-display"><strong>Prompt:</strong> {{ actualImagePrompt || '待确认' }}</p>
               <p v-if="actualImageNegativePrompt" class="prompt-display prompt-display-negative"><strong>Negative:</strong> {{ actualImageNegativePrompt }}</p>
               <!-- 实际参数对比 -->
               <n-collapse style="margin-top:10px;">
