@@ -14,7 +14,7 @@
         <n-card class="glass-card stat-card" :bordered="false">
           <div class="stat-inner">
             <span class="stat-label">{{ item.label }}</span>
-            <span class="stat-value" :style="{ color: item.color }">{{ stats[item.key] ?? '-' }}</span>
+            <span class="stat-value" :style="{ color: item.color }">{{ displayStatCardMetric(item.key) }}</span>
           </div>
         </n-card>
       </n-col>
@@ -142,17 +142,69 @@ import { useMessage } from 'naive-ui'
 import { Download } from 'lucide-vue-next'
 import request, { API_BASE_URL } from '@/api/request'
 
+type StatsMetricKey =
+  | 'totalUsers'
+  | 'totalProjects'
+  | 'totalTasks'
+  | 'totalAssets'
+  | 'pendingTasks'
+  | 'runningTasks'
+  | 'successTasks'
+  | 'failedTasks'
+
+type TaskDistributionMetricKey = 'pendingTasks' | 'runningTasks' | 'successTasks' | 'failedTasks'
+
+interface OverviewStats {
+  totalUsers: number
+  totalProjects: number
+  totalTasks: number
+  totalAssets: number
+  pendingTasks: number
+  runningTasks: number
+  successTasks: number
+  failedTasks: number
+}
+
+interface TrendPoint {
+  date: string
+  count: number
+}
+
+interface TrendsPayload {
+  dailyTasks: TrendPoint[]
+  dailyUsers: TrendPoint[]
+}
+
+interface RecentUserRecord {
+  id: number
+  username: string
+  nickname: string
+  role: string
+  status: number
+}
+
+interface RecentUsersPage {
+  total: number
+  records: RecentUserRecord[]
+}
+
+interface StatCard {
+  key: StatsMetricKey
+  label: string
+  color: string
+}
+
 const message = useMessage()
 const loading = ref(true)
-const stats = ref<Record<string, number>>({})
-const recentUsers = ref<any[] | null>(null)
-const dailyTasks = ref<{date:string;count:number}[] | null>(null)
-const dailyUsers = ref<{date:string;count:number}[] | null>(null)
+const stats = ref<OverviewStats | null>(null)
+const recentUsers = ref<RecentUserRecord[] | null>(null)
+const dailyTasks = ref<TrendPoint[] | null>(null)
+const dailyUsers = ref<TrendPoint[] | null>(null)
 const trendStatus = ref<'loading' | 'ready' | 'error'>('loading')
 const recentUsersStatus = ref<'loading' | 'ready' | 'error'>('loading')
 const NO_CACHE_HEADERS = { 'X-No-Cache': '1' }
 
-const statCards = [
+const statCards: StatCard[] = [
   { key: 'totalUsers', label: '总用户数', color: '#3b82f6' },
   { key: 'totalProjects', label: '总项目数', color: '#10b981' },
   { key: 'totalTasks', label: '总任务数', color: '#f59e0b' },
@@ -175,21 +227,27 @@ const barH = (c: number) => (c / maxCount.value) * (barChartH - 50)
 
 // 环形图
 const taskTotal = computed(() => {
-  const values = ['pendingTasks', 'runningTasks', 'successTasks', 'failedTasks']
-    .map(key => toOptionalNumber(stats.value[key]))
-    .filter((value): value is number => value != null)
-  if (values.length === 0) return null
+  if (!stats.value) return null
+  const values: number[] = [
+    stats.value.pendingTasks,
+    stats.value.runningTasks,
+    stats.value.successTasks,
+    stats.value.failedTasks
+  ]
   return values.reduce((sum, value) => sum + value, 0)
 })
 const taskTotalLabel = computed(() => taskTotal.value == null ? (loading.value ? '加载中' : '-') : String(taskTotal.value))
 const circum = 2 * Math.PI * 70 // 439.8
 const donutSegments = computed(() => {
+  if (!stats.value) {
+    return []
+  }
   const segments = [
-    { key: 'pending', color: '#6366f1', value: toOptionalNumber(stats.value.pendingTasks) },
-    { key: 'running', color: '#f59e0b', value: toOptionalNumber(stats.value.runningTasks) },
-    { key: 'success', color: '#10b981', value: toOptionalNumber(stats.value.successTasks) },
-    { key: 'failed', color: '#ef4444', value: toOptionalNumber(stats.value.failedTasks) }
-  ].filter((segment): segment is { key: string, color: string, value: number } => segment.value != null)
+    { key: 'pending', color: '#6366f1', value: stats.value.pendingTasks },
+    { key: 'running', color: '#f59e0b', value: stats.value.runningTasks },
+    { key: 'success', color: '#10b981', value: stats.value.successTasks },
+    { key: 'failed', color: '#ef4444', value: stats.value.failedTasks }
+  ]
 
   let offset = 0
   return segments.flatMap((segment) => {
@@ -258,7 +316,7 @@ function requireOverviewStats(value: unknown) {
   return normalized
 }
 
-function requireTrendSeries(value: unknown, errorMessage: string) {
+function requireTrendSeries(value: unknown, errorMessage: string): TrendPoint[] {
   if (!Array.isArray(value)) {
     throw new Error(errorMessage)
   }
@@ -284,7 +342,7 @@ function requireTrendSeries(value: unknown, errorMessage: string) {
   return normalized.map(({ date, count }) => ({ date, count }))
 }
 
-function requireRecentUsersPage(value: unknown) {
+function requireRecentUsersPage(value: unknown): RecentUsersPage {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
     throw new Error('最近注册用户待确认')
   }
@@ -311,7 +369,7 @@ function requireRecentUsersPage(value: unknown) {
   }
 }
 
-function normalizeRecentUserRecord(value: unknown) {
+function normalizeRecentUserRecord(value: unknown): RecentUserRecord {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
     throw new Error('最近注册用户待确认')
   }
@@ -330,6 +388,24 @@ function normalizeRecentUserRecord(value: unknown) {
     nickname: typeof record.nickname === 'string' ? record.nickname.trim() : '',
     role,
     status
+  }
+}
+
+function getResponseData(response: unknown, errorMessage: string): unknown {
+  if (!response || typeof response !== 'object' || Array.isArray(response) || !('data' in response)) {
+    throw new Error(errorMessage)
+  }
+  return response.data
+}
+
+function requireTrendsPayload(value: unknown): TrendsPayload {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new Error('趋势数据待确认')
+  }
+  const record = value as Record<string, unknown>
+  return {
+    dailyTasks: requireTrendSeries(record.dailyTasks, '任务趋势待确认'),
+    dailyUsers: requireTrendSeries(record.dailyUsers, '用户趋势待确认')
   }
 }
 
@@ -354,8 +430,8 @@ const handleExportCsv = async () => {
     link.click()
     URL.revokeObjectURL(url)
     message.success('报表已下载')
-  } catch (err: any) {
-    message.error(err.message || '导出失败')
+  } catch (err: unknown) {
+    message.error(err instanceof Error && err.message ? err.message : '导出失败')
   }
 }
 
@@ -373,24 +449,21 @@ const loadDashboard = async () => {
 
     if (overviewRes.status === 'fulfilled') {
       try {
-        stats.value = requireOverviewStats((overviewRes.value as any).data)
+        stats.value = requireOverviewStats(getResponseData(overviewRes.value, '统计概览待确认'))
       } catch {
-        stats.value = {}
+        stats.value = null
         failedCount += 1
       }
     } else {
-      stats.value = {}
+      stats.value = null
       failedCount += 1
     }
 
     if (trendsRes.status === 'fulfilled') {
       try {
-        const trends = (trendsRes.value as any).data
-        if (!trends || typeof trends !== 'object' || Array.isArray(trends)) {
-          throw new Error('趋势数据待确认')
-        }
-        dailyTasks.value = requireTrendSeries((trends as any).dailyTasks, '任务趋势待确认')
-        dailyUsers.value = requireTrendSeries((trends as any).dailyUsers, '用户趋势待确认')
+        const trends = requireTrendsPayload(getResponseData(trendsRes.value, '趋势数据待确认'))
+        dailyTasks.value = trends.dailyTasks
+        dailyUsers.value = trends.dailyUsers
         trendStatus.value = 'ready'
       } catch {
         dailyTasks.value = null
@@ -407,7 +480,7 @@ const loadDashboard = async () => {
 
     if (usersRes.status === 'fulfilled') {
       try {
-        const pageData = requireRecentUsersPage((usersRes.value as any).data)
+        const pageData = requireRecentUsersPage(getResponseData(usersRes.value, '最近注册用户待确认'))
         recentUsers.value = pageData.records
         recentUsersStatus.value = 'ready'
       } catch {
@@ -451,12 +524,18 @@ function userStatusLabel(value: unknown) {
   return normalized === 1 ? '正常' : '禁用'
 }
 
-function displayStatsMetric(key: string) {
-  const normalized = toOptionalNumber(stats.value[key])
-  if (normalized == null) {
+function displayStatsMetric(key: TaskDistributionMetricKey) {
+  if (!stats.value) {
     return loading.value ? '加载中' : '-'
   }
-  return normalized
+  return stats.value[key]
+}
+
+function displayStatCardMetric(key: StatsMetricKey) {
+  if (!stats.value) {
+    return loading.value ? '加载中' : '-'
+  }
+  return stats.value[key]
 }
 
 function toOptionalNumber(value: unknown): number | null {
