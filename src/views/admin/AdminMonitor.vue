@@ -28,7 +28,7 @@
               <text x="60" y="72" text-anchor="middle" fill="#6b7280" font-size="10">CPU</text>
             </svg>
             <div class="gauge-info">
-              <div class="info-row"><span>系统负载</span><span>{{ data.cpu?.systemLoadAverage ?? '-' }}</span></div>
+              <div class="info-row"><span>系统负载</span><span>{{ formatLoadAverage(data.cpu?.systemLoadAverage) }}</span></div>
               <div class="info-row"><span>核心数</span><span>{{ data.cpu?.availableProcessors ?? '-' }}</span></div>
               <div class="info-row"><span>进程 CPU</span><span>{{ formatPercent(data.processCpuUsage) }}</span></div>
             </div>
@@ -261,7 +261,7 @@ function requireMonitorData(value: unknown): MonitorData {
   if (availableProcessors == null || availableProcessors < 0 || typeof cpu.osName !== 'string' || typeof cpu.osArch !== 'string') {
     throw new Error('监控数据待确认')
   }
-  const systemLoadAverage = toOptionalNumber(cpu.systemLoadAverage)
+  const systemLoadAverage = normalizeUnavailableMetric(cpu.systemLoadAverage)
   const heapUsed = toOptionalNumber(memory.heapUsed)
   const heapMax = toOptionalNumber(memory.heapMax)
   const heapUsagePercent = toOptionalNumber(memory.heapUsagePercent)
@@ -281,14 +281,13 @@ function requireMonitorData(value: unknown): MonitorData {
   ) {
     throw new Error('监控数据待确认')
   }
-  const processCpuUsage = toOptionalNumber(value.processCpuUsage)
+  const processCpuUsage = normalizeUnavailablePercent(value.processCpuUsage)
   const diskTotal = toOptionalNumber(value.diskTotal)
   const diskUsed = toOptionalNumber(value.diskUsed)
   const diskFree = toOptionalNumber(value.diskFree)
   const diskUsagePercent = toOptionalNumber(value.diskUsagePercent)
   if (
-    (processCpuUsage != null && (processCpuUsage < 0 || processCpuUsage > 100))
-    || (diskTotal != null && diskTotal < 0)
+    (diskTotal != null && diskTotal < 0)
     || (diskUsed != null && diskUsed < 0)
     || (diskFree != null && diskFree < 0)
     || (diskUsagePercent != null && (diskUsagePercent < 0 || diskUsagePercent > 100))
@@ -362,6 +361,10 @@ const gaugeDashOffset = (value: unknown) => {
   return normalized == null ? circum : gaugeOffset(normalized)
 }
 const hasGaugeValue = (value: unknown) => toOptionalNumber(value) != null
+const formatLoadAverage = (value: unknown) => {
+  const normalized = toOptionalNumber(value)
+  return normalized != null ? Math.round(normalized * 100) / 100 : '-'
+}
 const formatPercent = (value: unknown) => {
   const normalized = toOptionalNumber(value)
   return normalized != null ? Math.round(normalized * 10) / 10 + '%' : '-'
@@ -381,6 +384,25 @@ function toOptionalNumber(value: unknown): number | null {
   }
   const normalized = Number(value)
   return Number.isFinite(normalized) ? normalized : null
+}
+
+function normalizeUnavailableMetric(value: unknown): number | null {
+  const normalized = toOptionalNumber(value)
+  if (normalized == null) {
+    return null
+  }
+  return normalized < 0 ? null : normalized
+}
+
+function normalizeUnavailablePercent(value: unknown): number | null {
+  const normalized = normalizeUnavailableMetric(value)
+  if (normalized == null) {
+    return null
+  }
+  if (normalized > 100) {
+    throw new Error('监控数据待确认')
+  }
+  return normalized
 }
 </script>
 
