@@ -346,8 +346,11 @@ watch(() => projectStore.activeProjectId, () => {
 })
 
 function buildTaskParameterCopyText(task: GenerationTask) {
-  if (task.requestJson) {
+  if (tryParseTaskRequestJson(task)) {
     return formatJson(task.requestJson)
+  }
+  if (task.requestJson) {
+    return task.requestJson
   }
   return JSON.stringify({
     projectId: task.projectId,
@@ -364,7 +367,14 @@ function buildTaskParameterCopyText(task: GenerationTask) {
 const handleCopyParams = async (task: GenerationTask) => {
   try {
     await navigator.clipboard.writeText(buildTaskParameterCopyText(task))
-    message.success(task.requestJson ? '真实请求参数已复制' : '已复制当前任务已记录的参数')
+    const payload = tryParseTaskRequestJson(task)
+    message.success(
+      payload
+        ? '真实请求参数已复制'
+        : task.requestJson
+          ? '已复制任务原始请求记录'
+          : '已复制当前任务已记录的参数'
+    )
   } catch {
     message.error('复制失败，请稍后再试')
   }
