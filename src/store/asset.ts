@@ -53,6 +53,13 @@ export interface Asset {
   createdAt: string
 }
 
+function getResponseData(response: unknown, errorMessage: string): unknown {
+  if (!isPlainObject(response) || !('data' in response)) {
+    throw new Error(errorMessage)
+  }
+  return response.data
+}
+
 export const useAssetStore = defineStore('asset', {
   state: () => ({
     assets: [] as Asset[]
@@ -99,8 +106,8 @@ export const useAssetStore = defineStore('asset', {
       this.assets = normalizeAssetList(assets, this.normalizeAsset)
     },
     async refresh(params?: { projectId?: number; assetType?: string; taskId?: number; limit?: number }) {
-      const res = await assetApi.getAssets(params)
-      this.setAssets(res.data)
+      const response = await assetApi.getAssets(params)
+      this.setAssets(getResponseData(response, '资产数据待确认'))
       return this.assets
     },
     getAssetsByProject(projectId: number) {
@@ -109,13 +116,13 @@ export const useAssetStore = defineStore('asset', {
     async toggleFavorite(id: number) {
       const existing = this.assets.find(asset => asset.id === id)
       const previousFavorite = existing?.favorite
-      const res = await assetApi.favoriteAsset(id)
-      const updated = this.normalizeAsset(res.data)
+      const response = await assetApi.favoriteAsset(id)
+      const updated = this.normalizeAsset(getResponseData(response, '资产状态待确认'))
       if (existing?.projectId) {
         await this.refresh({ projectId: existing.projectId })
       }
       const confirmedFromList = this.assets.find(asset => asset.id === id) || null
-      const confirmed = confirmedFromList || this.normalizeAsset((await assetApi.getAsset(id)).data)
+      const confirmed = confirmedFromList || this.normalizeAsset(getResponseData(await assetApi.getAsset(id), '资产结果待确认'))
       if (confirmed.favorite !== updated.favorite) {
         throw new Error('资产状态待确认')
       }

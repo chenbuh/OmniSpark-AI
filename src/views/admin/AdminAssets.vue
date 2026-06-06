@@ -234,7 +234,7 @@ async function loadAssetTypeItems() {
   assetTypeItemsLoadState.value = 'loading'
   try {
     const response = await dictApi.getItems('asset_category')
-    const items = requireAssetTypeItems(response.data)
+    const items = requireAssetTypeItems(getResponseData(response))
     assetTypeItems.value = items
     assetTypeItemsLoadState.value = 'ready'
   } catch {
