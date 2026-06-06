@@ -62,6 +62,22 @@ const lineOptions = [
   { label: '500 行', value: 500 }
 ]
 
+function requireLogLinesResult(value: unknown) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new Error('日志数据待确认')
+  }
+  const lines = (value as Record<string, unknown>).lines
+  if (!Array.isArray(lines)) {
+    throw new Error('日志数据待确认')
+  }
+  return lines.map((line: unknown) => {
+    if (typeof line !== 'string') {
+      throw new Error('日志数据待确认')
+    }
+    return line
+  })
+}
+
 const logLevelClass = (line: string) => {
   if (line.includes('ERROR') || line.includes('FATAL')) return 'level-error'
   if (line.includes('WARN')) return 'level-warn'
@@ -77,10 +93,7 @@ async function loadLogs() {
     const params: Record<string, any> = { lines: lineCount.value }
     if (search.value) params.search = search.value
     const res = await request.get('/api/admin/logs', { params })
-    if (!Array.isArray((res as any).data?.lines)) {
-      throw new Error('日志数据待确认')
-    }
-    logs.value = (res as any).data.lines
+    logs.value = requireLogLinesResult((res as any).data)
     errorNotified = false
     // 滚动到底部
     setTimeout(() => {

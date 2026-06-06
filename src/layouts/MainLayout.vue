@@ -243,6 +243,16 @@ import {
   Globe, User, Activity
 } from 'lucide-vue-next'
 
+type NotificationItem = {
+  id: number
+  title: string
+  content: string
+  type: string
+  isRead: boolean
+  relatedId: number | null
+  createdAt: string
+}
+
 const router = useRouter()
 const route = useRoute()
 const message = useMessage()
@@ -272,6 +282,7 @@ const permissionOptions = [
   { label: '编辑', value: 'edit' },
   { label: '管理', value: 'admin' }
 ]
+const ALLOWED_SHARE_PERMISSIONS = new Set(permissionOptions.map(item => item.value))
 
 const currentProjectName = computed(() => {
   const p = projectStore.projects.find(p => p.id === projectStore.activeProjectId)
@@ -286,7 +297,13 @@ function requireProjectShare(value: unknown) {
   const projectId = Number((value as any).projectId)
   const teamId = Number((value as any).teamId)
   const permission = typeof (value as any).permission === 'string' ? (value as any).permission.trim() : ''
-  if (!Number.isFinite(id) || id <= 0 || !Number.isFinite(projectId) || projectId <= 0 || !Number.isFinite(teamId) || teamId <= 0 || !permission) {
+  if (
+    !Number.isFinite(id) || id <= 0
+    || !Number.isFinite(projectId) || projectId <= 0
+    || !Number.isFinite(teamId) || teamId <= 0
+    || !permission
+    || !ALLOWED_SHARE_PERMISSIONS.has(permission)
+  ) {
     throw new Error('共享结果待确认')
   }
   return {
@@ -377,11 +394,11 @@ function requireExportPayload(value: unknown) {
   if (!Number.isFinite(projectId) || projectId <= 0 || !projectName) {
     throw new Error('项目导出结果待确认')
   }
-  const providers = Array.isArray(payload.providers) ? payload.providers : null
-  const promptTemplates = Array.isArray(payload.promptTemplates) ? payload.promptTemplates : null
-  const styleCards = Array.isArray(payload.styleCards) ? payload.styleCards : null
-  const workflows = Array.isArray(payload.workflows) ? payload.workflows : null
-  const assets = Array.isArray(payload.assets) ? payload.assets : null
+  const providers = requireObjectArray(payload.providers, '项目导出结果待确认')
+  const promptTemplates = requireObjectArray(payload.promptTemplates, '项目导出结果待确认')
+  const styleCards = requireObjectArray(payload.styleCards, '项目导出结果待确认')
+  const workflows = requireObjectArray(payload.workflows, '项目导出结果待确认')
+  const assets = requireObjectArray(payload.assets, '项目导出结果待确认')
   if (!providers || !promptTemplates || !styleCards || !workflows || !assets) {
     throw new Error('项目导出结果待确认')
   }
@@ -447,6 +464,31 @@ function requirePageTotal(value: unknown, errorMessage: string) {
   return total
 }
 
+function requireObjectArray(value: unknown, errorMessage: string) {
+  if (!Array.isArray(value)) {
+    throw new Error(errorMessage)
+  }
+  return value.map((item: unknown) => {
+    if (!item || typeof item !== 'object' || Array.isArray(item)) {
+      throw new Error(errorMessage)
+    }
+    return item as Record<string, unknown>
+  })
+}
+
+function requirePositiveIdList(value: unknown, errorMessage: string) {
+  const items = requireObjectArray(value, errorMessage)
+  const seenIds = new Set<number>()
+  items.forEach(item => {
+    const id = Number(item.id)
+    if (!Number.isFinite(id) || id <= 0 || seenIds.has(id)) {
+      throw new Error(errorMessage)
+    }
+    seenIds.add(id)
+  })
+  return items
+}
+
 async function verifyImportedProjectData(
   projectId: number,
   payload: ReturnType<typeof requireImportPayload>
@@ -469,13 +511,10 @@ async function verifyImportedProjectData(
     styleCardApi.list({ projectId, page: 1, pageSize: 1 }),
     workflowApi.list(projectId)
   ])
-  const providers = Array.isArray((providersRes as any).data) ? (providersRes as any).data : null
+  const providers = requirePositiveIdList((providersRes as any).data, '项目导入结果待确认')
   const templateTotal = requirePageTotal((templatesRes as any).data, '项目导入结果待确认')
   const styleCardTotal = requirePageTotal((styleCardsRes as any).data, '项目导入结果待确认')
-  const workflows = Array.isArray((workflowsRes as any).data) ? (workflowsRes as any).data : null
-  if (!providers || !workflows) {
-    throw new Error('项目导入结果待确认')
-  }
+  const workflows = requirePositiveIdList((workflowsRes as any).data, '项目导入结果待确认')
   if (providers.length !== payload.providers.length) {
     throw new Error('项目导入结果待确认')
   }
@@ -501,7 +540,14 @@ function normalizeNotificationItem(value: unknown) {
   const content = typeof item.content === 'string' ? item.content.trim() : ''
   const type = typeof item.type === 'string' ? item.type.trim() : ''
   const isRead = normalizeNotificationReadFlag(item.isRead)
-  if (!Number.isFinite(id) || id <= 0 || !title || !content || !type || isRead === null) {
+  const relatedId = item.relatedId == null || item.relatedId === '' ? null : Number(item.relatedId)
+  const createdAt = typeof item.createdAt === 'string' ? item.createdAt.trim() : ''
+  if (
+    !Number.isFinite(id) || id <= 0
+    || !title || !content || !type || isRead === null
+    || (relatedId !== null && (!Number.isFinite(relatedId) || relatedId <= 0))
+    || !createdAt
+  ) {
     throw new Error('通知数据待确认')
   }
   return {
@@ -511,8 +557,8 @@ function normalizeNotificationItem(value: unknown) {
     content,
     type,
     isRead,
-    relatedId: item.relatedId == null || item.relatedId === '' ? null : Number(item.relatedId),
-    createdAt: typeof item.createdAt === 'string' ? item.createdAt : ''
+    relatedId,
+    createdAt
   }
 }
 
@@ -520,7 +566,15 @@ function normalizeNotificationList(value: unknown) {
   if (!Array.isArray(value)) {
     throw new Error('通知数据待确认')
   }
-  return value.map(item => normalizeNotificationItem(item))
+  const normalized = value.map(item => normalizeNotificationItem(item))
+  const seenIds = new Set<number>()
+  normalized.forEach(item => {
+    if (seenIds.has(item.id)) {
+      throw new Error('通知数据待确认')
+    }
+    seenIds.add(item.id)
+  })
+  return normalized
 }
 
 const teamOptions = computed(() => {
@@ -705,10 +759,7 @@ const loadShareModalData = async () => {
 const loadTeamOptions = async () => {
   teamsLoadState.value = 'loading'
   try {
-    const teams = await teamStore.refresh()
-    if (!Array.isArray(teams)) {
-      throw new Error('团队选项待确认')
-    }
+    await teamStore.refresh()
     teamsLoadState.value = 'ready'
     if (newShareTeamId.value && !teamStore.teams.some(team => team.id === newShareTeamId.value)) {
       newShareTeamId.value = null
@@ -928,7 +979,7 @@ const handleExportProject = async () => {
 }
 
 // ===== 通知系统 =====
-const notifications = ref<any[] | null>(null)
+const notifications = ref<NotificationItem[] | null>(null)
 const unreadCount = ref<number | null>(null)
 let stompClient: any = null
 let notificationPollTimer: ReturnType<typeof setInterval> | null = null

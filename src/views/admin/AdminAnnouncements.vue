@@ -74,9 +74,17 @@ import { useMessage } from 'naive-ui'
 import { Plus } from 'lucide-vue-next'
 import request from '@/api/request'
 
+type AnnouncementRecord = {
+  id: number
+  title: string
+  content: string
+  priority: 'high' | 'normal' | 'low'
+  status: boolean | null
+}
+
 const message = useMessage()
 const loadingList = ref(true)
-const list = ref<any[] | null>(null)
+const list = ref<AnnouncementRecord[] | null>(null)
 const showEditor = ref(false)
 const editingId = ref<number | null>(null)
 const form = reactive({ title: '', content: '', priority: 'normal' })
@@ -101,22 +109,39 @@ function requireAnnouncement(value: unknown, action: 'create' | 'update') {
   }
 }
 
-function normalizeAnnouncementRecord(value: unknown) {
+function normalizeAnnouncementRecord(value: unknown): AnnouncementRecord {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
     throw new Error('公告数据待确认')
   }
   const announcement = requireAnnouncement(value, 'update')
-  if (!announcement.content || !announcement.priority) {
+  if (
+    !announcement.content
+    || (announcement.priority !== 'high' && announcement.priority !== 'normal' && announcement.priority !== 'low')
+  ) {
     throw new Error('公告数据待确认')
   }
   return {
-    ...(value as Record<string, unknown>),
     id: announcement.id,
     title: announcement.title,
     content: announcement.content,
     priority: announcement.priority,
     status: announcement.status
   }
+}
+
+function normalizeAnnouncementList(value: unknown) {
+  if (!Array.isArray(value)) {
+    throw new Error('公告数据待确认')
+  }
+  const normalized = value.map((item: unknown) => normalizeAnnouncementRecord(item))
+  const seenIds = new Set<number>()
+  normalized.forEach(item => {
+    if (seenIds.has(item.id)) {
+      throw new Error('公告数据待确认')
+    }
+    seenIds.add(item.id)
+  })
+  return normalized
 }
 
 onMounted(load)
@@ -126,11 +151,7 @@ async function load() {
   listLoadState.value = 'loading'
   try {
     const res = await request.get('/api/admin/announcements')
-    const data = (res as any).data
-    if (!Array.isArray(data)) {
-      throw new Error('公告数据待确认')
-    }
-    list.value = data.map((item: unknown) => normalizeAnnouncementRecord(item))
+    list.value = normalizeAnnouncementList((res as any).data)
     listLoadState.value = 'ready'
   } catch (err: any) {
     list.value = null
@@ -141,7 +162,7 @@ async function load() {
   }
 }
 
-function editAnnouncement(a: any) {
+function editAnnouncement(a: AnnouncementRecord) {
   editingId.value = a.id; form.title = a.title; form.content = a.content; form.priority = a.priority; showEditor.value = true
 }
 

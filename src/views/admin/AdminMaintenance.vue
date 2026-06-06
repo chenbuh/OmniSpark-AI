@@ -97,6 +97,23 @@ function normalizeConfigItem(value: unknown) {
   }
 }
 
+function normalizeConfigList(value: unknown) {
+  if (!Array.isArray(value)) {
+    throw new Error('维护模式配置待确认')
+  }
+  const normalized = value.map((item: unknown) => normalizeConfigItem(item))
+  const seenIds = new Set<number>()
+  const seenKeys = new Set<string>()
+  normalized.forEach(item => {
+    if (seenIds.has(item.id) || seenKeys.has(item.configKey)) {
+      throw new Error('维护模式配置待确认')
+    }
+    seenIds.add(item.id)
+    seenKeys.add(item.configKey)
+  })
+  return normalized
+}
+
 async function fetchMaintenanceStatus(noCache = false) {
   const res = await request.get('/api/admin/maintenance', {
     headers: noCache ? NO_CACHE_HEADERS : undefined
@@ -109,11 +126,7 @@ async function fetchMaintenanceConfigs() {
     params: { group: 'maintenance' },
     headers: NO_CACHE_HEADERS
   })
-  const data = (res as any).data
-  if (!Array.isArray(data)) {
-    throw new Error('维护模式配置待确认')
-  }
-  return data.map((item: unknown) => normalizeConfigItem(item))
+  return normalizeConfigList((res as any).data)
 }
 
 async function requireMaintenanceConfigConfirmed(expected: { enabled: boolean; message: string }) {

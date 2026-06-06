@@ -171,6 +171,14 @@ function requireAuditLogRecord(value: unknown): AuditLogRecord {
   }
 }
 
+function requireNonNegativeNumber(value: unknown, errorMessage: string) {
+  const normalized = toOptionalNumber(value)
+  if (normalized == null || normalized < 0) {
+    throw new Error(errorMessage)
+  }
+  return normalized
+}
+
 function requireAuditLogPage(value: unknown) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
     throw new Error('审计日志数据待确认')
@@ -202,9 +210,17 @@ function requireAuditActionList(value: unknown) {
   if (!Array.isArray(value)) {
     throw new Error('审计操作类型待确认')
   }
-  return Array.from(new Set(
-    value.map((item: unknown) => typeof item === 'string' ? item.trim() : '').filter(Boolean)
-  ))
+  const normalized: string[] = []
+  const seen = new Set<string>()
+  value.forEach((item: unknown) => {
+    const action = typeof item === 'string' ? item.trim() : ''
+    if (!action || seen.has(action)) {
+      throw new Error('审计操作类型待确认')
+    }
+    seen.add(action)
+    normalized.push(action)
+  })
+  return normalized
 }
 
 async function loadLogs() {
@@ -228,11 +244,7 @@ async function loadCleanupPreview(noCache = false) {
     params: { daysOld: cleanupDays.value },
     headers: noCache ? NO_CACHE_HEADERS : undefined
   })
-  const count = toOptionalNumber((res as any).data)
-  if (count == null || count < 0) {
-    throw new Error('清理结果待确认')
-  }
-  return count
+  return requireNonNegativeNumber((res as any).data, '清理结果待确认')
 }
 
 function requireCleanupConfirmed(
@@ -303,10 +315,7 @@ function handleCleanup() {
         const previousTotal = total.value
         const previewBefore = await loadCleanupPreview(true)
         const res = await request.delete('/api/audit-logs', { params: { daysOld: cleanupDays.value } })
-        const deletedCount = toOptionalNumber((res as any).data)
-        if (deletedCount == null) {
-          throw new Error('清理结果待确认')
-        }
+        const deletedCount = requireNonNegativeNumber((res as any).data, '清理结果待确认')
         page.value = 1
         const params: Record<string, any> = { page: page.value, size: pageSize.value }
         if (actionFilter.value) params.action = actionFilter.value
