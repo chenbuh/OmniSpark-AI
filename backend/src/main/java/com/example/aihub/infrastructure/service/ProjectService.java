@@ -206,17 +206,13 @@ public class ProjectService {
         vo.setSourceBranch(buildMetadataService.currentBranch());
         vo.setSourceCommitSha(buildMetadataService.currentCommitSha());
         vo.setAssetTransferMode("metadata-only");
-        vo.setAssetExportNotice("导出文件中的 assets 仅包含资产元数据，不包含可自动恢复的二进制文件；导入后请手动重新上传相关素材。");
+        vo.setAssetExportNotice("导出文件中的 assets 仅包含资产元数据，不包含可自动恢复的二进制文件；公共提示词模板与公共风格卡属于全局内容，不跟随项目导出。导入后请手动重新上传相关素材。");
         vo.setProject(VoMapper.copy(project, ProjectVO.class));
         vo.setProviders(providerMapper.selectList(
                 new LambdaQueryWrapper<ModelProvider>().eq(ModelProvider::getProjectId, projectId))
                 .stream().map(p -> VoMapper.copy(p, ModelProviderVO.class)).toList());
-        vo.setPromptTemplates(templateMapper.selectList(
-                new LambdaQueryWrapper<PromptTemplate>().eq(PromptTemplate::getProjectId, projectId))
-                .stream().map(t -> VoMapper.copy(t, PromptTemplateVO.class)).toList());
-        vo.setStyleCards(styleCardMapper.selectList(
-                new LambdaQueryWrapper<StyleCard>().eq(StyleCard::getProjectId, projectId))
-                .stream().map(s -> VoMapper.copy(s, StyleCardVO.class)).toList());
+        vo.setPromptTemplates(List.of());
+        vo.setStyleCards(List.of());
         vo.setWorkflows(workflowMapper.selectList(
                 new LambdaQueryWrapper<Workflow>().eq(Workflow::getProjectId, projectId))
                 .stream().map(w -> {
@@ -280,42 +276,6 @@ public class ProjectService {
             }
         }
 
-        // 导入提示词模板
-        if (data.getPromptTemplates() != null) {
-            for (PromptTemplateVO t : data.getPromptTemplates()) {
-                PromptTemplate entity = new PromptTemplate();
-                entity.setProjectId(newId);
-                entity.setName(t.getName());
-                entity.setContent(t.getContent());
-                entity.setNegativePrompt(t.getNegativePrompt());
-                entity.setModelName(t.getModelName());
-                entity.setTag(t.getTag());
-                entity.setStatus(normalizeStatusFlag(t.getStatus(), 1));
-                templateMapper.insert(entity);
-            }
-        }
-
-        // 导入风格卡
-        if (data.getStyleCards() != null) {
-            for (StyleCardVO s : data.getStyleCards()) {
-                StyleCard entity = new StyleCard();
-                entity.setProjectId(newId);
-                entity.setName(s.getName());
-                entity.setType(s.getType());
-                entity.setContent(s.getContent());
-                entity.setNegativePrompt(s.getNegativePrompt());
-                entity.setModelName(s.getModelName());
-                entity.setCfg(s.getCfg());
-                entity.setSteps(s.getSteps());
-                entity.setSize(s.getSize());
-                entity.setParamsJson(s.getParamsJson());
-                entity.setPreviewUrl(s.getPreviewUrl());
-                entity.setTag(s.getTag());
-                entity.setStatus(normalizeStatusFlag(s.getStatus(), 1));
-                styleCardMapper.insert(entity);
-            }
-        }
-
         // 导入工作流
         if (data.getWorkflows() != null) {
             for (Map<String, Object> w : data.getWorkflows()) {
@@ -331,16 +291,30 @@ public class ProjectService {
         }
 
         int skippedAssetCount = data.getAssets() == null ? 0 : data.getAssets().size();
+        boolean hasLegacyPromptTemplates = data.getPromptTemplates() != null && !data.getPromptTemplates().isEmpty();
+        boolean hasLegacyStyleCards = data.getStyleCards() != null && !data.getStyleCards().isEmpty();
+        String importNotice = buildProjectImportNotice(skippedAssetCount, hasLegacyPromptTemplates, hasLegacyStyleCards);
         return new ProjectImportResult(
                 newId,
                 data.getProviders() == null ? 0 : data.getProviders().size(),
-                data.getPromptTemplates() == null ? 0 : data.getPromptTemplates().size(),
-                data.getStyleCards() == null ? 0 : data.getStyleCards().size(),
+                0,
+                0,
                 data.getWorkflows() == null ? 0 : data.getWorkflows().size(),
                 0,
                 skippedAssetCount,
-                skippedAssetCount > 0 ? "导入文件中的资产仅包含元数据，当前不会自动恢复二进制文件，请手动重新上传。" : ""
+                importNotice
         );
+    }
+
+    private String buildProjectImportNotice(int skippedAssetCount, boolean hasLegacyPromptTemplates, boolean hasLegacyStyleCards) {
+        List<String> notices = new ArrayList<>();
+        if (skippedAssetCount > 0) {
+            notices.add("导入文件中的资产仅包含元数据，当前不会自动恢复二进制文件，请手动重新上传。");
+        }
+        if (hasLegacyPromptTemplates || hasLegacyStyleCards) {
+            notices.add("导入文件中的提示词模板和风格卡属于旧版项目内数据；当前版本已改为公共库内容，本次不会恢复到项目空间。");
+        }
+        return String.join(" ", notices);
     }
 
     private ImportedWorkflowRecord requireImportedWorkflowRecord(Map<String, Object> workflowData) {

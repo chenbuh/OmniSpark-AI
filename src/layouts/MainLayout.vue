@@ -221,7 +221,7 @@
     >
       <div class="delete-project-dialog">
         <p>确定要删除项目空间“{{ currentProjectName || '未命名项目' }}”吗？</p>
-        <p>删除后将同时清理该项目下的图片、视频、参考素材，以及关联的任务、工作流、模板和模型配置，且无法恢复。</p>
+        <p>删除后将同时清理该项目下的图片、视频、参考素材，以及关联的任务、工作流和模型配置，且无法恢复；不会影响公共提示词模板库与公共风格卡库。</p>
       </div>
     </n-modal>
   </n-layout>
@@ -240,8 +240,6 @@ import { useTeamStore } from '@/store/team'
 import { projectShareApi, type ProjectShare } from '@/api/projectShares'
 import { providerApi } from '@/api/providers'
 import request, { API_BASE_URL } from '@/api/request'
-import { templateApi } from '@/api/templates'
-import { styleCardApi } from '@/api/styleCards'
 import { workflowApi } from '@/api/workflows'
 import { formatUserRole } from '@/utils/role'
 import {
@@ -551,17 +549,6 @@ function requireImportedProjectRecord(
   }
 }
 
-function requirePageTotal(value: unknown, errorMessage: string) {
-  if (!isPlainObject(value)) {
-    throw new Error(errorMessage)
-  }
-  const total = Number(value.total)
-  if (!Number.isFinite(total) || total < 0) {
-    throw new Error(errorMessage)
-  }
-  return total
-}
-
 function requireObjectArray(value: unknown, errorMessage: string) {
   if (!Array.isArray(value)) {
     throw new Error(errorMessage)
@@ -603,23 +590,13 @@ async function verifyImportedProjectData(
       description: expectedProjectDescription
     }
   )
-  const [providersRes, templatesRes, styleCardsRes, workflowsRes] = await Promise.all([
+  const [providersRes, workflowsRes] = await Promise.all([
     providerApi.getProviders(projectId),
-    templateApi.getTemplates({ projectId, page: 1, pageSize: 1 }),
-    styleCardApi.list({ projectId, page: 1, pageSize: 1 }),
     workflowApi.list(projectId)
   ])
   const providers = requirePositiveIdList(getResponseData(providersRes, '项目导入结果待确认'), '项目导入结果待确认')
-  const templateTotal = requirePageTotal(getResponseData(templatesRes, '项目导入结果待确认'), '项目导入结果待确认')
-  const styleCardTotal = requirePageTotal(getResponseData(styleCardsRes, '项目导入结果待确认'), '项目导入结果待确认')
   const workflows = requirePositiveIdList(getResponseData(workflowsRes, '项目导入结果待确认'), '项目导入结果待确认')
   if (providers.length !== payload.providers.length) {
-    throw new Error('项目导入结果待确认')
-  }
-  if (templateTotal !== payload.promptTemplates.length) {
-    throw new Error('项目导入结果待确认')
-  }
-  if (styleCardTotal !== payload.styleCards.length) {
     throw new Error('项目导入结果待确认')
   }
   if (workflows.length !== payload.workflows.length) {
@@ -1061,8 +1038,8 @@ const handleProjectAction = async (key: string) => {
           const responseData = getResponseData(response, '项目导入结果待确认')
           const importResult = requireProjectImportResult(responseData)
           if (importResult.importedProviderCount !== data.providers.length
-            || importResult.importedPromptTemplateCount !== data.promptTemplates.length
-            || importResult.importedStyleCardCount !== data.styleCards.length
+            || importResult.importedPromptTemplateCount !== 0
+            || importResult.importedStyleCardCount !== 0
             || importResult.importedWorkflowCount !== data.workflows.length) {
             throw new Error('项目导入结果待确认')
           }
@@ -1078,7 +1055,7 @@ const handleProjectAction = async (key: string) => {
           message.success(importResult.skippedAssetCount > 0
             ? `项目导入完成，已恢复配置数据；${importResult.skippedAssetCount} 个资产需手动重新上传`
             : '项目导入成功！')
-          if (importResult.skippedAssetCount > 0 && importResult.assetImportNotice) {
+          if (importResult.assetImportNotice) {
             message.warning(importResult.assetImportNotice)
           }
       } catch (err: unknown) {
