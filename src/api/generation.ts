@@ -73,7 +73,7 @@ export interface VideoGenerateDTO {
   sourceAssetId?: number
   endAssetId?: number
   duration?: string
-  options?: any
+  options?: Record<string, unknown>
 }
 
 export const generationApi = {

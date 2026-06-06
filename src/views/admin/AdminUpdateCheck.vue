@@ -182,16 +182,23 @@ function normalizeSourceType(value: unknown): UpdateSourceType {
   throw new Error('更新信息待确认')
 }
 
+function getErrorMessage(error: unknown, fallback: string) {
+  if (error instanceof Error && error.message.trim()) {
+    return error.message
+  }
+  return fallback
+}
+
 async function loadVersion() {
   versionLoadState.value = 'loading'
   try {
     const response = await request.get<unknown>('/api/admin/version')
     version.value = normalizeVersionInfo(getResponseData(response, '当前版本信息待确认'))
     versionLoadState.value = 'ready'
-  } catch (err: any) {
+  } catch (err: unknown) {
     version.value = null
     versionLoadState.value = 'error'
-    message.error(err.message || '当前版本信息待确认')
+    message.error(getErrorMessage(err, '当前版本信息待确认'))
   }
 }
 
@@ -204,10 +211,10 @@ async function checkUpdate() {
     })
     updateCheck.value = normalizeUpdateCheckInfo(getResponseData(response, '更新信息待确认'))
     updateCheckLoadState.value = 'ready'
-  } catch (err: any) {
+  } catch (err: unknown) {
     updateCheck.value = null
     updateCheckLoadState.value = 'error'
-    message.error(err.message || '更新信息待确认')
+    message.error(getErrorMessage(err, '更新信息待确认'))
   } finally {
     checking.value = false
   }

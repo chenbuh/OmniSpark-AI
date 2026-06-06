@@ -13,7 +13,7 @@ export interface GenerationTask {
   progress?: number
   progressText: string
   modelName: string
-  options?: any
+  options?: Record<string, unknown> | unknown[]
   errorMessage?: string
   resultAssetId?: number
   requestJson?: string
@@ -131,7 +131,7 @@ function normalizeTaskPayload(task: unknown): GenerationTask {
     progress: normalizeProgress(task.progress) ?? undefined,
     progressText: typeof task.progressText === 'string' ? task.progressText : '',
     modelName,
-    options: task.options,
+    options: normalizeTaskOptions(task.options),
     errorMessage: typeof task.errorMessage === 'string' && task.errorMessage ? task.errorMessage : undefined,
     resultAssetId: task.resultAssetId == null ? undefined : parseRequiredNumber(task.resultAssetId),
     requestJson: typeof task.requestJson === 'string' && task.requestJson ? task.requestJson : undefined,
@@ -173,6 +173,16 @@ function getResponseData(response: unknown, errorMessage: string) {
     throw new Error(errorMessage)
   }
   return response.data
+}
+
+function normalizeTaskOptions(value: unknown): Record<string, unknown> | unknown[] | undefined {
+  if (value == null) {
+    return undefined
+  }
+  if (isPlainObject(value) || Array.isArray(value)) {
+    return value
+  }
+  throw new Error('任务结果待确认')
 }
 
 function assertRetriedTaskMatchesSource(source: GenerationTask, retried: GenerationTask) {

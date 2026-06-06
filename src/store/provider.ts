@@ -47,7 +47,7 @@ export const useModelProviderStore = defineStore('modelProvider', {
     },
     async refresh(projectId?: number) {
       const res = await providerApi.getProviders(projectId)
-      this.setProviders(res.data)
+      this.setProviders(getResponseData(res, '模型提供商数据待确认'))
       if (
         typeof projectId === 'number'
         && this.providers.some(item => item.projectId !== 0 && item.projectId !== projectId)
@@ -61,6 +61,7 @@ export const useModelProviderStore = defineStore('modelProvider', {
     },
     async addProvider(provider: Omit<ModelProvider, 'id'>) {
       const res = await providerApi.createProvider(provider)
+      const responseData = getResponseData(res, '模型提供商创建结果待确认')
       const beforeIds = new Set(
         this.getProvidersByProject(provider.projectId)
           .map(item => item.id)
@@ -77,7 +78,7 @@ export const useModelProviderStore = defineStore('modelProvider', {
         enabled: provider.enabled,
         isDefault: provider.isDefault
       }
-      const responseId = parseRequiredProviderId((res as any).data?.id)
+      const responseId = extractProviderId(responseData)
       if (responseId !== null) {
         const createdById = this.providers.find(item => item.id === responseId)
         if (createdById) {
@@ -98,10 +99,11 @@ export const useModelProviderStore = defineStore('modelProvider', {
     },
     async updateProvider(id: number, updated: Partial<ModelProvider>) {
       const res = await providerApi.updateProvider(id, updated)
+      const responseData = getResponseData(res, '模型提供商更新结果待确认')
       const current = this.providers.find(p => p.id === id)
       const projectId = updated.projectId ?? current?.projectId
       await this.refresh(projectId)
-      const responseId = parseRequiredProviderId((res as any).data?.id)
+      const responseId = extractProviderId(responseData)
       const resolvedId = responseId ?? id
       const refreshed = this.providers.find(item => item.id === resolvedId)
       if (!refreshed) {
@@ -154,7 +156,7 @@ export const useModelProviderStore = defineStore('modelProvider', {
     },
     async testConnection(id: number): Promise<boolean> {
       const res = await providerApi.testConnection(id)
-      const result = (res as any).data
+      const result = getResponseData(res, '连接测试结果待确认')
       if (typeof result !== 'string' || result.trim() !== '连接成功') {
         throw new Error('连接测试结果待确认')
       }
@@ -284,4 +286,18 @@ function normalizeRequiredText(value: unknown, errorMessage: string): string {
     throw new Error(errorMessage)
   }
   return normalized
+}
+
+function getResponseData(response: unknown, errorMessage: string): unknown {
+  if (!isPlainObject(response) || !('data' in response)) {
+    throw new Error(errorMessage)
+  }
+  return response.data
+}
+
+function extractProviderId(value: unknown): number | null {
+  if (!isPlainObject(value)) {
+    return null
+  }
+  return parseRequiredProviderId(value.id)
 }

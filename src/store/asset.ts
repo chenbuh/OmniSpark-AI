@@ -71,8 +71,9 @@ export const useAssetStore = defineStore('asset', {
       const fileSizeBytes = parseOptionalFileSize(asset.fileSize)
       const taskId = asset.taskId == null ? undefined : parseOptionalPositiveNumber(asset.taskId)
       const fileName = typeof asset.fileName === 'string' ? asset.fileName.trim() : ''
-      const fileUrl = resolveAssetUrl(asset.fileUrl)
-      const thumbUrl = resolveAssetUrl(asset.thumbUrl || asset.fileUrl)
+      const fileUrl = resolveAssetUrl(typeof asset.fileUrl === 'string' ? asset.fileUrl : '')
+      const thumbSource = typeof asset.thumbUrl === 'string' && asset.thumbUrl ? asset.thumbUrl : asset.fileUrl
+      const thumbUrl = resolveAssetUrl(typeof thumbSource === 'string' ? thumbSource : '')
       const createdAt = String(asset.createdAt || '').replace('T', ' ').substring(0, 19)
       if (id <= 0 || projectId <= 0 || !fileName || !fileUrl || !thumbUrl || !createdAt || createdAt === '--') {
         throw new Error('资产结果待确认')
@@ -189,6 +190,6 @@ function normalizeAssetList(assets: unknown, normalizeAsset: (asset: unknown) =>
   return normalized
 }
 
-function isPlainObject(value: unknown): value is Record<string, any> {
+function isPlainObject(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === 'object' && !Array.isArray(value)
 }

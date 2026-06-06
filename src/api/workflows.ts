@@ -17,7 +17,7 @@ export interface WorkflowStep {
   usePreviousAsReference?: boolean
   language?: string
   voice?: boolean
-  options?: Record<string, any>
+  options?: Record<string, unknown>
 }
 
 export interface WorkflowVO {

@@ -25,6 +25,22 @@ export interface AssetStats {
   favoriteCount: number
 }
 
+export interface AssetVersionResult {
+  id: number
+  taskId?: number
+  assetType?: string
+  fileName?: string
+  fileUrl?: string
+  thumbUrl?: string
+  mimeType?: string
+  fileSize?: number | string
+  favorite?: boolean | number | string
+  prompt?: string
+  modelName?: string
+  createdAt?: string
+  [key: string]: unknown
+}
+
 export const assetApi = {
   // 获取资产列表，支持按项目 ID 和资产类型过滤
   async getAssets(params?: { projectId?: number; assetType?: string; taskId?: number; limit?: number }) {
@@ -40,7 +56,7 @@ export const assetApi = {
   },
 
   async pageAssets(params?: AssetPageParams) {
-    return request.get<PageResult<any>>('/api/assets/page', {
+    return request.get<PageResult<AssetVersionResult>>('/api/assets/page', {
       params: {
         scope: params?.scope || 'own',
         projectId: params?.projectId,
@@ -78,7 +94,7 @@ export const assetApi = {
   },
 
   async getVersions(id: number, limit = 12) {
-    return request.get<any[]>(`/api/assets/${id}/versions`, {
+    return request.get<AssetVersionResult[]>(`/api/assets/${id}/versions`, {
       params: { limit },
       headers: {
         'x-no-cache': '1'
