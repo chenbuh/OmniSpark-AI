@@ -31,7 +31,7 @@ export const useTaskStore = defineStore('task', {
       return normalizeTaskPayload(task)
     },
     setTasks(tasks: any[]) {
-      this.tasks = tasks.map(task => this.normalizeTask(task))
+      this.tasks = normalizeTaskList(tasks, this.normalizeTask)
     },
     upsertTask(task: any) {
       const normalized = this.normalizeTask(task)
@@ -113,25 +113,47 @@ function normalizeTaskPayload(task: unknown): GenerationTask {
     throw new Error('任务结果待确认')
   }
 
+  const id = parseRequiredNumber(task.id)
+  const projectId = parseRequiredNumber(task.projectId)
+  const providerId = parseRequiredNumber(task.providerId)
+  const prompt = typeof task.prompt === 'string' ? task.prompt.trim() : ''
+  const modelName = typeof task.modelName === 'string' ? task.modelName.trim() : ''
+  const createdAt = String(task.createdAt || '').replace('T', ' ').substring(0, 19)
+  if (id <= 0 || projectId <= 0 || providerId <= 0 || !prompt || !modelName || !createdAt) {
+    throw new Error('任务结果待确认')
+  }
+
   return {
-    id: parseRequiredNumber(task.id),
-    projectId: parseRequiredNumber(task.projectId),
-    providerId: parseRequiredNumber(task.providerId),
+    id,
+    projectId,
+    providerId,
     taskType,
-    prompt: typeof task.prompt === 'string' ? task.prompt : '',
+    prompt,
     negativePrompt: typeof task.negativePrompt === 'string' && task.negativePrompt ? task.negativePrompt : undefined,
     status,
     progress: normalizeProgress(task.progress) ?? undefined,
     progressText: typeof task.progressText === 'string' ? task.progressText : '',
-    modelName: typeof task.modelName === 'string' ? task.modelName : '',
+    modelName,
     options: task.options,
     errorMessage: typeof task.errorMessage === 'string' && task.errorMessage ? task.errorMessage : undefined,
     resultAssetId: task.resultAssetId == null ? undefined : parseRequiredNumber(task.resultAssetId),
     requestJson: typeof task.requestJson === 'string' && task.requestJson ? task.requestJson : undefined,
     responseJson: typeof task.responseJson === 'string' && task.responseJson ? task.responseJson : undefined,
-    createdAt: String(task.createdAt || '').replace('T', ' ').substring(0, 19),
+    createdAt,
     finishedAt: task.finishedAt == null ? undefined : String(task.finishedAt).replace('T', ' ').substring(0, 19)
   }
+}
+
+function normalizeTaskList(tasks: unknown[], normalizeTask: (task: unknown) => GenerationTask) {
+  const normalized = tasks.map(item => normalizeTask(item))
+  const ids = new Set<number>()
+  normalized.forEach(item => {
+    if (ids.has(item.id)) {
+      throw new Error('任务数据待确认')
+    }
+    ids.add(item.id)
+  })
+  return normalized
 }
 
 function parseRequiredNumber(value: unknown): number {

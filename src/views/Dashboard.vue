@@ -413,6 +413,21 @@ function normalizeAnnouncementRecord(value: unknown) {
   }
 }
 
+function requireAnnouncementList(value: unknown) {
+  if (!Array.isArray(value)) {
+    throw new Error('公告待确认')
+  }
+  const seenIds = new Set<number>()
+  return value.map((item: unknown) => {
+    const normalized = normalizeAnnouncementRecord(item)
+    if (seenIds.has(normalized.id)) {
+      throw new Error('公告待确认')
+    }
+    seenIds.add(normalized.id)
+    return normalized
+  })
+}
+
 async function loadDashboardData(options?: { loading?: boolean }) {
   if (options?.loading) {
     loading.value = true
@@ -455,17 +470,11 @@ async function loadDashboardData(options?: { loading?: boolean }) {
   }
 
   if (annResult.status === 'fulfilled') {
-    const anns = (annResult.value as any).data
-    if (Array.isArray(anns)) {
-      try {
-        const normalized = anns.map((item: unknown) => normalizeAnnouncementRecord(item))
-        announcement.value = normalized.length > 0 ? normalized[0] : null
-        announcementLoadFailed.value = false
-      } catch {
-        announcement.value = null
-        announcementLoadFailed.value = true
-      }
-    } else {
+    try {
+      const normalized = requireAnnouncementList((annResult.value as any).data)
+      announcement.value = normalized.length > 0 ? normalized[0] : null
+      announcementLoadFailed.value = false
+    } catch {
       announcement.value = null
       announcementLoadFailed.value = true
     }

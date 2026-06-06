@@ -69,25 +69,33 @@ export const useAssetStore = defineStore('asset', {
       const id = parseRequiredNumber(asset.id)
       const projectId = parseRequiredNumber(asset.projectId)
       const fileSizeBytes = parseOptionalFileSize(asset.fileSize)
+      const taskId = asset.taskId == null ? undefined : parseOptionalPositiveNumber(asset.taskId)
+      const fileName = typeof asset.fileName === 'string' ? asset.fileName.trim() : ''
+      const fileUrl = resolveAssetUrl(asset.fileUrl)
+      const thumbUrl = resolveAssetUrl(asset.thumbUrl || asset.fileUrl)
+      const createdAt = String(asset.createdAt || '').replace('T', ' ').substring(0, 19)
+      if (id <= 0 || projectId <= 0 || !fileName || !fileUrl || !thumbUrl || !createdAt || createdAt === '--') {
+        throw new Error('资产结果待确认')
+      }
       return {
         id,
         projectId,
-        taskId: asset.taskId == null ? undefined : Number(asset.taskId),
+        taskId,
         assetType,
-        fileName: typeof asset.fileName === 'string' ? asset.fileName : '',
-        fileUrl: resolveAssetUrl(asset.fileUrl),
-        thumbUrl: resolveAssetUrl(asset.thumbUrl || asset.fileUrl),
+        fileName,
+        fileUrl,
+        thumbUrl,
         mimeType: typeof asset.mimeType === 'string' ? asset.mimeType : '',
         fileSize: formatFileSize(fileSizeBytes),
         fileSizeBytes: fileSizeBytes == null ? undefined : fileSizeBytes,
         favorite: Number(asset.favorite ?? 0) !== 0,
         prompt: typeof asset.prompt === 'string' && asset.prompt ? asset.prompt : undefined,
         modelName: typeof asset.modelName === 'string' && asset.modelName ? asset.modelName : undefined,
-        createdAt: String(asset.createdAt || '').replace('T', ' ').substring(0, 19) || '--'
+        createdAt
       }
     },
     setAssets(assets: any[]) {
-      this.assets = assets.map(item => this.normalizeAsset(item))
+      this.assets = normalizeAssetList(assets, this.normalizeAsset)
     },
     async refresh(params?: { projectId?: number; assetType?: string; taskId?: number; limit?: number }) {
       const res = await assetApi.getAssets(params)
@@ -156,6 +164,29 @@ function parseRequiredNumber(value: unknown): number {
     throw new Error('资产结果待确认')
   }
   return parsed
+}
+
+function parseOptionalPositiveNumber(value: unknown): number | undefined {
+  if (value == null || value === '') {
+    return undefined
+  }
+  const parsed = Number(value)
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    throw new Error('资产结果待确认')
+  }
+  return parsed
+}
+
+function normalizeAssetList(assets: unknown[], normalizeAsset: (asset: unknown) => Asset) {
+  const normalized = assets.map(item => normalizeAsset(item))
+  const ids = new Set<number>()
+  normalized.forEach(item => {
+    if (ids.has(item.id)) {
+      throw new Error('资产数据待确认')
+    }
+    ids.add(item.id)
+  })
+  return normalized
 }
 
 function isPlainObject(value: unknown): value is Record<string, any> {

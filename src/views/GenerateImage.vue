@@ -609,21 +609,82 @@ function resolveOptionValue(options: GenerationMetaOption[], preferredValue?: st
   return options[0]?.value || fallbackValue
 }
 
+function requireGenerationMetaOptionList(value: unknown) {
+  if (!Array.isArray(value)) {
+    throw new Error('生图配置待确认')
+  }
+  const seenValues = new Set<string>()
+  return value.map((item: unknown) => {
+    if (!item || typeof item !== 'object' || Array.isArray(item)) {
+      throw new Error('生图配置待确认')
+    }
+    const label = typeof (item as any).label === 'string' ? (item as any).label.trim() : ''
+    const optionValue = typeof (item as any).value === 'string' ? (item as any).value.trim() : ''
+    if (!label || !optionValue || seenValues.has(optionValue)) {
+      throw new Error('生图配置待确认')
+    }
+    seenValues.add(optionValue)
+    return { label, value: optionValue }
+  })
+}
+
+function requireAllowedProviderTypes(value: unknown) {
+  if (!Array.isArray(value)) {
+    throw new Error('生图配置待确认')
+  }
+  return Array.from(new Set(
+    value.map((item: unknown) => typeof item === 'string' ? item.trim() : '').filter(Boolean)
+  ))
+}
+
+function requireGenerationMeta(value: unknown): GenerationMetaVO {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new Error('生图配置待确认')
+  }
+  const image = (value as any).image
+  if (!image || typeof image !== 'object' || Array.isArray(image)) {
+    throw new Error('生图配置待确认')
+  }
+  const resolutionOptions = requireGenerationMetaOptionList((image as any).resolutionOptions)
+  const qualityOptions = requireGenerationMetaOptionList((image as any).qualityOptions)
+  const allowedProviderTypes = requireAllowedProviderTypes((image as any).allowedProviderTypes)
+  const defaults = (image as any).defaults
+  if (defaults != null && (typeof defaults !== 'object' || Array.isArray(defaults))) {
+    throw new Error('生图配置待确认')
+  }
+  return {
+    image: {
+      allowedProviderTypes,
+      resolutionOptions,
+      qualityOptions,
+      defaults: {
+        resolution: typeof defaults?.resolution === 'string' ? defaults.resolution.trim() : '',
+        quality: typeof defaults?.quality === 'string' ? defaults.quality.trim() : ''
+      }
+    }
+  }
+}
+
+function normalizeImageAssetList(value: unknown, errorMessage: string) {
+  if (!Array.isArray(value)) {
+    throw new Error(errorMessage)
+  }
+  const seenIds = new Set<number>()
+  return value.map((item: unknown) => {
+    const normalized = assetStore.normalizeAsset(item)
+    if (seenIds.has(normalized.id)) {
+      throw new Error(errorMessage)
+    }
+    seenIds.add(normalized.id)
+    return normalized
+  })
+}
+
 async function loadGenerationMeta() {
   metaLoadState.value = 'loading'
   try {
     const res = await generationApi.getMeta()
-    const data = (res as any).data
-    if (!data || typeof data !== 'object' || Array.isArray(data)) {
-      throw new Error('生图配置待确认')
-    }
-    if (!data.image || typeof data.image !== 'object' || Array.isArray(data.image)) {
-      throw new Error('生图配置待确认')
-    }
-    if (!Array.isArray(data.image.allowedProviderTypes) || !Array.isArray(data.image.resolutionOptions) || !Array.isArray(data.image.qualityOptions)) {
-      throw new Error('生图配置待确认')
-    }
-    generationMeta.value = data as GenerationMetaVO
+    generationMeta.value = requireGenerationMeta((res as any).data)
     metaLoadState.value = 'ready'
   } catch {
     generationMeta.value = {}
@@ -1767,12 +1828,9 @@ const ensureTaskAssetsLoaded = async (task: { id: number; resultAssetId?: number
   if (!pendingFetchAsset) {
     pendingFetchAsset = (async () => {
       const res = await assetApi.getAssets({ taskId: task.id, projectId: projectStore.activeProjectId })
-      const assets = (res as any)?.data
-      if (!Array.isArray(assets)) {
-        throw new Error('图片结果待确认')
-      }
-      assets.forEach((item: any) => {
-        upsertAsset(assetStore.normalizeAsset(item))
+      const assets = normalizeImageAssetList((res as any)?.data, '图片结果待确认')
+      assets.forEach((item) => {
+        upsertAsset(item)
       })
       const confirmedTask = requireImageTaskAssetContext(task)
       const confirmedAssets = getConfirmedImageTaskAssets(confirmedTask)
@@ -2005,9 +2063,6 @@ async function uploadRefFile(file: File, placeholderUrl: string) {
     formData.append('projectId', String(activeProjectId))
     formData.append('file', file)
     const res = await assetApi.uploadAsset(formData)
-    if (!(res as any).data || typeof (res as any).data !== 'object' || Array.isArray((res as any).data)) {
-      throw new Error('参考图上传结果待确认')
-    }
     const asset = await confirmUploadedImageAsset(assetStore.normalizeAsset((res as any).data), {
       projectId: activeProjectId,
       fileName: file.name
