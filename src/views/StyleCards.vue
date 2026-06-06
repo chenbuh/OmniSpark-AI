@@ -2,7 +2,7 @@
   <div class="stylecards-container">
     <div class="page-header">
       <h2>角色卡 / 风格卡 (Character & Style Cards)</h2>
-      <p class="subtitle">保存可复用的角色设定或风格预设，在生图与视频页一键应用。</p>
+      <p class="subtitle">保存可复用的角色设定或风格预设，在生图页一键应用已记录的提示词和参数。</p>
     </div>
 
     <n-card class="glass-card filter-card" :bordered="false">
@@ -93,7 +93,7 @@
     <div class="empty-box" v-else-if="cards !== null">
       <Palette class="empty-icon" />
       <h3>暂无角色卡或风格卡</h3>
-      <p>创建一个预设卡片，保存完整的提示词、模型和参数配置，下次一键复用。</p>
+      <p>创建一个预设卡片，保存常用的提示词、模型和基础参数，下次一键复用。</p>
     </div>
     <div class="empty-box" v-else>
       <Palette class="empty-icon" />
@@ -304,6 +304,9 @@ const form = reactive({
   content: '',
   negativePrompt: '',
   modelName: '',
+  providerId: null as number | null,
+  refAssetId: null as number | null,
+  paramsJson: '',
   tag: '',
   cfg: null as number | null,
   steps: null as number | null,
@@ -416,9 +419,12 @@ function requireStyleCardDetail(value: unknown, action: 'create' | 'update') {
     type,
     negativePrompt: normalizeOptionalText(record.negativePrompt),
     modelName: normalizeOptionalText(record.modelName),
+    providerId: normalizeOptionalPositiveNumber(record.providerId),
+    refAssetId: normalizeOptionalPositiveNumber(record.refAssetId),
     cfg: normalizeOptionalNumber(record.cfg),
     steps: normalizeOptionalNumber(record.steps),
     size: normalizeOptionalText(record.size),
+    paramsJson: normalizeOptionalText(record.paramsJson),
     tag: normalizeOptionalText(record.tag),
     previewUrl: toRelativeUrl(typeof record.previewUrl === 'string' ? record.previewUrl : ''),
     likesCount,
@@ -498,9 +504,12 @@ function buildStyleCardExpectation(payload: StyleCardPayload) {
     content: payload.content.trim(),
     negativePrompt: normalizeOptionalText(payload.negativePrompt),
     modelName: normalizeOptionalText(payload.modelName),
+    providerId: normalizeOptionalPositiveNumber(payload.providerId),
+    refAssetId: normalizeOptionalPositiveNumber(payload.refAssetId),
     cfg: normalizeOptionalNumber(payload.cfg),
     steps: normalizeOptionalNumber(payload.steps),
     size: normalizeOptionalText(payload.size),
+    paramsJson: normalizeOptionalText(payload.paramsJson),
     tag: normalizeOptionalText(payload.tag),
     previewUrl: toRelativeUrl(payload.previewUrl || '')
   }
@@ -511,9 +520,12 @@ function toStyleCardState(detail: ReturnType<typeof requireStyleCardDetail>): Pa
     ...detail,
     negativePrompt: detail.negativePrompt || undefined,
     modelName: detail.modelName || undefined,
+    providerId: detail.providerId,
+    refAssetId: detail.refAssetId,
     cfg: detail.cfg ?? undefined,
     steps: detail.steps ?? undefined,
     size: detail.size || undefined,
+    paramsJson: detail.paramsJson || undefined,
     tag: detail.tag || undefined,
     previewUrl: detail.previewUrl || undefined
   }
@@ -530,9 +542,12 @@ function assertStyleCardMatches(
     || card.content !== expected.content
     || card.negativePrompt !== expected.negativePrompt
     || card.modelName !== expected.modelName
+    || card.providerId !== expected.providerId
+    || card.refAssetId !== expected.refAssetId
     || card.cfg !== expected.cfg
     || card.steps !== expected.steps
     || card.size !== expected.size
+    || card.paramsJson !== expected.paramsJson
     || card.tag !== expected.tag
     || card.previewUrl !== expected.previewUrl
   ) {
@@ -786,6 +801,9 @@ function resetForm() {
   form.content = ''
   form.negativePrompt = ''
   form.modelName = ''
+  form.providerId = null
+  form.refAssetId = null
+  form.paramsJson = ''
   form.tag = ''
   form.cfg = null
   form.steps = null
@@ -801,6 +819,9 @@ function handleEdit(card: StyleCard) {
   form.content = card.content
   form.negativePrompt = card.negativePrompt || ''
   form.modelName = card.modelName || ''
+  form.providerId = card.providerId ?? null
+  form.refAssetId = card.refAssetId ?? null
+  form.paramsJson = card.paramsJson || ''
   form.tag = card.tag || ''
   form.cfg = card.cfg ?? null
   form.steps = card.steps ?? null
@@ -821,9 +842,12 @@ async function handleSave() {
     content: form.content,
     negativePrompt: form.negativePrompt || undefined,
     modelName: form.modelName || undefined,
+    providerId: form.providerId ?? undefined,
+    refAssetId: form.refAssetId ?? undefined,
     cfg: form.cfg ?? undefined,
     steps: form.steps ?? undefined,
     size: form.size || undefined,
+    paramsJson: form.paramsJson || undefined,
     tag: form.tag.trim() || undefined,
     previewUrl: form.previewUrl || undefined
   } satisfies StyleCardPayload
@@ -931,20 +955,73 @@ async function handleDelete(id: number) {
   }
 }
 
-function handleApply(card: StyleCard) {
-  const baseParams: Record<string, string> = {
-    prompt: card.content,
-    model: card.modelName || ''
+function parseStyleCardParamsJson(card: StyleCard) {
+  if (!card.paramsJson) {
+    return null
   }
-  if (card.negativePrompt) baseParams.negPrompt = card.negativePrompt
-  if (card.cfg) baseParams.cfg = String(card.cfg)
-  if (card.steps) baseParams.steps = String(card.steps)
-  if (card.size) baseParams.size = card.size
+  try {
+    const parsed = JSON.parse(card.paramsJson)
+    return isPlainObject(parsed) ? parsed : null
+  } catch {
+    return null
+  }
+}
+
+function toPositiveInteger(value: unknown) {
+  const parsed = Number(value)
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    return null
+  }
+  return Math.round(parsed)
+}
+
+function appendQuery(query: Record<string, string>, key: string, value: unknown) {
+  const normalized = typeof value === 'string' ? value.trim() : ''
+  if (normalized) {
+    query[key] = normalized
+  }
+}
+
+function appendPositiveIntegerQuery(query: Record<string, string>, key: string, value: unknown) {
+  const normalized = toPositiveInteger(value)
+  if (normalized !== null) {
+    query[key] = String(normalized)
+  }
+}
+
+function appendFiniteNumberQuery(query: Record<string, string>, key: string, value: unknown) {
+  const parsed = Number(value)
+  if (Number.isFinite(parsed)) {
+    query[key] = String(parsed)
+  }
+}
+
+function handleApply(card: StyleCard) {
+  const payload = parseStyleCardParamsJson(card)
+  const options = payload && isPlainObject(payload.options) ? payload.options : {}
+  const query: Record<string, string> = {
+    prompt: card.content
+  }
+  appendQuery(query, 'model', payload?.modelName ?? card.modelName)
+  appendQuery(query, 'negPrompt', payload?.negativePrompt ?? card.negativePrompt)
+  appendPositiveIntegerQuery(query, 'providerId', payload?.providerId ?? card.providerId)
+  appendFiniteNumberQuery(query, 'cfg', options.cfg ?? card.cfg)
+  appendPositiveIntegerQuery(query, 'steps', options.steps ?? card.steps)
+  appendQuery(query, 'size', payload?.size ?? card.size)
+  appendQuery(query, 'resolution', options.resolution)
+  appendQuery(query, 'quality', options.quality)
+  appendQuery(query, 'aspectRatio', options.aspectRatio)
+  appendPositiveIntegerQuery(query, 'aspectWidth', options.aspectWidth)
+  appendPositiveIntegerQuery(query, 'aspectHeight', options.aspectHeight)
+  const sourceAssetId = payload?.sourceAssetId
+    ?? (Array.isArray(payload?.referenceAssetIds) ? payload?.referenceAssetIds[0] : null)
+    ?? card.refAssetId
+  appendPositiveIntegerQuery(query, 'sourceAssetId', sourceAssetId)
   router.push({
     path: '/generate/image',
-    query: baseParams
+    query
   })
-  message.success(`已应用「${card.name}」，跳转至生图面板`)
+  message.success(`已将「${card.name}」的已记录参数带入生图面板`)
 }
 </script>
 
