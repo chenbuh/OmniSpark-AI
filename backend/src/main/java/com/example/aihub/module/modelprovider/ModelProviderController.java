@@ -3,6 +3,7 @@ package com.example.aihub.module.modelprovider;
 import cn.dev33.satoken.annotation.SaCheckLogin;
 import com.example.aihub.common.annotation.RequireProjectPermission;
 import com.example.aihub.common.result.ApiResult;
+import com.example.aihub.common.result.PageResult;
 import com.example.aihub.common.util.PagingUtil;
 import com.example.aihub.infrastructure.dto.ModelProviderSaveDTO;
 import com.example.aihub.infrastructure.dto.ModelProviderUpdateDTO;
@@ -38,6 +39,13 @@ public class ModelProviderController {
     public ApiResult<List<ModelProviderVO>> list(@RequestParam(name = "projectId", required = false) Long projectId,
                                                  @RequestParam(defaultValue = "100") int limit) {
         return ApiResult.ok(providerService.list(projectId, PagingUtil.clampLimit(limit, 100, 100)));
+    }
+
+    @GetMapping("/page")
+    public ApiResult<PageResult<ModelProviderVO>> page(@RequestParam(name = "projectId", required = false) Long projectId,
+                                                       @RequestParam(defaultValue = "1") long page,
+                                                       @RequestParam(defaultValue = "20") long pageSize) {
+        return ApiResult.ok(providerService.page(projectId, page, pageSize));
     }
 
     @PostMapping

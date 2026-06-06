@@ -17,6 +17,12 @@ export interface ProviderMetaVO {
   }
 }
 
+export interface ProviderPageResult<T> {
+  total: number
+  pages: number
+  records: T[]
+}
+
 export const providerApi = {
   async getMeta() {
     return request.get('/api/model-providers/meta')
@@ -25,6 +31,10 @@ export const providerApi = {
   // 获取模型提供商列表
   async getProviders(projectId?: number) {
     return request.get('/api/model-providers', { params: { projectId } })
+  },
+
+  async getProvidersPage(params: { projectId?: number; page: number; pageSize: number }) {
+    return request.get('/api/model-providers/page', { params })
   },
 
   // 新增模型提供商

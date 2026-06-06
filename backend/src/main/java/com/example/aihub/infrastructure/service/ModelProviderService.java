@@ -1,7 +1,9 @@
 package com.example.aihub.infrastructure.service;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.example.aihub.common.exception.BusinessException;
+import com.example.aihub.common.result.PageResult;
 import com.example.aihub.common.util.PagingUtil;
 import com.example.aihub.common.util.VoMapper;
 import com.example.aihub.infrastructure.dto.ModelProviderSaveDTO;
@@ -86,6 +88,25 @@ public class ModelProviderService {
                 .stream()
                 .map(this::toMaskedVO)
                 .toList();
+    }
+
+    public PageResult<ModelProviderVO> page(Long projectId, long page, long pageSize) {
+        LambdaQueryWrapper<ModelProvider> wrapper = new LambdaQueryWrapper<>();
+        if (projectId != null) {
+            projectAccessGuard.assertAccess(projectId);
+            wrapper.eq(ModelProvider::getProjectId, projectId);
+        } else {
+            List<Long> accessibleIds = projectAccessGuard.accessibleProjectIds();
+            if (accessibleIds.isEmpty()) {
+                return new PageResult<>(0, 0, List.of());
+            }
+            wrapper.in(ModelProvider::getProjectId, accessibleIds);
+        }
+        wrapper.orderByDesc(ModelProvider::getId);
+        long safePage = PagingUtil.normalizePage(page);
+        long safePageSize = PagingUtil.clampPageSize(pageSize, 20);
+        Page<ModelProvider> result = providerMapper.selectPage(new Page<>(safePage, safePageSize), wrapper);
+        return new PageResult<>(result.getTotal(), result.getPages(), result.getRecords().stream().map(this::toMaskedVO).toList());
     }
 
     /** 将 apiKey 脱敏后再转 VO，避免明文密钥下发到前端。 */

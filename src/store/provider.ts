@@ -46,8 +46,8 @@ export const useModelProviderStore = defineStore('modelProvider', {
       this.providers = normalizeProviderList(providers, this.normalizeProvider)
     },
     async refresh(projectId?: number) {
-      const res = await providerApi.getProviders(projectId)
-      this.setProviders(getResponseData(res, '模型提供商数据待确认'))
+      const pageSize = 100
+      this.providers = await collectAllProviderPages(pageSize, this.normalizeProvider, projectId)
       if (
         typeof projectId === 'number'
         && this.providers.some(item => item.projectId !== projectId)
@@ -185,6 +185,61 @@ function normalizeProviderList(
     ids.add(item.id)
   })
   return normalized
+}
+
+async function collectAllProviderPages(
+  pageSize: number,
+  normalizeProvider: (provider: unknown) => ModelProvider,
+  projectId?: number
+): Promise<ModelProvider[]> {
+  const allProviders: ModelProvider[] = []
+  const seenIds = new Set<number>()
+  let page = 1
+  let total: number | null = null
+
+  while (true) {
+    const response = await providerApi.getProvidersPage({ projectId, page, pageSize })
+    const pageData = normalizeProviderPage(getResponseData(response, '模型提供商数据待确认'), normalizeProvider)
+    if (total === null) {
+      total = pageData.total
+    } else if (pageData.total !== total) {
+      throw new Error('模型提供商数据待确认')
+    }
+    pageData.records.forEach(provider => {
+      if (seenIds.has(provider.id)) {
+        throw new Error('模型提供商数据待确认')
+      }
+      seenIds.add(provider.id)
+      allProviders.push(provider)
+    })
+    if (allProviders.length > pageData.total) {
+      throw new Error('模型提供商数据待确认')
+    }
+    if (allProviders.length >= pageData.total || pageData.records.length === 0) {
+      break
+    }
+    page += 1
+  }
+
+  if ((total ?? 0) !== allProviders.length) {
+    throw new Error('模型提供商数据待确认')
+  }
+  return allProviders
+}
+
+function normalizeProviderPage(
+  value: unknown,
+  normalizeProvider: (provider: unknown) => ModelProvider
+): { total: number; records: ModelProvider[] } {
+  if (!isPlainObject(value)) {
+    throw new Error('模型提供商数据待确认')
+  }
+  const total = Number(value.total)
+  const records = normalizeProviderList(value.records, normalizeProvider)
+  if (!Number.isFinite(total) || total < 0 || records.length > total) {
+    throw new Error('模型提供商数据待确认')
+  }
+  return { total, records }
 }
 
 function assertProviderMatchesExpected(

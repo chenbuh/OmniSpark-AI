@@ -603,10 +603,10 @@ async function verifyImportedProjectData(
     }
   )
   const [providersRes, workflowsRes] = await Promise.all([
-    providerApi.getProviders(projectId),
+    collectAllProviderRecords(projectId),
     workflowApi.list(projectId)
   ])
-  const providers = requirePositiveIdList(getResponseData(providersRes, '项目导入结果待确认'), '项目导入结果待确认')
+  const providers = requirePositiveIdList(providersRes, '项目导入结果待确认')
   const workflows = requirePositiveIdList(getResponseData(workflowsRes, '项目导入结果待确认'), '项目导入结果待确认')
   if (providers.length !== payload.providers.length) {
     throw new Error('项目导入结果待确认')
@@ -615,6 +615,56 @@ async function verifyImportedProjectData(
     throw new Error('项目导入结果待确认')
   }
   return importedProject
+}
+
+async function collectAllProviderRecords(projectId: number) {
+  const pageSize = 100
+  const allRecords: Record<string, unknown>[] = []
+  const seenIds = new Set<number>()
+  let page = 1
+  let total: number | null = null
+
+  while (true) {
+    const response = await providerApi.getProvidersPage({ projectId, page, pageSize })
+    const pageData = requirePositiveIdPage(getResponseData(response, '项目导入结果待确认'), '项目导入结果待确认')
+    if (total === null) {
+      total = pageData.total
+    } else if (pageData.total !== total) {
+      throw new Error('项目导入结果待确认')
+    }
+    pageData.records.forEach(item => {
+      const id = Number(item.id)
+      if (seenIds.has(id)) {
+        throw new Error('项目导入结果待确认')
+      }
+      seenIds.add(id)
+      allRecords.push(item)
+    })
+    if (allRecords.length > pageData.total) {
+      throw new Error('项目导入结果待确认')
+    }
+    if (allRecords.length >= pageData.total || pageData.records.length === 0) {
+      break
+    }
+    page += 1
+  }
+
+  if ((total ?? 0) !== allRecords.length) {
+    throw new Error('项目导入结果待确认')
+  }
+  return allRecords
+}
+
+function requirePositiveIdPage(value: unknown, errorMessage: string) {
+  if (!isPlainObject(value)) {
+    throw new Error(errorMessage)
+  }
+  const total = Number(value.total)
+  const records = requirePositiveIdList(value.records, errorMessage)
+  if (!Number.isFinite(total) || total < 0 || records.length > total) {
+    throw new Error(errorMessage)
+  }
+  return { total, records }
 }
 
 function normalizeNotificationItem(value: unknown): NotificationItem {
