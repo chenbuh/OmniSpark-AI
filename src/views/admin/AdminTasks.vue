@@ -38,8 +38,8 @@
             <td><code>#{{ t.id }}</code></td>
             <td>{{ t.projectId }}</td>
             <td><n-tag size="small" :type="taskTypeTagType(t.taskType)" round>{{ taskTypeLabel(t.taskType) }}</n-tag></td>
-            <td><n-ellipsis :line-clamp="1" :tooltip="true">{{ t.prompt }}</n-ellipsis></td>
-            <td><n-tag size="mini" type="info" :bordered="false"><code>{{ t.modelName }}</code></n-tag></td>
+            <td><n-ellipsis :line-clamp="1" :tooltip="true">{{ getTaskDisplayPrompt(t) }}</n-ellipsis></td>
+            <td><n-tag size="mini" type="info" :bordered="false"><code>{{ getTaskDisplayModelName(t) }}</code></n-tag></td>
             <td><n-tag size="small" :type="statusTagType(t.status)">{{ statusLabel(t.status) }}</n-tag></td>
             <td>{{ formatTaskProgress(t.progress) }}</td>
             <td>
@@ -72,11 +72,11 @@
             <div class="ds-row"><span class="ds-lbl">项目</span><span>项目 #{{ detail.projectId }}</span></div>
           </div>
           <div class="ds-card">
-            <div class="ds-row"><span class="ds-lbl">模型</span><n-tag size="small" type="info"><code>{{ detail.modelName }}</code></n-tag></div>
+            <div class="ds-row"><span class="ds-lbl">模型</span><n-tag size="small" type="info"><code>{{ getTaskDisplayModelName(detail) }}</code></n-tag></div>
             <div class="ds-row"><span class="ds-lbl">创建</span><span>{{ String(detail.createdAt||'').replace('T',' ').substring(0,19) }}</span></div>
           </div>
-          <div class="ds-section"><h4 class="ds-title">提示词</h4><div class="ds-code">{{ detail.prompt }}</div></div>
-          <div class="ds-section" v-if="detail.negativePrompt"><h4 class="ds-title">负向提示词</h4><div class="ds-code">{{ detail.negativePrompt }}</div></div>
+          <div class="ds-section"><h4 class="ds-title">提示词</h4><div class="ds-code">{{ getTaskDisplayPrompt(detail) }}</div></div>
+          <div class="ds-section" v-if="getTaskDisplayNegativePrompt(detail)"><h4 class="ds-title">负向提示词</h4><div class="ds-code">{{ getTaskDisplayNegativePrompt(detail) }}</div></div>
           <div class="ds-section" v-if="detail.requestJson"><h4 class="ds-title">请求参数</h4><n-code :code="formatJson(detail.requestJson)" language="json" /></div>
           <div class="ds-section" v-if="detail.responseJson"><h4 class="ds-title">响应数据</h4><n-code :code="formatJson(detail.responseJson)" language="json" /></div>
           <div class="ds-section" v-if="detail.errorMessage">
@@ -157,6 +157,39 @@ const formatTaskProgress = (progress: unknown) => {
   if (progress == null || progress === '') return '-'
   const normalized = Number(progress)
   return Number.isNaN(normalized) ? '-' : `${Math.max(0, Math.min(100, normalized))}%`
+}
+
+function normalizeTaskField(value: unknown) {
+  return typeof value === 'string' ? value.trim() : ''
+}
+
+function tryParseTaskRequestJson(task?: { requestJson?: string } | null) {
+  if (!task?.requestJson) {
+    return null
+  }
+  try {
+    const parsed = JSON.parse(task.requestJson)
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+      ? parsed as Record<string, unknown>
+      : null
+  } catch {
+    return null
+  }
+}
+
+function getTaskDisplayPrompt(task?: AdminTaskRecord | null) {
+  const payload = tryParseTaskRequestJson(task)
+  return normalizeTaskField(payload?.prompt) || task?.prompt || ''
+}
+
+function getTaskDisplayNegativePrompt(task?: AdminTaskRecord | null) {
+  const payload = tryParseTaskRequestJson(task)
+  return normalizeTaskField(payload?.negativePrompt) || task?.negativePrompt || ''
+}
+
+function getTaskDisplayModelName(task?: AdminTaskRecord | null) {
+  const payload = tryParseTaskRequestJson(task)
+  return normalizeTaskField(payload?.modelName) || task?.modelName || ''
 }
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {

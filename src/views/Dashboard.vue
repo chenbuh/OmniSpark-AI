@@ -150,10 +150,10 @@
                     {{ task.taskType === 'image' ? '生图' : '视频' }}
                   </n-tag>
                 </td>
-                <td><code>{{ task.modelName }}</code></td>
+                <td><code>{{ getTaskDisplayModelName(task) }}</code></td>
                 <td>
                   <n-ellipsis style="max-width: 260px" :tooltip="true">
-                    {{ task.prompt }}
+                    {{ getTaskDisplayPrompt(task) }}
                   </n-ellipsis>
                 </td>
                 <td>
@@ -261,6 +261,34 @@ const currentAssets = computed(() => {
 const currentProjectTasks = computed(() => {
   return taskStore.getTasksByProject(projectStore.activeProjectId)
 })
+
+function normalizeTaskField(value: unknown) {
+  return typeof value === 'string' ? value.trim() : ''
+}
+
+function tryParseTaskRequestJson(task?: { requestJson?: string } | null) {
+  if (!task?.requestJson) {
+    return null
+  }
+  try {
+    const parsed = JSON.parse(task.requestJson)
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+      ? parsed as Record<string, unknown>
+      : null
+  } catch {
+    return null
+  }
+}
+
+function getTaskDisplayPrompt(task?: GenerationTask | null) {
+  const payload = tryParseTaskRequestJson(task)
+  return normalizeTaskField(payload?.prompt) || task?.prompt || ''
+}
+
+function getTaskDisplayModelName(task?: GenerationTask | null) {
+  const payload = tryParseTaskRequestJson(task)
+  return normalizeTaskField(payload?.modelName) || task?.modelName || ''
+}
 
 // 获取最近的 3 个任务
 const recentTasks = computed(() => {
