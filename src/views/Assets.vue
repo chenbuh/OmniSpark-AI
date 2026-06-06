@@ -569,6 +569,88 @@ function formatCompactDate(value: string) {
   return value.length >= 16 ? value.substring(5, 16) : value
 }
 
+function requireAssetTypeItems(value: unknown) {
+  if (!Array.isArray(value)) {
+    throw new Error('资产分类待确认')
+  }
+  const seenCodes = new Set<string>()
+  return value.map((item: unknown) => {
+    if (!item || typeof item !== 'object' || Array.isArray(item)) {
+      throw new Error('资产分类待确认')
+    }
+    const itemCode = typeof (item as any).itemCode === 'string' ? (item as any).itemCode.trim() : ''
+    const itemName = typeof (item as any).itemName === 'string' ? (item as any).itemName.trim() : ''
+    if (!itemCode || !itemName || seenCodes.has(itemCode)) {
+      throw new Error('资产分类待确认')
+    }
+    seenCodes.add(itemCode)
+    return {
+      ...(item as DataDictItem),
+      itemCode,
+      itemName
+    }
+  })
+}
+
+function normalizeAssetList(value: unknown, errorMessage: string) {
+  if (!Array.isArray(value)) {
+    throw new Error(errorMessage)
+  }
+  const seenIds = new Set<number>()
+  return value.map((item: unknown) => {
+    const normalized = assetStore.normalizeAsset(item)
+    if (seenIds.has(normalized.id)) {
+      throw new Error(errorMessage)
+    }
+    seenIds.add(normalized.id)
+    return normalized
+  })
+}
+
+function requireAssetPage(value: unknown) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new Error('资产列表数据待确认')
+  }
+  const records = normalizeAssetList((value as any).records, '资产列表数据待确认')
+  const count = Number((value as any).total)
+  if (!Number.isFinite(count) || count < 0 || records.length > count) {
+    throw new Error('资产列表数据待确认')
+  }
+  return {
+    records,
+    total: count
+  }
+}
+
+function requireAssetStats(value: unknown) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new Error('资产汇总待确认')
+  }
+  const total = Number((value as any).total)
+  const imageCount = Number((value as any).imageCount)
+  const videoCount = Number((value as any).videoCount)
+  const referenceCount = Number((value as any).referenceCount)
+  const favoriteCount = Number((value as any).favoriteCount)
+  if (
+    !Number.isFinite(total) || total < 0
+    || !Number.isFinite(imageCount) || imageCount < 0
+    || !Number.isFinite(videoCount) || videoCount < 0
+    || !Number.isFinite(referenceCount) || referenceCount < 0
+    || !Number.isFinite(favoriteCount) || favoriteCount < 0
+    || imageCount + videoCount + referenceCount > total
+    || favoriteCount > total
+  ) {
+    throw new Error('资产汇总待确认')
+  }
+  return {
+    total,
+    imageCount,
+    videoCount,
+    referenceCount,
+    favoriteCount
+  }
+}
+
 function assetTypeLabel(assetType?: string | null) {
   const normalized = String(assetType || '').trim()
   if (!normalized) {
@@ -581,10 +663,7 @@ async function loadAssetTypeItems() {
   assetTypeItemsLoadState.value = 'loading'
   try {
     const res = await dictApi.getItems('asset_category')
-    if (!Array.isArray((res as any).data)) {
-      throw new Error('资产分类待确认')
-    }
-    const items = (res as any).data
+    const items = requireAssetTypeItems((res as any).data)
     assetTypeItems.value = items
     assetTypeItemsLoadState.value = 'ready'
   } catch {
@@ -621,20 +700,14 @@ async function loadAssets() {
     if (loadToken !== latestLoadToken) {
       return
     }
-    if (pageResult.status !== 'fulfilled' || !Array.isArray(pageResult.value.data?.records)) {
+    if (pageResult.status !== 'fulfilled') {
       throw new Error('资产列表数据待确认')
     }
-    assetRecords.value = pageResult.value.data.records.map(item => assetStore.normalizeAsset(item))
-    filteredTotal.value = typeof pageResult.value.data?.total === 'number' ? pageResult.value.data.total : null
-    if (statsResult.status === 'fulfilled' && statsResult.value.data && typeof statsResult.value.data === 'object' && !Array.isArray(statsResult.value.data)) {
-      const statsData = statsResult.value.data
-      assetStats.value = {
-        total: typeof statsData.total === 'number' ? statsData.total : null,
-        imageCount: typeof statsData.imageCount === 'number' ? statsData.imageCount : null,
-        videoCount: typeof statsData.videoCount === 'number' ? statsData.videoCount : null,
-        referenceCount: typeof statsData.referenceCount === 'number' ? statsData.referenceCount : null,
-        favoriteCount: typeof statsData.favoriteCount === 'number' ? statsData.favoriteCount : null
-      }
+    const pageData = requireAssetPage(pageResult.value.data)
+    assetRecords.value = pageData.records
+    filteredTotal.value = pageData.total
+    if (statsResult.status === 'fulfilled') {
+      assetStats.value = requireAssetStats(statsResult.value.data)
       assetStatsLoadState.value = 'ready'
     } else {
       assetStats.value = {
@@ -688,10 +761,7 @@ async function loadVersionHistory() {
   }
   try {
     const res = await assetApi.getVersions(selectedAsset.value.id, 12)
-    if (!Array.isArray(res.data)) {
-      throw new Error('版本历史待确认')
-    }
-    versionHistory.value = res.data.map(item => assetStore.normalizeAsset(item))
+    versionHistory.value = normalizeAssetList(res.data, '版本历史待确认')
   } catch {
     versionHistory.value = null
   }
@@ -871,7 +941,15 @@ async function loadSubtitles() {
     if (!Array.isArray(res.data)) {
       throw new Error('字幕数据待确认')
     }
-    subtitles.value = res.data.map((item: unknown) => normalizeSubtitleRecord(item))
+    const normalizedSubtitles = res.data.map((item: unknown) => normalizeSubtitleRecord(item))
+    const seenIds = new Set<number>()
+    subtitles.value = normalizedSubtitles.filter(item => {
+      if (seenIds.has(item.id)) {
+        throw new Error('字幕数据待确认')
+      }
+      seenIds.add(item.id)
+      return true
+    })
   } catch {
     subtitles.value = null
   }

@@ -90,7 +90,16 @@ const dialog = useDialog()
 const userStore = useUserStore()
 const isAdmin = computed(() => userStore.userInfo?.role === 'admin')
 
-const logs = ref<any[] | null>(null)
+type AuditLogRecord = {
+  id: number
+  username: string
+  action: string
+  detail: string
+  ip: string
+  createdAt: string
+}
+
+const logs = ref<AuditLogRecord[] | null>(null)
 const actionFilter = ref<string | null>(null)
 const page = ref(1)
 const pageSize = ref(20)
@@ -141,20 +150,72 @@ const toOptionalNumber = (value: unknown): number | null => {
   return Number.isNaN(normalized) ? null : normalized
 }
 
+function requireAuditLogRecord(value: unknown): AuditLogRecord {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new Error('审计日志数据待确认')
+  }
+  const record = value as Record<string, unknown>
+  const id = Number(record.id)
+  const action = typeof record.action === 'string' ? record.action.trim() : ''
+  const createdAt = typeof record.createdAt === 'string' ? record.createdAt.trim() : ''
+  if (!Number.isFinite(id) || id <= 0 || !action || !createdAt) {
+    throw new Error('审计日志数据待确认')
+  }
+  return {
+    id,
+    username: typeof record.username === 'string' ? record.username.trim() : '',
+    action,
+    detail: typeof record.detail === 'string' ? record.detail.trim() : '',
+    ip: typeof record.ip === 'string' ? record.ip.trim() : '',
+    createdAt
+  }
+}
+
+function requireAuditLogPage(value: unknown) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new Error('审计日志数据待确认')
+  }
+  const records = (value as any).records
+  const count = Number((value as any).total)
+  if (!Array.isArray(records) || !Number.isFinite(count) || count < 0) {
+    throw new Error('审计日志数据待确认')
+  }
+  const seenIds = new Set<number>()
+  const normalizedRecords = records.map((item: unknown) => {
+    const normalized = requireAuditLogRecord(item)
+    if (seenIds.has(normalized.id)) {
+      throw new Error('审计日志数据待确认')
+    }
+    seenIds.add(normalized.id)
+    return normalized
+  })
+  if (normalizedRecords.length > count) {
+    throw new Error('审计日志数据待确认')
+  }
+  return {
+    records: normalizedRecords,
+    total: count
+  }
+}
+
+function requireAuditActionList(value: unknown) {
+  if (!Array.isArray(value)) {
+    throw new Error('审计操作类型待确认')
+  }
+  return Array.from(new Set(
+    value.map((item: unknown) => typeof item === 'string' ? item.trim() : '').filter(Boolean)
+  ))
+}
+
 async function loadLogs() {
   try {
     const params: Record<string, any> = { page: page.value, size: pageSize.value }
     if (actionFilter.value) params.action = actionFilter.value
     const endpoint = isAdmin.value ? '/api/audit-logs' : '/api/audit-logs/my'
-    const res = await request.get(endpoint, { params })
-    const data = (res as any).data || {}
-    if (!Array.isArray(data.records)) {
-      logs.value = null
-      total.value = null
-      return
-    }
+    const res = await request.get(endpoint, { params, headers: NO_CACHE_HEADERS })
+    const data = requireAuditLogPage((res as any).data)
     logs.value = data.records
-    total.value = typeof data.total === 'number' ? data.total : null
+    total.value = data.total
   } catch (err: any) {
     logs.value = null
     total.value = null
@@ -204,11 +265,8 @@ function requireCleanupConfirmed(
 async function loadActions() {
   actionOptionsLoadState.value = 'loading'
   try {
-    const res = await request.get('/api/audit-logs/actions')
-    if (!Array.isArray((res as any).data)) {
-      throw new Error('审计操作类型待确认')
-    }
-    actions.value = (res as any).data
+    const res = await request.get('/api/audit-logs/actions', { headers: NO_CACHE_HEADERS })
+    actions.value = requireAuditActionList((res as any).data)
     actionOptionsLoadState.value = 'ready'
     if (actionFilter.value && !actions.value.includes(actionFilter.value)) {
       actionFilter.value = null
@@ -254,12 +312,9 @@ function handleCleanup() {
         if (actionFilter.value) params.action = actionFilter.value
         const endpoint = isAdmin.value ? '/api/audit-logs' : '/api/audit-logs/my'
         const refreshRes = await request.get(endpoint, { params, headers: NO_CACHE_HEADERS })
-        const refreshData = (refreshRes as any).data || {}
-        if (!Array.isArray(refreshData.records)) {
-          throw new Error('清理结果待确认')
-        }
+        const refreshData = requireAuditLogPage((refreshRes as any).data)
         logs.value = refreshData.records
-        total.value = typeof refreshData.total === 'number' ? refreshData.total : null
+        total.value = refreshData.total
         const previewAfter = await loadCleanupPreview(true)
         if (logs.value === null || total.value == null) {
           throw new Error('清理结果待确认')

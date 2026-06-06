@@ -98,15 +98,17 @@ function requireWebhook(value: unknown, action: 'create' | 'update') {
   const id = Number((value as any).id)
   const name = typeof (value as any).name === 'string' ? (value as any).name.trim() : ''
   const url = typeof (value as any).url === 'string' ? (value as any).url.trim() : ''
-  if (!Number.isFinite(id) || id <= 0 || !name || !url) {
+  const events = normalizeEvents((value as any).events)
+  const status = normalizeBinaryStatus((value as any).status)
+  if (!Number.isFinite(id) || id <= 0 || !name || !url || events.length === 0 || status === null) {
     throw new Error(action === 'create' ? 'Webhook 创建结果待确认' : 'Webhook 更新结果待确认')
   }
   return {
     id,
     name,
     url,
-    events: normalizeEvents((value as any).events),
-    status: normalizeBinaryStatus((value as any).status)
+    events,
+    status
   }
 }
 
@@ -164,13 +166,7 @@ async function loadEventOptions() {
   eventOptionsLoadState.value = 'loading'
   try {
     const res = await request.get('/api/admin/webhooks/meta', { headers: NO_CACHE_HEADERS })
-    if (!Array.isArray((res as any).data)) {
-      throw new Error('Webhook 事件待确认')
-    }
-    const options = (res as any).data
-    eventOptions.value = options
-      .filter((item: any) => item && typeof item.label === 'string' && typeof item.value === 'string')
-      .map((item: any) => ({ label: item.label, value: item.value }))
+    eventOptions.value = requireWebhookEventOptions((res as any).data)
     eventOptionsLoadState.value = 'ready'
     if (form.events.length === 0) {
       form.events = defaultEvents()
@@ -199,12 +195,31 @@ function openCreateEditor() {
 
 function normalizeEvents(events: unknown): string[] {
   if (Array.isArray(events)) {
-    return events.map(item => String(item).trim()).filter(Boolean)
+    return Array.from(new Set(events.map(item => String(item).trim()).filter(Boolean)))
   }
   if (typeof events === 'string') {
-    return events.split(',').map(item => item.trim()).filter(Boolean)
+    return Array.from(new Set(events.split(',').map(item => item.trim()).filter(Boolean)))
   }
   return []
+}
+
+function requireWebhookEventOptions(value: unknown) {
+  if (!Array.isArray(value)) {
+    throw new Error('Webhook 事件待确认')
+  }
+  const seenValues = new Set<string>()
+  return value.map((item: unknown) => {
+    if (!item || typeof item !== 'object' || Array.isArray(item)) {
+      throw new Error('Webhook 事件待确认')
+    }
+    const label = typeof (item as any).label === 'string' ? (item as any).label.trim() : ''
+    const optionValue = typeof (item as any).value === 'string' ? (item as any).value.trim() : ''
+    if (!label || !optionValue || seenValues.has(optionValue)) {
+      throw new Error('Webhook 事件待确认')
+    }
+    seenValues.add(optionValue)
+    return { label, value: optionValue }
+  })
 }
 
 function eventLabels(events: unknown) {
