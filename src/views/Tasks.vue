@@ -2,7 +2,7 @@
   <div class="tasks-container">
     <div class="page-header">
       <h2>任务中心 (Task Queue)</h2>
-      <p class="subtitle">跟踪并管理当前空间下所有的生图与生视频异步渲染任务队列进度。</p>
+      <p class="subtitle">跟踪并管理当前项目下所有的生图与生视频异步渲染任务队列进度。</p>
     </div>
 
     <!-- 过滤与统计条 -->

@@ -28,7 +28,7 @@
           <strong>{{ activeTasksCount }}</strong>
         </div>
         <div class="hero-pill">
-          <span class="hero-pill-label">空间资产</span>
+          <span class="hero-pill-label">当前项目资产</span>
           <strong>{{ currentAssets.length }}</strong>
         </div>
         <div class="hero-pill">
@@ -64,7 +64,7 @@
         <n-card class="stat-card stat-card-item glass-card blue-glow">
           <div class="card-inner">
             <div class="text-group">
-              <span class="label">当前空间资产</span>
+              <span class="label">当前项目资产</span>
               <span class="value">{{ currentAssets.length }} <span class="unit">个</span></span>
             </div>
             <div class="icon-box blue">
@@ -101,7 +101,7 @@
         <div class="quick-card image-channel" @click="router.push('/generate/image')">
           <div class="channel-content">
             <h3>文生图 / 图生图</h3>
-            <p>使用当前空间已配置的图像模型，直接发起真实生图任务。</p>
+            <p>使用当前项目已配置的图像模型，直接发起真实生图任务。</p>
             <div class="arrow-btn">
               <ArrowRight class="btn-icon" />
             </div>
@@ -113,7 +113,7 @@
         <div class="quick-card video-channel" @click="router.push('/generate/video')">
           <div class="channel-content">
             <h3>生视频中心</h3>
-            <p>使用当前空间已配置的视频模型，发起文生视频或图生视频任务。</p>
+            <p>使用当前项目已配置的视频模型，发起文生视频或图生视频任务。</p>
             <div class="arrow-btn">
               <ArrowRight class="btn-icon" />
             </div>
@@ -327,8 +327,8 @@ const successRateHint = computed(() => {
   const total = completedTasks.value.length
   if (total === 0) {
     return activeTasksCount.value > 0
-      ? `当前空间已有 ${activeTasksCount.value} 个任务进行中，待完成后展示真实成功率`
-      : '当前空间还没有已完成任务，生成后会展示真实成功率'
+      ? `当前项目已有 ${activeTasksCount.value} 个任务进行中，待完成后展示真实成功率`
+      : '当前项目还没有已完成任务，生成后会展示真实成功率'
   }
   if (activeTasksCount.value > 0) {
     return `已完成 ${total} 个任务，成功 ${successTasksCount.value} 个，当前还有 ${activeTasksCount.value} 个任务进行中`
