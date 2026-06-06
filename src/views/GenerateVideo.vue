@@ -900,7 +900,7 @@ function assertGeneratedVideoAsset(
 
 function getConfirmedVideoTaskAsset(task: { id: number; projectId: number; prompt?: string; modelName?: string; resultAssetId?: number }) {
   const exact = task.resultAssetId
-    ? assetStore.assets.find(asset => asset.id === task.resultAssetId)
+    ? assetStore.assets.find(asset => asset.id === task.resultAssetId && asset.taskId === task.id)
     : null
   if (exact) {
     assertGeneratedVideoAsset(exact, task)

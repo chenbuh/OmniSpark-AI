@@ -1965,7 +1965,7 @@ function getConfirmedImageTaskAssets(task: { id: number; projectId: number; prom
   const assets = assetStore.assets.filter(asset => asset.taskId === task.id)
   assets.forEach(asset => assertGeneratedImageAsset(asset, task))
   if (task.resultAssetId) {
-    const resultAsset = assetStore.assets.find(asset => asset.id === task.resultAssetId)
+    const resultAsset = assetStore.assets.find(asset => asset.id === task.resultAssetId && asset.taskId === task.id)
     if (!resultAsset) {
       throw new Error('图片结果待确认')
     }
@@ -2093,7 +2093,7 @@ const currentAsset = computed(() => {
 
   // 方式一：通过 resultAssetId 直接定位
   if (task.resultAssetId) {
-    const found = assetStore.assets.find(a => a.id === task.resultAssetId)
+    const found = assetStore.assets.find(a => a.id === task.resultAssetId && a.taskId === task.id)
     if (found) return found
   }
 
