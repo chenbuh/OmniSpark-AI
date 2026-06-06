@@ -44,8 +44,8 @@ export const useTaskStore = defineStore('task', {
       return normalized
     },
     async refresh(params?: { projectId?: number; status?: string }) {
-      const res = await taskApi.getTasks(params)
-      this.setTasks(res.data)
+      const response = await taskApi.getTasks(params)
+      this.setTasks(getResponseData(response, '任务数据待确认'))
       return this.tasks
     },
     getTasksByProject(projectId: number) {
@@ -53,15 +53,15 @@ export const useTaskStore = defineStore('task', {
     },
     async retryTask(id: number) {
       const sourceTask = this.tasks.find(task => task.id === id)
-        ?? this.normalizeTask((await taskApi.getTask(id)).data)
-      const res = await taskApi.retryTask(id)
-      const retried = this.normalizeTask((res as any).data)
+        ?? this.normalizeTask(getResponseData(await taskApi.getTask(id), '任务结果待确认'))
+      const response = await taskApi.retryTask(id)
+      const retried = this.normalizeTask(getResponseData(response, '任务重试结果待确认'))
       assertRetriedTaskMatchesSource(sourceTask, retried)
       this.upsertTask(retried)
       await this.refresh({ projectId: sourceTask.projectId })
       await useAssetStore().refresh({ projectId: sourceTask.projectId })
       const confirmedFromList = this.tasks.find(task => task.id === retried.id)
-      const confirmed = confirmedFromList ?? this.normalizeTask((await taskApi.getTask(retried.id)).data)
+      const confirmed = confirmedFromList ?? this.normalizeTask(getResponseData(await taskApi.getTask(retried.id), '任务重试结果待确认'))
       assertRetriedTaskMatchesSource(sourceTask, confirmed)
       assertTaskMatchesExpected(retried, confirmed)
       return confirmed
@@ -164,8 +164,15 @@ function parseRequiredNumber(value: unknown): number {
   return parsed
 }
 
-function isPlainObject(value: unknown): value is Record<string, any> {
+function isPlainObject(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === 'object' && !Array.isArray(value)
+}
+
+function getResponseData(response: unknown, errorMessage: string) {
+  if (!isPlainObject(response) || !('data' in response)) {
+    throw new Error(errorMessage)
+  }
+  return response.data
 }
 
 function assertRetriedTaskMatchesSource(source: GenerationTask, retried: GenerationTask) {

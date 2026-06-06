@@ -603,10 +603,22 @@ const resolutionBaseMap: Record<'1k' | '2k' | '4k', number> = {
   '2k': 2048,
   '4k': 4096
 }
+type ImageHistoryTask = ReturnType<typeof taskStore.normalizeTask>
 
 function resolveOptionValue(options: GenerationMetaOption[], preferredValue?: string, fallbackValue = '') {
   if (preferredValue && options.some(option => option.value === preferredValue)) return preferredValue
   return options[0]?.value || fallbackValue
+}
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === 'object' && !Array.isArray(value)
+}
+
+function getResponseData(response: unknown, errorMessage: string) {
+  if (!isPlainObject(response) || !('data' in response)) {
+    throw new Error(errorMessage)
+  }
+  return response.data
 }
 
 function requireGenerationMetaOptionList(value: unknown) {
@@ -615,11 +627,11 @@ function requireGenerationMetaOptionList(value: unknown) {
   }
   const seenValues = new Set<string>()
   return value.map((item: unknown) => {
-    if (!item || typeof item !== 'object' || Array.isArray(item)) {
+    if (!isPlainObject(item)) {
       throw new Error('生图配置待确认')
     }
-    const label = typeof (item as any).label === 'string' ? (item as any).label.trim() : ''
-    const optionValue = typeof (item as any).value === 'string' ? (item as any).value.trim() : ''
+    const label = typeof item.label === 'string' ? item.label.trim() : ''
+    const optionValue = typeof item.value === 'string' ? item.value.trim() : ''
     if (!label || !optionValue || seenValues.has(optionValue)) {
       throw new Error('生图配置待确认')
     }
@@ -638,18 +650,18 @@ function requireAllowedProviderTypes(value: unknown) {
 }
 
 function requireGenerationMeta(value: unknown): GenerationMetaVO {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+  if (!isPlainObject(value)) {
     throw new Error('生图配置待确认')
   }
-  const image = (value as any).image
-  if (!image || typeof image !== 'object' || Array.isArray(image)) {
+  const image = value.image
+  if (!isPlainObject(image)) {
     throw new Error('生图配置待确认')
   }
-  const resolutionOptions = requireGenerationMetaOptionList((image as any).resolutionOptions)
-  const qualityOptions = requireGenerationMetaOptionList((image as any).qualityOptions)
-  const allowedProviderTypes = requireAllowedProviderTypes((image as any).allowedProviderTypes)
-  const defaults = (image as any).defaults
-  if (defaults != null && (typeof defaults !== 'object' || Array.isArray(defaults))) {
+  const resolutionOptions = requireGenerationMetaOptionList(image.resolutionOptions)
+  const qualityOptions = requireGenerationMetaOptionList(image.qualityOptions)
+  const allowedProviderTypes = requireAllowedProviderTypes(image.allowedProviderTypes)
+  const defaults = image.defaults
+  if (defaults != null && !isPlainObject(defaults)) {
     throw new Error('生图配置待确认')
   }
   return {
@@ -680,11 +692,31 @@ function normalizeImageAssetList(value: unknown, errorMessage: string) {
   })
 }
 
+function requirePromptOptimizeResult(value: unknown): PromptOptimizeResult {
+  if (!isPlainObject(value)) {
+    throw new Error('提示词润色接口未返回有效结果')
+  }
+  const prompt = typeof value.prompt === 'string' ? value.prompt.trim() : ''
+  if (!prompt) {
+    throw new Error('提示词润色接口未返回有效结果')
+  }
+  const providerId = value.providerId == null ? undefined : Number(value.providerId)
+  if (providerId != null && (!Number.isFinite(providerId) || providerId <= 0)) {
+    throw new Error('提示词润色接口未返回有效结果')
+  }
+  return {
+    prompt,
+    providerId,
+    providerName: typeof value.providerName === 'string' ? value.providerName.trim() : undefined,
+    modelName: typeof value.modelName === 'string' ? value.modelName.trim() : undefined
+  }
+}
+
 async function loadGenerationMeta() {
   metaLoadState.value = 'loading'
   try {
-    const res = await generationApi.getMeta()
-    generationMeta.value = requireGenerationMeta((res as any).data)
+    const response = await generationApi.getMeta()
+    generationMeta.value = requireGenerationMeta(getResponseData(response, '生图配置待确认'))
     metaLoadState.value = 'ready'
   } catch {
     generationMeta.value = {}
@@ -1435,8 +1467,8 @@ const uploadInpaintMask = async (): Promise<number | null> => {
         const formData = new FormData()
         formData.append('projectId', String(activeProjectId))
         formData.append('file', blob, maskFileName)
-        const res = await assetApi.uploadAsset(formData)
-        const uploaded = assetStore.normalizeAsset((res as any).data)
+        const response = await assetApi.uploadAsset(formData)
+        const uploaded = assetStore.normalizeAsset(getResponseData(response, '参考图上传结果待确认'))
         const confirmed = await confirmUploadedImageAsset(uploaded, {
           projectId: activeProjectId,
           fileName: maskFileName
@@ -1676,7 +1708,7 @@ async function confirmSubmittedImageTask(
   assertImageGenerationTaskMatches(task, expected)
   await taskStore.refresh({ projectId: expected.projectId })
   const confirmedFromList = taskStore.getTasksByProject(expected.projectId).find(item => item.id === task.id)
-  const confirmed = confirmedFromList ?? taskStore.normalizeTask((await taskApi.getTask(task.id)).data)
+  const confirmed = confirmedFromList ?? taskStore.normalizeTask(getResponseData(await taskApi.getTask(task.id), '图片任务提交结果待确认'))
   assertImageGenerationTaskMatches(confirmed, expected)
   return confirmed
 }
@@ -1756,7 +1788,7 @@ function getConfirmedImageTaskAssets(task: { id: number; projectId: number; prom
 
 const syncTaskStatus = async (taskId: number) => {
   const detail = await taskApi.getTask(taskId)
-  const task = taskStore.upsertTask(detail.data)
+  const task = taskStore.upsertTask(getResponseData(detail, '图片任务状态待确认'))
   activeTaskId.value = task.id
   if (task.status === 'success') {
     // 先精准加载本任务的结果资产(按 taskId,数据量小、快),保证图能立刻显示;
@@ -1816,7 +1848,7 @@ const restoreActiveTaskPolling = () => {
 
 // 关联获取该批生成的所有资产
 let pendingFetchAsset: Promise<void> | null = null
-const fetchedAsset = ref<any>(null)
+const fetchedAsset = ref<number | null>(null)
 
 // 确保某个任务的结果资产已加载进 store（轮询成功后调用）
 const ensureTaskAssetsLoaded = async (task: { id: number; resultAssetId?: number }) => {
@@ -1827,8 +1859,8 @@ const ensureTaskAssetsLoaded = async (task: { id: number; resultAssetId?: number
   }
   if (!pendingFetchAsset) {
     pendingFetchAsset = (async () => {
-      const res = await assetApi.getAssets({ taskId: task.id, projectId: projectStore.activeProjectId })
-      const assets = normalizeImageAssetList((res as any)?.data, '图片结果待确认')
+      const response = await assetApi.getAssets({ taskId: task.id, projectId: projectStore.activeProjectId })
+      const assets = normalizeImageAssetList(getResponseData(response, '图片结果待确认'), '图片结果待确认')
       assets.forEach((item) => {
         upsertAsset(item)
       })
@@ -1947,21 +1979,13 @@ const handleOptimizePrompt = async () => {
   }
   optimizing.value = true
   try {
-    const res = await generationApi.optimizeImagePrompt({
+    const response = await generationApi.optimizeImagePrompt({
       projectId: projectStore.activeProjectId,
       providerId: form.providerId || undefined,
       prompt: rawPrompt
     })
-    const payloadRaw = (res as any).data
-    if (!payloadRaw || typeof payloadRaw !== 'object' || Array.isArray(payloadRaw)) {
-      throw new Error('提示词润色接口未返回有效结果')
-    }
-    const payload = payloadRaw as PromptOptimizeResult
-    const optimizedPrompt = typeof payload.prompt === 'string' ? payload.prompt.trim() : ''
-    if (!optimizedPrompt) {
-      throw new Error('提示词润色接口未返回有效结果')
-    }
-    form.prompt = optimizedPrompt
+    const payload = requirePromptOptimizeResult(getResponseData(response, '提示词润色接口未返回有效结果'))
+    form.prompt = payload.prompt
     const providerName = payload.providerName || selectedProvider.value?.name
     message.success(providerName ? `提示词已通过 ${providerName} 润色` : '提示词已润色')
   } catch (error: any) {
@@ -2062,8 +2086,8 @@ async function uploadRefFile(file: File, placeholderUrl: string) {
     const formData = new FormData()
     formData.append('projectId', String(activeProjectId))
     formData.append('file', file)
-    const res = await assetApi.uploadAsset(formData)
-    const asset = await confirmUploadedImageAsset(assetStore.normalizeAsset((res as any).data), {
+    const response = await assetApi.uploadAsset(formData)
+    const asset = await confirmUploadedImageAsset(assetStore.normalizeAsset(getResponseData(response, '参考图上传结果待确认')), {
       projectId: activeProjectId,
       fileName: file.name
     })
@@ -2198,7 +2222,7 @@ const handleStartGenerate = async () => {
       })
     }
 
-    const submittedTask = taskStore.normalizeTask((res as any).data)
+    const submittedTask = taskStore.normalizeTask(getResponseData(res, '图片任务提交结果待确认'))
     const expectedReferenceAssetIds = generateMode.value === 'inpaint'
       ? [assetId(selectedRefAssets.value[0])].filter((id): id is number => id != null)
       : referenceAssetIds
@@ -2302,7 +2326,7 @@ const handleBatchClear = async () => {
 }
 
 // 历史记录选择切换
-const handleSelectHistory = (task: any) => {
+const handleSelectHistory = (task: ImageHistoryTask) => {
   activeTaskId.value = task.id
   selectedBatchIndex.value = 0
   if (task.status === 'success' || task.status === 'failed') {
@@ -2310,7 +2334,7 @@ const handleSelectHistory = (task: any) => {
   }
 }
 
-const handleInspectHistoryTask = async (task: any) => {
+const handleInspectHistoryTask = async (task: ImageHistoryTask) => {
   if (task.status !== 'success') {
     message.error(task.errorMessage || '该任务生成失败，没有可查看的图片结果')
     return

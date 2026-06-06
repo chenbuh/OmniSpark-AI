@@ -355,6 +355,7 @@ const durations = computed(() => {
 const cameraMotionOptions = computed(() => generationMeta.value.video?.cameraMotionOptions || [])
 const defaultVideoDuration = computed(() => generationMeta.value.video?.defaults?.duration || durations.value[0]?.value || '')
 const defaultCameraMotion = computed(() => generationMeta.value.video?.defaults?.cameraMotion || cameraMotionOptions.value[0]?.value || '')
+type VideoHistoryTask = ReturnType<typeof taskStore.normalizeTask>
 
 function normalizeTaskField(value: unknown) {
   return typeof value === 'string' ? value.trim() : ''
@@ -362,6 +363,13 @@ function normalizeTaskField(value: unknown) {
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === 'object' && !Array.isArray(value)
+}
+
+function getResponseData(response: unknown, errorMessage: string) {
+  if (!isPlainObject(response) || !('data' in response)) {
+    throw new Error(errorMessage)
+  }
+  return response.data
 }
 
 function requireStringValue(value: unknown, errorMessage: string) {
@@ -428,6 +436,21 @@ function requireVideoGenerationMeta(value: unknown): GenerationMetaVO {
         : undefined
     }
   }
+}
+
+function normalizeAssetList(value: unknown, errorMessage: string) {
+  if (!Array.isArray(value)) {
+    throw new Error(errorMessage)
+  }
+  const seenIds = new Set<number>()
+  return value.map((item: unknown) => {
+    const normalized = assetStore.normalizeAsset(item)
+    if (seenIds.has(normalized.id)) {
+      throw new Error(errorMessage)
+    }
+    seenIds.add(normalized.id)
+    return normalized
+  })
 }
 
 function parseTaskRequestJson(task: { requestJson?: string }, errorMessage: string) {
@@ -511,7 +534,7 @@ async function confirmSubmittedVideoTask(
   assertVideoGenerationTaskMatches(task, expected)
   await taskStore.refresh({ projectId: expected.projectId })
   const confirmedFromList = taskStore.getTasksByProject(expected.projectId).find(item => item.id === task.id)
-  const confirmed = confirmedFromList ?? taskStore.normalizeTask((await taskApi.getTask(task.id)).data)
+  const confirmed = confirmedFromList ?? taskStore.normalizeTask(getResponseData(await taskApi.getTask(task.id), '视频任务提交结果待确认'))
   assertVideoGenerationTaskMatches(confirmed, expected)
   return confirmed
 }
@@ -533,8 +556,8 @@ function resolveOptionValue(options: GenerationMetaOption[], preferredValue?: st
 async function loadGenerationMeta() {
   metaLoadState.value = 'loading'
   try {
-    const res = await generationApi.getMeta()
-    generationMeta.value = requireVideoGenerationMeta((res as any).data)
+    const response = await generationApi.getMeta()
+    generationMeta.value = requireVideoGenerationMeta(getResponseData(response, '视频配置待确认'))
     metaLoadState.value = 'ready'
   } catch {
     generationMeta.value = {}
@@ -815,13 +838,10 @@ const ensureTaskResultAssetLoaded = async (task: { id: number; resultAssetId?: n
   }
   if (!pendingFetchAsset) {
     pendingFetchAsset = (async () => {
-      const res = await assetApi.getAssets({ taskId: task.id, projectId: projectStore.activeProjectId })
-      const data = (res as any).data
-      if (!Array.isArray(data)) {
-        throw new Error('视频结果待确认')
-      }
-      for (const item of data) {
-        upsertAsset(assetStore.normalizeAsset(item))
+      const response = await assetApi.getAssets({ taskId: task.id, projectId: projectStore.activeProjectId })
+      const assets = normalizeAssetList(getResponseData(response, '视频结果待确认'), '视频结果待确认')
+      for (const item of assets) {
+        upsertAsset(item)
       }
       const confirmedTask = requireVideoTaskAssetContext(task)
       return getConfirmedVideoTaskAsset(confirmedTask)
@@ -838,7 +858,7 @@ const ensureTaskResultAssetLoaded = async (task: { id: number; resultAssetId?: n
 
 const syncTaskStatus = async (taskId: number) => {
   const detail = await taskApi.getTask(taskId)
-  const task = taskStore.upsertTask(detail.data)
+  const task = taskStore.upsertTask(getResponseData(detail, '视频任务状态待确认'))
   activeTaskId.value = task.id
   if (task.status === 'success') {
     await taskStore.refresh({ projectId: projectStore.activeProjectId })
@@ -986,7 +1006,7 @@ const handleStartGenerate = async () => {
       options: requestPayload.options
     })
 
-    const submittedTask = taskStore.normalizeTask((res as any).data)
+    const submittedTask = taskStore.normalizeTask(getResponseData(res, '视频任务提交结果待确认'))
     const task = await confirmSubmittedVideoTask(submittedTask, {
       projectId: requestPayload.projectId,
       providerId: requestPayload.providerId,
@@ -1059,11 +1079,11 @@ const handleBatchClear = async () => {
   }
 }
 
-const handleSelectHistory = (task: any) => {
+const handleSelectHistory = (task: VideoHistoryTask) => {
   activeTaskId.value = task.id
 }
 
-const handleInspectHistoryTask = async (task: any) => {
+const handleInspectHistoryTask = async (task: VideoHistoryTask) => {
   if (task.status !== 'success' || !task.resultAssetId) {
     message.error(task.errorMessage || '该任务生成失败，没有可查看的视频结果')
     return
