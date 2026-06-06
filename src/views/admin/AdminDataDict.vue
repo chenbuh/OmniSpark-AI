@@ -117,15 +117,36 @@ import { useMessage } from 'naive-ui'
 import { Plus } from 'lucide-vue-next'
 import request from '@/api/request'
 
+interface DictRecord {
+  id: number
+  dictCode: string
+  dictName: string
+  description: string
+  status: boolean | null
+  createdAt: string
+  updatedAt: string
+}
+
+interface DictItemRecord {
+  id: number
+  dictId: number
+  itemCode: string
+  itemName: string
+  sortOrder: number
+  status: boolean | null
+  createdAt: string
+  updatedAt: string
+}
+
 const message = useMessage()
-const dicts = ref<any[] | null>(null)
-const activeDict = ref<any>(null)
-const items = ref<any[] | null>(null)
+const dicts = ref<DictRecord[] | null>(null)
+const activeDict = ref<DictRecord | null>(null)
+const items = ref<DictItemRecord[] | null>(null)
 const showDictEditor = ref(false)
-const editingDict = ref<any>(null)
+const editingDict = ref<number | null>(null)
 const dictForm = reactive({ code: '', name: '', description: '' })
 const showItemEditor = ref(false)
-const editingItem = ref<any>(null)
+const editingItem = ref<number | null>(null)
 const itemForm = reactive({ code: '', name: '', sortOrder: 0 })
 const dictsLoadState = ref<'loading' | 'ready' | 'error'>('loading')
 const itemsLoadState = ref<'loading' | 'ready' | 'error'>('ready')
@@ -133,13 +154,28 @@ const dictCountDisplay = computed(() => dicts.value === null ? '-' : dicts.value
 const itemCountDisplay = computed(() => items.value === null ? '-' : items.value.length)
 const NO_CACHE_HEADERS = { 'X-No-Cache': '1' }
 
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === 'object' && !Array.isArray(value)
+}
+
+function getResponseData(response: unknown, errorMessage: string) {
+  if (!isPlainObject(response) || !('data' in response)) {
+    throw new Error(errorMessage)
+  }
+  return response.data
+}
+
+function normalizeOptionalText(value: unknown): string {
+  return typeof value === 'string' ? value.trim() : ''
+}
+
 function requireDict(value: unknown, action: 'create' | 'update') {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+  if (!isPlainObject(value)) {
     throw new Error(action === 'create' ? '字典创建结果待确认' : '字典更新结果待确认')
   }
-  const id = Number((value as any).id)
-  const code = typeof (value as any).dictCode === 'string' ? (value as any).dictCode.trim() : ''
-  const name = typeof (value as any).dictName === 'string' ? (value as any).dictName.trim() : ''
+  const id = Number(value.id)
+  const code = normalizeOptionalText(value.dictCode)
+  const name = normalizeOptionalText(value.dictName)
   if (!Number.isFinite(id) || id <= 0 || !code || !name) {
     throw new Error(action === 'create' ? '字典创建结果待确认' : '字典更新结果待确认')
   }
@@ -147,81 +183,95 @@ function requireDict(value: unknown, action: 'create' | 'update') {
     id,
     code,
     name,
-    description: typeof (value as any).description === 'string' ? (value as any).description : ''
+    description: typeof value.description === 'string' ? value.description : '',
+    status: normalizeBinaryStatus(value.status),
+    createdAt: typeof value.createdAt === 'string' ? value.createdAt : '',
+    updatedAt: typeof value.updatedAt === 'string' ? value.updatedAt : ''
   }
 }
 
 function requireDictItem(value: unknown, action: 'create' | 'update') {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+  if (!isPlainObject(value)) {
     throw new Error(action === 'create' ? '条目创建结果待确认' : '条目更新结果待确认')
   }
-  const id = Number((value as any).id)
-  const code = typeof (value as any).itemCode === 'string' ? (value as any).itemCode.trim() : ''
-  const name = typeof (value as any).itemName === 'string' ? (value as any).itemName.trim() : ''
+  const id = Number(value.id)
+  const code = normalizeOptionalText(value.itemCode)
+  const name = normalizeOptionalText(value.itemName)
   if (!Number.isFinite(id) || id <= 0 || !code || !name) {
     throw new Error(action === 'create' ? '条目创建结果待确认' : '条目更新结果待确认')
   }
   return {
     id,
+    dictId: Number(value.dictId),
     code,
     name,
-    sortOrder: Number((value as any).sortOrder),
-    status: normalizeBinaryStatus((value as any).status)
+    sortOrder: Number(value.sortOrder),
+    status: normalizeBinaryStatus(value.status),
+    createdAt: typeof value.createdAt === 'string' ? value.createdAt : '',
+    updatedAt: typeof value.updatedAt === 'string' ? value.updatedAt : ''
   }
 }
 
-function normalizeDictRecord(value: unknown) {
+function normalizeDictRecord(value: unknown): DictRecord {
   const dict = requireDict(value, 'update')
   return {
-    ...(value as Record<string, unknown>),
     id: dict.id,
     dictCode: dict.code,
     dictName: dict.name,
-    description: dict.description
+    description: dict.description,
+    status: dict.status,
+    createdAt: dict.createdAt,
+    updatedAt: dict.updatedAt
   }
 }
 
-function normalizeDictList(value: unknown) {
+function normalizeDictList(value: unknown): DictRecord[] {
   if (!Array.isArray(value)) {
     throw new Error('字典数据待确认')
   }
   const normalized = value.map((item: unknown) => normalizeDictRecord(item))
   const ids = new Set<number>()
+  const codes = new Set<string>()
   for (const item of normalized) {
-    if (ids.has(item.id)) {
+    if (ids.has(item.id) || codes.has(item.dictCode)) {
       throw new Error('字典数据待确认')
     }
     ids.add(item.id)
+    codes.add(item.dictCode)
   }
   return normalized
 }
 
-function normalizeDictItemRecord(value: unknown) {
+function normalizeDictItemRecord(value: unknown): DictItemRecord {
   const item = requireDictItem(value, 'update')
-  if (!Number.isFinite(item.sortOrder)) {
+  if (!Number.isFinite(item.dictId) || item.dictId <= 0 || !Number.isFinite(item.sortOrder) || item.sortOrder < 0) {
     throw new Error('字典条目待确认')
   }
   return {
-    ...(value as Record<string, unknown>),
     id: item.id,
+    dictId: item.dictId,
     itemCode: item.code,
     itemName: item.name,
     sortOrder: item.sortOrder,
-    status: item.status
+    status: item.status,
+    createdAt: item.createdAt,
+    updatedAt: item.updatedAt
   }
 }
 
-function normalizeDictItemList(value: unknown) {
+function normalizeDictItemList(value: unknown): DictItemRecord[] {
   if (!Array.isArray(value)) {
     throw new Error('字典条目待确认')
   }
   const normalized = value.map((item: unknown) => normalizeDictItemRecord(item))
   const ids = new Set<number>()
+  const codes = new Set<string>()
   for (const item of normalized) {
-    if (ids.has(item.id)) {
+    if (ids.has(item.id) || codes.has(item.itemCode)) {
       throw new Error('字典条目待确认')
     }
     ids.add(item.id)
+    codes.add(item.itemCode)
   }
   return normalized
 }
@@ -238,8 +288,8 @@ onMounted(loadDicts)
 async function loadDicts() {
   dictsLoadState.value = 'loading'
   try {
-    const res = await request.get('/api/admin/dict', { headers: NO_CACHE_HEADERS })
-    dicts.value = normalizeDictList((res as any).data)
+    const response = await request.get<unknown>('/api/admin/dict', { headers: NO_CACHE_HEADERS })
+    dicts.value = normalizeDictList(getResponseData(response, '字典数据待确认'))
     syncActiveDictFromList()
     dictsLoadState.value = 'ready'
   } catch (err: any) {
@@ -249,13 +299,13 @@ async function loadDicts() {
   }
 }
 
-async function selectDict(d: any) {
+async function selectDict(d: DictRecord) {
   activeDict.value = d
   items.value = null
   itemsLoadState.value = 'loading'
   try {
-    const res = await request.get(`/api/admin/dict/${d.id}/items`, { headers: NO_CACHE_HEADERS })
-    items.value = normalizeDictItemList((res as any).data)
+    const response = await request.get<unknown>(`/api/admin/dict/${d.id}/items`, { headers: NO_CACHE_HEADERS })
+    items.value = normalizeDictItemList(getResponseData(response, '字典条目待确认'))
     itemsLoadState.value = 'ready'
   } catch (err: any) {
     items.value = null
@@ -269,9 +319,9 @@ async function handleSaveDict() {
   try {
     const previousCount = dicts.value?.length
     if (editingDict.value) {
-      const currentEditingId = Number(editingDict.value)
-      const res = await request.put(`/api/admin/dict/${currentEditingId}?name=${encodeURIComponent(dictForm.name)}&description=${encodeURIComponent(dictForm.description)}`)
-      requireDict((res as any).data, 'update')
+      const currentEditingId = editingDict.value
+      const response = await request.put<unknown>(`/api/admin/dict/${currentEditingId}?name=${encodeURIComponent(dictForm.name)}&description=${encodeURIComponent(dictForm.description)}`)
+      requireDict(getResponseData(response, '字典更新结果待确认'), 'update')
       await loadDicts()
       const refreshed = dicts.value?.find(item => Number(item.id) === currentEditingId)
       if (
@@ -286,8 +336,8 @@ async function handleSaveDict() {
         activeDict.value = refreshed
       }
     } else {
-      const res = await request.post(`/api/admin/dict?code=${encodeURIComponent(dictForm.code)}&name=${encodeURIComponent(dictForm.name)}&description=${encodeURIComponent(dictForm.description)}`)
-      const created = requireDict((res as any).data, 'create')
+      const response = await request.post<unknown>(`/api/admin/dict?code=${encodeURIComponent(dictForm.code)}&name=${encodeURIComponent(dictForm.name)}&description=${encodeURIComponent(dictForm.description)}`)
+      const created = requireDict(getResponseData(response, '字典创建结果待确认'), 'create')
       await loadDicts()
       const refreshed = dicts.value?.find(item => Number(item.id) === created.id)
       if (
@@ -330,11 +380,15 @@ async function handleSaveItem() {
   try {
     const activeDictId = Number(activeDict.value.id)
     const previousCount = items.value?.length
+    const currentActiveDict = activeDict.value
+    if (!currentActiveDict) {
+      throw new Error('字典条目待确认')
+    }
     if (editingItem.value) {
-      const currentEditingId = Number(editingItem.value)
-      const res = await request.put(`/api/admin/dict/items/${currentEditingId}?name=${encodeURIComponent(itemForm.name)}&sortOrder=${itemForm.sortOrder}`)
-      requireDictItem((res as any).data, 'update')
-      await selectDict(activeDict.value)
+      const currentEditingId = editingItem.value
+      const response = await request.put<unknown>(`/api/admin/dict/items/${currentEditingId}?name=${encodeURIComponent(itemForm.name)}&sortOrder=${itemForm.sortOrder}`)
+      requireDictItem(getResponseData(response, '条目更新结果待确认'), 'update')
+      await selectDict(currentActiveDict)
       const refreshed = items.value?.find(item => Number(item.id) === currentEditingId)
       if (
         !refreshed
@@ -345,9 +399,9 @@ async function handleSaveItem() {
         throw new Error('条目更新结果待确认')
       }
     } else {
-      const res = await request.post(`/api/admin/dict/${activeDictId}/items?code=${encodeURIComponent(itemForm.code)}&name=${encodeURIComponent(itemForm.name)}&sortOrder=${itemForm.sortOrder}`)
-      const created = requireDictItem((res as any).data, 'create')
-      await selectDict(activeDict.value)
+      const response = await request.post<unknown>(`/api/admin/dict/${activeDictId}/items?code=${encodeURIComponent(itemForm.code)}&name=${encodeURIComponent(itemForm.name)}&sortOrder=${itemForm.sortOrder}`)
+      const created = requireDictItem(getResponseData(response, '条目创建结果待确认'), 'create')
+      await selectDict(currentActiveDict)
       const refreshed = items.value?.find(item => Number(item.id) === created.id)
       if (
         !refreshed
@@ -363,17 +417,19 @@ async function handleSaveItem() {
   } catch (err: any) { message.error(err.message || '操作失败'); return false }
 }
 
-function editItem(item: any) {
+function editItem(item: DictItemRecord) {
   editingItem.value = item.id; itemForm.code = item.itemCode; itemForm.name = item.itemName; itemForm.sortOrder = item.sortOrder; showItemEditor.value = true
 }
 
-async function toggleItemStatus(item: any) {
+async function toggleItemStatus(item: DictItemRecord) {
   const current = normalizeBinaryStatus(item.status)
   if (current === null) { message.error('条目状态尚未明确，暂时无法切换'); return }
+  const currentActiveDict = activeDict.value
+  if (!currentActiveDict) { message.error('字典条目待确认'); return }
   try {
-    const res = await request.put(`/api/admin/dict/items/${item.id}?status=${current ? 0 : 1}`)
-    requireDictItem((res as any).data, 'update')
-    await selectDict(activeDict.value)
+    const response = await request.put<unknown>(`/api/admin/dict/items/${item.id}?status=${current ? 0 : 1}`)
+    requireDictItem(getResponseData(response, '条目更新结果待确认'), 'update')
+    await selectDict(currentActiveDict)
     const refreshed = items.value?.find(entry => Number(entry.id) === Number(item.id))
     if (!refreshed || normalizeBinaryStatus(refreshed.status) !== !current) {
       throw new Error('条目状态待确认')
@@ -389,10 +445,12 @@ function normalizeBinaryStatus(value: unknown): boolean | null {
 }
 
 async function handleDeleteItem(id: number) {
+  const currentActiveDict = activeDict.value
+  if (!currentActiveDict) { message.error('字典条目待确认'); return }
   try {
     const previousCount = items.value?.length
     await request.delete(`/api/admin/dict/items/${id}`)
-    await selectDict(activeDict.value)
+    await selectDict(currentActiveDict)
     if (items.value?.some(i => Number(i.id) === id)) {
       throw new Error('条目删除结果待确认')
     }

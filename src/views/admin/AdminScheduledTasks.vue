@@ -117,38 +117,93 @@ import { useMessage } from 'naive-ui'
 import { Plus, Play, Edit3, Trash2 } from 'lucide-vue-next'
 import request, { clearCache } from '@/api/request'
 
+type ScheduledTaskType = 'cleanup'
+type ScheduledTaskLastStatus = '' | 'success' | 'failed'
+
+interface ScheduledTaskRecord {
+  id: number
+  name: string
+  description: string
+  taskType: ScheduledTaskType
+  cron: string
+  enabled: boolean | null
+  configJson: string
+  lastRunAt: string
+  lastStatus: ScheduledTaskLastStatus
+  createdAt: string
+  updatedAt: string
+}
+
 const message = useMessage()
 const loadingTasks = ref(true)
-const tasks = ref<any[] | null>(null)
+const tasks = ref<ScheduledTaskRecord[] | null>(null)
 const runningId = ref<number | null>(null)
 const showEditor = ref(false)
 const editingId = ref<number | null>(null)
 const tasksLoadState = ref<'loading' | 'ready' | 'error'>('loading')
 
 const form = reactive({
-  name: '', description: '', taskType: 'cleanup', cron: '0 0 3 * * ?'
+  name: '', description: '', taskType: 'cleanup' as ScheduledTaskType, cron: '0 0 3 * * ?'
 })
 const cleanupDays = ref(30)
 const tasksCountDisplay = computed(() => tasks.value === null ? '-' : tasks.value.length)
 
 const typeOptions = [
-  { label: '数据清理', value: 'cleanup' }
+  { label: '数据清理', value: 'cleanup' as ScheduledTaskType }
 ]
 
-function requireScheduledTasks(value: unknown) {
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === 'object' && !Array.isArray(value)
+}
+
+function getResponseData(response: unknown, errorMessage: string) {
+  if (!isPlainObject(response) || !('data' in response)) {
+    throw new Error(errorMessage)
+  }
+  return response.data
+}
+
+function normalizeScheduledTaskType(value: unknown): ScheduledTaskType {
+  const normalized = normalizeOptionalText(value)
+  if (normalized !== 'cleanup') {
+    throw new Error('定时任务数据待确认')
+  }
+  return normalized
+}
+
+function normalizeLastStatus(value: unknown): ScheduledTaskLastStatus {
+  const normalized = normalizeOptionalText(value)
+  if (!normalized) {
+    return ''
+  }
+  if (normalized !== 'success' && normalized !== 'failed') {
+    throw new Error('定时任务数据待确认')
+  }
+  return normalized
+}
+
+function requireScheduledTasks(value: unknown): ScheduledTaskRecord[] {
   if (!Array.isArray(value)) {
     throw new Error('定时任务数据待确认')
   }
-  return value.map(item => normalizeScheduledTaskRecord(item))
+  const normalized = value.map(item => normalizeScheduledTaskRecord(item))
+  const ids = new Set<number>()
+  normalized.forEach((item) => {
+    if (ids.has(item.id)) {
+      throw new Error('定时任务数据待确认')
+    }
+    ids.add(item.id)
+  })
+  return normalized
 }
 
 function requireScheduledTaskResult(value: unknown, action: 'create' | 'update' | 'toggle') {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+  if (!isPlainObject(value)) {
     if (action === 'create') throw new Error('任务创建结果待确认')
     if (action === 'update') throw new Error('任务更新结果待确认')
     throw new Error('任务状态待确认')
   }
-  const id = Number((value as any).id)
+  const id = Number(value.id)
   if (!Number.isFinite(id) || id <= 0) {
     if (action === 'create') throw new Error('任务创建结果待确认')
     if (action === 'update') throw new Error('任务更新结果待确认')
@@ -160,28 +215,29 @@ function requireScheduledTaskResult(value: unknown, action: 'create' | 'update' 
   }
 }
 
-function normalizeScheduledTaskRecord(value: unknown) {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+function normalizeScheduledTaskRecord(value: unknown): ScheduledTaskRecord {
+  if (!isPlainObject(value)) {
     throw new Error('定时任务数据待确认')
   }
-  const id = Number((value as any).id)
-  const name = normalizeOptionalText((value as any).name)
-  const taskType = normalizeOptionalText((value as any).taskType)
-  const cron = normalizeOptionalText((value as any).cron)
+  const id = Number(value.id)
+  const name = normalizeOptionalText(value.name)
+  const taskType = normalizeScheduledTaskType(value.taskType)
+  const cron = normalizeOptionalText(value.cron)
   if (!Number.isFinite(id) || id <= 0 || !name || !taskType || !cron) {
     throw new Error('定时任务数据待确认')
   }
   return {
-    ...(value as Record<string, unknown>),
     id,
     name,
-    description: normalizeOptionalText((value as any).description),
+    description: normalizeOptionalText(value.description),
     taskType,
     cron,
-    enabled: normalizeBinaryStatus((value as any).enabled),
-    configJson: typeof (value as any).configJson === 'string' ? (value as any).configJson : '',
-    lastRunAt: typeof (value as any).lastRunAt === 'string' ? (value as any).lastRunAt : '',
-    lastStatus: typeof (value as any).lastStatus === 'string' ? normalizeOptionalText((value as any).lastStatus) : ''
+    enabled: normalizeBinaryStatus(value.enabled),
+    configJson: typeof value.configJson === 'string' ? value.configJson : '',
+    lastRunAt: typeof value.lastRunAt === 'string' ? value.lastRunAt : '',
+    lastStatus: normalizeLastStatus(value.lastStatus),
+    createdAt: typeof value.createdAt === 'string' ? value.createdAt : '',
+    updatedAt: typeof value.updatedAt === 'string' ? value.updatedAt : ''
   }
 }
 
@@ -202,10 +258,10 @@ function normalizeCleanupDaysFromConfig(configJson: unknown): number | null {
   }
 }
 
-function assertScheduledTaskMatches(task: any, expected: {
+function assertScheduledTaskMatches(task: ScheduledTaskRecord | null | undefined, expected: {
   name: string
   description: string
-  taskType: string
+  taskType: ScheduledTaskType
   cron: string
   cleanupDays: number | null
 }, action: 'create' | 'update') {
@@ -230,8 +286,8 @@ async function load() {
   loadingTasks.value = true
   tasksLoadState.value = 'loading'
   try {
-    const res = await request.get('/api/admin/scheduled-tasks', { headers: { 'x-no-cache': '1' } })
-    const data = requireScheduledTasks((res as any).data)
+    const response = await request.get<unknown>('/api/admin/scheduled-tasks', { headers: { 'x-no-cache': '1' } })
+    const data = requireScheduledTasks(getResponseData(response, '定时任务数据待确认'))
     tasks.value = data
     tasksLoadState.value = 'ready'
   } catch (err: any) {
@@ -253,7 +309,7 @@ function openCreate() {
   showEditor.value = true
 }
 
-function openEdit(task: any) {
+function openEdit(task: ScheduledTaskRecord) {
   editingId.value = task.id
   form.name = task.name
   form.description = task.description || ''
@@ -268,7 +324,7 @@ function openEdit(task: any) {
 
 async function handleSave() {
   if (!form.name || !form.cron) { message.error('名称和 Cron 表达式为必填'); return }
-  const payload: any = {
+  const payload: Record<string, string> = {
     name: form.name,
     description: form.description,
     taskType: form.taskType,
@@ -280,7 +336,7 @@ async function handleSave() {
   const expected = {
     name: normalizeOptionalText(form.name),
     description: normalizeOptionalText(form.description),
-    taskType: normalizeOptionalText(form.taskType),
+    taskType: form.taskType,
     cron: normalizeOptionalText(form.cron),
     cleanupDays: form.taskType === 'cleanup' ? cleanupDays.value : null
   }
@@ -288,8 +344,8 @@ async function handleSave() {
     const previousCount = tasks.value?.length
     if (editingId.value) {
       const currentEditingId = editingId.value
-      const res = await request.put(`/api/admin/scheduled-tasks/${currentEditingId}`, payload)
-      requireScheduledTaskResult((res as any).data, 'update')
+      const response = await request.put<unknown>(`/api/admin/scheduled-tasks/${currentEditingId}`, payload)
+      requireScheduledTaskResult(getResponseData(response, '任务更新结果待确认'), 'update')
       await load()
       const refreshed = tasks.value?.find(task => task.id === currentEditingId)
       assertScheduledTaskMatches(refreshed, expected, 'update')
@@ -298,8 +354,8 @@ async function handleSave() {
       }
       message.success('任务已更新')
     } else {
-      const res = await request.post('/api/admin/scheduled-tasks', payload)
-      const created = requireScheduledTaskResult((res as any).data, 'create')
+      const response = await request.post<unknown>('/api/admin/scheduled-tasks', payload)
+      const created = requireScheduledTaskResult(getResponseData(response, '任务创建结果待确认'), 'create')
       await load()
       const refreshed = tasks.value?.find(task => task.id === created.id)
       assertScheduledTaskMatches(refreshed, expected, 'create')
@@ -330,17 +386,17 @@ async function handleDelete(id: number) {
 
 async function handleToggle(id: number) {
   const task = tasks.value?.find(item => item.id === id)
-  if (normalizeBinaryStatus(task?.enabled) === null) {
+  if (task?.enabled == null) {
     message.error('定时任务状态尚未明确，暂时无法切换')
     return
   }
-  const expectedEnabled = !normalizeBinaryStatus(task?.enabled)
+  const expectedEnabled = !task.enabled
   try {
-    const res = await request.post(`/api/admin/scheduled-tasks/${id}/toggle`)
-    requireScheduledTaskResult((res as any).data, 'toggle')
+    const response = await request.post<unknown>(`/api/admin/scheduled-tasks/${id}/toggle`)
+    requireScheduledTaskResult(getResponseData(response, '任务状态待确认'), 'toggle')
     await load()
     const refreshed = tasks.value?.find(item => item.id === id)
-    if (!refreshed || normalizeBinaryStatus(refreshed.enabled) !== expectedEnabled) {
+    if (!refreshed || refreshed.enabled !== expectedEnabled) {
       throw new Error('任务状态待确认')
     }
   } catch (err: any) {
@@ -360,9 +416,9 @@ async function handleRunNow(id: number) {
     const currentTask = tasks.value?.find(task => task.id === id)
     const previousLastRunAt = typeof currentTask?.lastRunAt === 'string' ? currentTask.lastRunAt : ''
     const previousLastStatus = typeof currentTask?.lastStatus === 'string' ? currentTask.lastStatus : ''
-    const res = await request.post(`/api/admin/scheduled-tasks/${id}/run`)
-    const responseTask = (res as any).data
-    if (responseTask != null && (!responseTask || typeof responseTask !== 'object' || Array.isArray(responseTask) || Number((responseTask as any).id) !== id)) {
+    const response = await request.post<unknown>(`/api/admin/scheduled-tasks/${id}/run`)
+    const responseTask = getResponseData(response, '任务触发结果待确认')
+    if (responseTask != null) {
       throw new Error('任务触发结果待确认')
     }
     await load()

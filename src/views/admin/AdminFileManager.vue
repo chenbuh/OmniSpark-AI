@@ -113,15 +113,38 @@ import { useMessage } from 'naive-ui'
 import { CornerUpLeft } from 'lucide-vue-next'
 import request, { API_BASE_URL } from '@/api/request'
 
+interface FileListItem {
+  name: string
+  relativePath: string
+  isDir: boolean
+  size: number
+  lastModified: number
+  mimeType: string
+}
+
+interface FileListPayload {
+  items: FileListItem[]
+  currentPath: string
+  parentPath: string
+  total: number
+}
+
+interface FileStats {
+  totalSize: number
+  fileCount: number
+  uploadDir: string
+  totalSizeReadable: string
+}
+
 const message = useMessage()
 
 const loadingItems = ref(true)
-const items = ref<any[] | null>(null)
+const items = ref<FileListItem[] | null>(null)
 const currentPath = ref('')
-const stats = ref<any>({})
+const stats = ref<FileStats | null>(null)
 const statsLoadState = ref<'loading' | 'ready' | 'error'>('loading')
 const fileListLoadState = ref<'loading' | 'ready' | 'error'>('loading')
-const viewMode = ref('list')
+const viewMode = ref<'list' | 'grid'>('list')
 const showPreview = ref(false)
 const previewUrl = ref('')
 
@@ -130,24 +153,37 @@ const fileCountDisplay = computed(() => {
   if (statsLoadState.value === 'error') {
     return '待确认'
   }
-  return stats.value.fileCount ?? '-'
+  return stats.value?.fileCount ?? '-'
 })
 const totalSizeDisplay = computed(() => {
   if (statsLoadState.value === 'error') {
     return '待确认'
   }
-  return stats.value.totalSizeReadable ?? '-'
+  return stats.value?.totalSizeReadable ?? '-'
 })
 
-function isPlainObject(value: unknown): value is Record<string, any> {
+function isPlainObject(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === 'object' && !Array.isArray(value)
 }
 
-function normalizeFileItem(value: unknown) {
+function getResponseData(response: unknown, errorMessage: string) {
+  if (!isPlainObject(response) || !('data' in response)) {
+    throw new Error(errorMessage)
+  }
+  return response.data
+}
+
+function normalizeOptionalText(value: unknown) {
+  return typeof value === 'string' ? value.trim() : ''
+}
+
+function normalizeFileItem(value: unknown): FileListItem {
   if (!isPlainObject(value)) {
     throw new Error('目录内容待确认')
   }
-  if (typeof value.name !== 'string' || typeof value.relativePath !== 'string' || typeof value.isDir !== 'boolean') {
+  const name = normalizeOptionalText(value.name)
+  const relativePath = normalizeOptionalText(value.relativePath)
+  if (!name || !relativePath || typeof value.isDir !== 'boolean') {
     throw new Error('目录内容待确认')
   }
   const size = Number(value.size ?? 0)
@@ -156,27 +192,33 @@ function normalizeFileItem(value: unknown) {
     throw new Error('目录内容待确认')
   }
   return {
-    ...value,
+    name,
+    relativePath,
+    isDir: value.isDir,
     size,
     lastModified,
-    mimeType: typeof value.mimeType === 'string' ? value.mimeType : '',
-    name: value.name,
-    relativePath: value.relativePath,
-    isDir: value.isDir
+    mimeType: typeof value.mimeType === 'string' ? value.mimeType : ''
   }
 }
 
-function requireFileList(value: unknown) {
+function requireFileList(value: unknown): FileListPayload {
   if (!isPlainObject(value)) {
     throw new Error('目录内容待确认')
   }
-  if (!Array.isArray((value as any).items)) {
+  if (!Array.isArray(value.items)) {
     throw new Error('目录内容待确认')
   }
-  const currentPathValue = typeof (value as any).currentPath === 'string' ? (value as any).currentPath : ''
-  const parentPathValue = typeof (value as any).parentPath === 'string' ? (value as any).parentPath : ''
-  const itemsValue = (value as any).items.map((item: unknown) => normalizeFileItem(item))
-  const totalValue = Number((value as any).total ?? itemsValue.length)
+  const currentPathValue = normalizeOptionalText(value.currentPath)
+  const parentPathValue = normalizeOptionalText(value.parentPath)
+  const itemsValue = value.items.map((item: unknown) => normalizeFileItem(item))
+  const seenPaths = new Set<string>()
+  itemsValue.forEach((item) => {
+    if (seenPaths.has(item.relativePath)) {
+      throw new Error('目录内容待确认')
+    }
+    seenPaths.add(item.relativePath)
+  })
+  const totalValue = Number(value.total ?? itemsValue.length)
   if (!Number.isFinite(totalValue) || totalValue < 0) {
     throw new Error('目录内容待确认')
   }
@@ -191,14 +233,14 @@ function requireFileList(value: unknown) {
   }
 }
 
-function requireFileStats(value: unknown) {
+function requireFileStats(value: unknown): FileStats {
   if (!isPlainObject(value)) {
     throw new Error('文件统计待确认')
   }
-  const totalSize = Number((value as any).totalSize)
-  const fileCount = Number((value as any).fileCount)
-  const uploadDir = typeof (value as any).uploadDir === 'string' ? (value as any).uploadDir : ''
-  const totalSizeReadable = typeof (value as any).totalSizeReadable === 'string' ? (value as any).totalSizeReadable : ''
+  const totalSize = Number(value.totalSize)
+  const fileCount = Number(value.fileCount)
+  const uploadDir = normalizeOptionalText(value.uploadDir)
+  const totalSizeReadable = normalizeOptionalText(value.totalSizeReadable)
   if (!Number.isFinite(totalSize) || totalSize < 0 || !Number.isFinite(fileCount) || fileCount < 0 || !uploadDir || !totalSizeReadable) {
     throw new Error('文件统计待确认')
   }
@@ -217,8 +259,8 @@ async function loadFiles(path?: string) {
   loadingItems.value = true
   fileListLoadState.value = 'loading'
   try {
-    const res = await request.get('/api/admin/files', { params: { path: currentPath.value } })
-    const data = requireFileList((res as any).data)
+    const response = await request.get<unknown>('/api/admin/files', { params: { path: currentPath.value } })
+    const data = requireFileList(getResponseData(response, '目录内容待确认'))
     items.value = data.items
     currentPath.value = data.currentPath
     fileListLoadState.value = 'ready'
@@ -233,11 +275,11 @@ async function loadFiles(path?: string) {
 async function loadStats() {
   statsLoadState.value = 'loading'
   try {
-    const res = await request.get('/api/admin/files/stats')
-    stats.value = requireFileStats((res as any).data)
+    const response = await request.get<unknown>('/api/admin/files/stats')
+    stats.value = requireFileStats(getResponseData(response, '文件统计待确认'))
     statsLoadState.value = 'ready'
   } catch {
-    stats.value = {}
+    stats.value = null
     statsLoadState.value = 'error'
   }
 }
@@ -248,17 +290,17 @@ function goToParent() {
   loadFiles(idx > 0 ? p.substring(0, idx) : '')
 }
 
-function openItem(item: any) {
+function openItem(item: FileListItem) {
   if (item.isDir) { loadFiles(item.relativePath); return }
   if (isImage(item)) previewFile(item)
 }
 
-function previewFile(item: any) {
+function previewFile(item: FileListItem) {
   previewUrl.value = previewPath(item.relativePath)
   showPreview.value = true
 }
 
-async function handleDelete(item: any) {
+async function handleDelete(item: FileListItem) {
   try {
     const previousFileCount = typeof stats.value?.fileCount === 'number' ? stats.value.fileCount : null
     const previousTotalSize = typeof stats.value?.totalSize === 'number' ? stats.value.totalSize : null
@@ -286,7 +328,7 @@ function previewPath(relativePath: string) {
   return `${API_BASE_URL}/api/admin/files/preview?path=${encodeURIComponent(relativePath)}`
 }
 
-function isImage(item: any) {
+function isImage(item: FileListItem) {
   const mime = item.mimeType || ''
   return mime.startsWith('image/') && !item.isDir
 }
