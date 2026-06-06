@@ -309,14 +309,36 @@ watch(() => projectStore.activeProjectId, () => {
   void refresh()
 })
 
-const handleCopyParams = (task: GenerationTask) => {
-  navigator.clipboard.writeText(`Prompt: ${task.prompt}\nModel: ${task.modelName}\nType: ${task.taskType}`)
-  message.success('已复制')
+function buildTaskParameterCopyText(task: GenerationTask) {
+  if (task.requestJson) {
+    return formatJson(task.requestJson)
+  }
+  return JSON.stringify({
+    projectId: task.projectId,
+    providerId: task.providerId,
+    taskType: task.taskType,
+    prompt: task.prompt,
+    negativePrompt: task.negativePrompt || '',
+    modelName: task.modelName
+  }, null, 2)
+}
+
+const handleCopyParams = async (task: GenerationTask) => {
+  try {
+    await navigator.clipboard.writeText(buildTaskParameterCopyText(task))
+    message.success('真实请求参数已复制')
+  } catch {
+    message.error('复制失败，请稍后再试')
+  }
 }
 
 const handleViewAsset = (task: GenerationTask) => {
-  if (task.resultAssetId) router.push({ path: '/assets', query: { assetId: String(task.resultAssetId) } })
-  else message.error('无关联资产')
+  const asset = findTaskAssets(task)[0]
+  if (asset) {
+    router.push({ path: '/assets', query: { assetId: String(asset.id) } })
+    return
+  }
+  message.error('关联资产待确认')
 }
 
 function hasCurrentProjectTask(taskId: number) {
@@ -378,10 +400,27 @@ const handleDelete = async (id: number) => {
   }
 }
 
+function findTaskAssets(task: { id: number; resultAssetId?: number }) {
+  if (assetLoadState.value !== 'ready') {
+    return []
+  }
+  const linkedAssets = assetStore.assets.filter(asset => asset.taskId === task.id)
+  if (linkedAssets.length > 0) {
+    return linkedAssets
+  }
+  if (task.resultAssetId) {
+    const exact = assetStore.assets.find(asset => asset.id === task.resultAssetId)
+    if (exact) {
+      return [exact]
+    }
+  }
+  return []
+}
+
 const relatedAssets = computed<Asset[]>(() => {
   const currentTask = selectedTask.value
-  if (!currentTask?.resultAssetId || assetLoadState.value !== 'ready') return []
-  return assetStore.assets.filter(a => a.taskId === currentTask.id)
+  if (!currentTask) return []
+  return findTaskAssets(currentTask)
 })
 
 const formatJson = (value?: string) => {
