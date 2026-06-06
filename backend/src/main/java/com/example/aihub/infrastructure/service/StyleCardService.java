@@ -33,6 +33,7 @@ public class StyleCardService {
     public PageResult<StyleCardVO> page(Long projectId, String type, String search, String sort,
                                         Long currentUserId, long page, long size) {
         LambdaQueryWrapper<StyleCard> wrapper = new LambdaQueryWrapper<>();
+        wrapper.eq(StyleCard::getProjectId, PUBLIC_LIBRARY_PROJECT_ID);
         wrapper.eq(StyleCard::getStatus, 1);
         if (type != null && !type.isBlank()) {
             wrapper.eq(StyleCard::getType, type);
@@ -59,7 +60,10 @@ public class StyleCardService {
 
     public StyleCardVO get(Long id, Long currentUserId) {
         StyleCard card = cardMapper.selectById(id);
-        if (card == null || card.getStatus() == null || card.getStatus() != 1) {
+        if (card == null
+                || !PUBLIC_LIBRARY_PROJECT_ID.equals(card.getProjectId())
+                || card.getStatus() == null
+                || card.getStatus() != 1) {
             throw new BusinessException("卡片不存在");
         }
         return toVO(card, interactionService.isLiked(
@@ -89,7 +93,7 @@ public class StyleCardService {
     @Transactional(rollbackFor = Exception.class)
     public StyleCardVO update(Long id, StyleCardSaveDTO dto) {
         StyleCard card = cardMapper.selectById(id);
-        if (card == null) {
+        if (card == null || !PUBLIC_LIBRARY_PROJECT_ID.equals(card.getProjectId())) {
             throw new BusinessException("卡片不存在");
         }
         assertOwner(card);
@@ -102,7 +106,7 @@ public class StyleCardService {
     @Transactional(rollbackFor = Exception.class)
     public void delete(Long id) {
         StyleCard card = cardMapper.selectById(id);
-        if (card == null) {
+        if (card == null || !PUBLIC_LIBRARY_PROJECT_ID.equals(card.getProjectId())) {
             throw new BusinessException("卡片不存在");
         }
         assertOwner(card);
@@ -111,6 +115,7 @@ public class StyleCardService {
 
     public List<String> tags() {
         return cardMapper.selectList(new LambdaQueryWrapper<StyleCard>()
+                        .eq(StyleCard::getProjectId, PUBLIC_LIBRARY_PROJECT_ID)
                         .eq(StyleCard::getStatus, 1))
                 .stream()
                 .map(StyleCard::getTag)

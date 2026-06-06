@@ -462,7 +462,7 @@ function normalizeOptionalNumber(value: unknown) {
 
 function normalizeRequiredPositiveNumber(value: unknown, action: 'create' | 'update') {
   const parsed = Number(value)
-  if (!Number.isFinite(parsed) || parsed < PUBLIC_STYLE_CARD_LIBRARY_PROJECT_ID) {
+  if (!Number.isFinite(parsed) || parsed !== PUBLIC_STYLE_CARD_LIBRARY_PROJECT_ID) {
     throw new Error(action === 'create' ? '卡片创建结果待确认' : '卡片更新结果待确认')
   }
   return parsed

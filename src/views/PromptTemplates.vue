@@ -381,7 +381,7 @@ function normalizeOptionalPositiveNumber(value: unknown) {
 
 function normalizeTemplateProjectId(value: unknown, action: 'create' | 'update') {
   const parsed = Number(value)
-  if (!Number.isFinite(parsed) || parsed < PUBLIC_TEMPLATE_LIBRARY_PROJECT_ID) {
+  if (!Number.isFinite(parsed) || parsed !== PUBLIC_TEMPLATE_LIBRARY_PROJECT_ID) {
     throw new Error(action === 'create' ? '模板创建结果待确认' : '模板更新结果待确认')
   }
   return parsed

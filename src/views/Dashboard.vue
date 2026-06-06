@@ -393,7 +393,7 @@ function normalizePromptTemplateRecord(value: unknown) {
   const projectId = requireNonNegativeNumber(record.projectId, '热门提示词待确认')
   const name = normalizeOptionalText(record.name)
   const content = normalizeOptionalText(record.content)
-  if (id <= 0 || projectId < PUBLIC_TEMPLATE_LIBRARY_PROJECT_ID || !name || !content) {
+  if (id <= 0 || projectId !== PUBLIC_TEMPLATE_LIBRARY_PROJECT_ID || !name || !content) {
     throw new Error('公共热门提示词待确认')
   }
   return {

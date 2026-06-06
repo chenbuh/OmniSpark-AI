@@ -31,6 +31,7 @@ public class PromptTemplateService {
     public PageResult<PromptTemplateVO> page(Long projectId, String tag, String search, String sort,
                                              Long currentUserId, long page, long size) {
         LambdaQueryWrapper<PromptTemplate> wrapper = new LambdaQueryWrapper<>();
+        wrapper.eq(PromptTemplate::getProjectId, PUBLIC_LIBRARY_PROJECT_ID);
         wrapper.eq(PromptTemplate::getStatus, 1);
         if (tag != null && !tag.isBlank()) {
             wrapper.eq(PromptTemplate::getTag, tag);
@@ -57,7 +58,10 @@ public class PromptTemplateService {
 
     public PromptTemplateVO get(Long id, Long currentUserId) {
         PromptTemplate template = templateMapper.selectById(id);
-        if (template == null || template.getStatus() == null || template.getStatus() != 1) {
+        if (template == null
+                || !PUBLIC_LIBRARY_PROJECT_ID.equals(template.getProjectId())
+                || template.getStatus() == null
+                || template.getStatus() != 1) {
             throw new BusinessException("模板不存在");
         }
         return toVO(template, interactionService.isLiked(
@@ -91,7 +95,7 @@ public class PromptTemplateService {
     @Transactional(rollbackFor = Exception.class)
     public PromptTemplateVO update(Long id, PromptTemplateSaveDTO dto) {
         PromptTemplate template = templateMapper.selectById(id);
-        if (template == null) {
+        if (template == null || !PUBLIC_LIBRARY_PROJECT_ID.equals(template.getProjectId())) {
             throw new BusinessException("模板不存在");
         }
         assertOwner(template);
@@ -109,7 +113,7 @@ public class PromptTemplateService {
     @Transactional(rollbackFor = Exception.class)
     public void delete(Long id) {
         PromptTemplate template = templateMapper.selectById(id);
-        if (template == null) {
+        if (template == null || !PUBLIC_LIBRARY_PROJECT_ID.equals(template.getProjectId())) {
             throw new BusinessException("模板不存在");
         }
         assertOwner(template);
@@ -118,6 +122,7 @@ public class PromptTemplateService {
 
     public List<String> tags() {
         return templateMapper.selectList(new LambdaQueryWrapper<PromptTemplate>()
+                        .eq(PromptTemplate::getProjectId, PUBLIC_LIBRARY_PROJECT_ID)
                         .eq(PromptTemplate::getStatus, 1))
                 .stream()
                 .map(PromptTemplate::getTag)
