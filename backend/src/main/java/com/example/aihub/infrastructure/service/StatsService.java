@@ -161,7 +161,7 @@ public class StatsService {
             item.setTitle(("video".equals(task.getTaskType()) ? "视频" : "图像") + "任务 #" + task.getId());
             item.setDescription(joinNonBlank(
                     statusLabel(task.getStatus()),
-                    projectNameMap.getOrDefault(task.getProjectId(), "未知项目"),
+                    describeProject(task.getProjectId(), projectNameMap),
                     task.getModelName()));
             item.setStatus(task.getStatus());
             item.setCreatedAt(task.getCreatedAt());
@@ -173,7 +173,7 @@ public class StatsService {
             item.setType("quota");
             item.setTitle("额度消耗 " + (record.getAmount() == null ? 0 : record.getAmount()));
             item.setDescription(String.format("%s · %s%s",
-                    projectNameMap.getOrDefault(record.getProjectId(), "未知项目"),
+                    describeProject(record.getProjectId(), projectNameMap),
                     firstNonBlank(record.getQuotaType(), "generation"),
                     record.getRemark() != null && !record.getRemark().isBlank() ? " · " + record.getRemark() : ""));
             item.setStatus("success");
@@ -426,6 +426,20 @@ public class StatsService {
             builder.append(value.trim());
         }
         return builder.toString();
+    }
+
+    private String describeProject(Long projectId, Map<Long, String> projectNameMap) {
+        String projectName = projectId == null ? null : projectNameMap.get(projectId);
+        if (projectName != null && !projectName.isBlank()) {
+            return projectName;
+        }
+        if (projectId == null) {
+            return "项目待确认";
+        }
+        if (projectId == 0L) {
+            return "公共资源池";
+        }
+        return "项目已删除 (#" + projectId + ")";
     }
 
     private record StatsScope(

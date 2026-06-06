@@ -10,7 +10,9 @@ import javax.xml.parsers.DocumentBuilderFactory;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 
 @Service
 public class BuildMetadataService {
@@ -59,6 +61,34 @@ public class BuildMetadataService {
         }
         String localBranch = readLocalGitBranch();
         return localBranch == null ? "" : localBranch;
+    }
+
+    public String repositoryOwner() {
+        GitHubRepositoryInfo info = resolveGitHubRepositoryInfo();
+        return info == null ? "" : info.owner();
+    }
+
+    public String repositoryName() {
+        GitHubRepositoryInfo info = resolveGitHubRepositoryInfo();
+        return info == null ? "" : info.repo();
+    }
+
+    public String repositorySlug() {
+        GitHubRepositoryInfo info = resolveGitHubRepositoryInfo();
+        return info == null ? "" : info.owner() + "/" + info.repo();
+    }
+
+    public String repositoryUrl() {
+        GitHubRepositoryInfo info = resolveGitHubRepositoryInfo();
+        return info == null ? "" : info.webUrl();
+    }
+
+    public String defaultRemoteBranch() {
+        String branch = readOriginHeadBranch();
+        if (branch != null && !branch.isBlank()) {
+            return branch;
+        }
+        return firstNonBlank(currentBranch(), "");
     }
 
     private String sanitize(String value) {
@@ -166,6 +196,117 @@ public class BuildMetadataService {
         }
     }
 
+    private GitHubRepositoryInfo resolveGitHubRepositoryInfo() {
+        Path gitDir = resolveGitDir();
+        if (gitDir == null) {
+            return null;
+        }
+        String remoteUrl = readOriginRemoteUrl(gitDir);
+        if (remoteUrl == null || remoteUrl.isBlank()) {
+            return null;
+        }
+        return parseGitHubRepositoryInfo(remoteUrl);
+    }
+
+    private String readOriginRemoteUrl(Path gitDir) {
+        Path configPath = gitDir.resolve("config");
+        if (!Files.isRegularFile(configPath)) {
+            return null;
+        }
+        try {
+            List<String> lines = Files.readAllLines(configPath);
+            boolean inOriginSection = false;
+            for (String rawLine : lines) {
+                String line = rawLine == null ? "" : rawLine.trim();
+                if (line.startsWith("[") && line.endsWith("]")) {
+                    inOriginSection = "[remote \"origin\"]".equalsIgnoreCase(line);
+                    continue;
+                }
+                if (!inOriginSection || !line.startsWith("url")) {
+                    continue;
+                }
+                int separatorIndex = line.indexOf('=');
+                if (separatorIndex < 0) {
+                    continue;
+                }
+                String value = line.substring(separatorIndex + 1).trim();
+                return value.isBlank() ? null : value;
+            }
+        } catch (Exception ignored) {
+            return null;
+        }
+        return null;
+    }
+
+    private GitHubRepositoryInfo parseGitHubRepositoryInfo(String remoteUrl) {
+        String normalized = remoteUrl.trim();
+        if (normalized.isBlank()) {
+            return null;
+        }
+
+        String ownerRepo = null;
+        String lower = normalized.toLowerCase(Locale.ROOT);
+        if (lower.startsWith("git@github.com:")) {
+            ownerRepo = normalized.substring("git@github.com:".length()).trim();
+        } else if (lower.startsWith("ssh://git@github.com/")) {
+            ownerRepo = normalized.substring("ssh://git@github.com/".length()).trim();
+        } else if (lower.startsWith("https://github.com/")) {
+            ownerRepo = normalized.substring("https://github.com/".length()).trim();
+        } else if (lower.startsWith("http://github.com/")) {
+            ownerRepo = normalized.substring("http://github.com/".length()).trim();
+        }
+        if (ownerRepo == null || ownerRepo.isBlank()) {
+            return null;
+        }
+
+        while (ownerRepo.endsWith("/")) {
+            ownerRepo = ownerRepo.substring(0, ownerRepo.length() - 1);
+        }
+        if (ownerRepo.endsWith(".git")) {
+            ownerRepo = ownerRepo.substring(0, ownerRepo.length() - 4);
+        }
+
+        String[] parts = ownerRepo.split("/");
+        if (parts.length < 2) {
+            return null;
+        }
+        List<String> nonBlankParts = new ArrayList<>();
+        for (String part : parts) {
+            if (part != null && !part.isBlank()) {
+                nonBlankParts.add(part.trim());
+            }
+        }
+        if (nonBlankParts.size() < 2) {
+            return null;
+        }
+
+        String owner = nonBlankParts.get(nonBlankParts.size() - 2);
+        String repo = nonBlankParts.get(nonBlankParts.size() - 1);
+        if (owner.isBlank() || repo.isBlank()) {
+            return null;
+        }
+        return new GitHubRepositoryInfo(owner, repo, "https://github.com/" + owner + "/" + repo);
+    }
+
+    private String readOriginHeadBranch() {
+        try {
+            Path gitDir = resolveGitDir();
+            if (gitDir == null) {
+                return null;
+            }
+            Path originHeadPath = gitDir.resolve("refs").resolve("remotes").resolve("origin").resolve("HEAD");
+            String headContent = readTrimmed(originHeadPath);
+            if (headContent == null || !headContent.startsWith("ref:")) {
+                return null;
+            }
+            String ref = headContent.substring(4).trim();
+            int lastSlash = ref.lastIndexOf('/');
+            return lastSlash >= 0 ? ref.substring(lastSlash + 1) : ref;
+        } catch (Exception ignored) {
+            return null;
+        }
+    }
+
     private Path resolveGitDir() {
         Path current = Paths.get("").toAbsolutePath().normalize();
         while (current != null) {
@@ -217,5 +358,8 @@ public class BuildMetadataService {
         } catch (Exception ignored) {
             return null;
         }
+    }
+
+    private record GitHubRepositoryInfo(String owner, String repo, String webUrl) {
     }
 }

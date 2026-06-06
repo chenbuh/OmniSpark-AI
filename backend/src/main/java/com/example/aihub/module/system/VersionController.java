@@ -44,13 +44,13 @@ public class VersionController {
     @Value("${app.update.github.web-base:https://github.com}")
     private String githubWebBase;
 
-    @Value("${app.update.github.owner:chenbuh}")
+    @Value("${app.update.github.owner:}")
     private String githubOwner;
 
-    @Value("${app.update.github.repo:OmniSpark-AI}")
+    @Value("${app.update.github.repo:}")
     private String githubRepo;
 
-    @Value("${app.update.github.branch:main}")
+    @Value("${app.update.github.branch:}")
     private String githubBranch;
 
     @Value("${app.update.github.token:}")
@@ -75,6 +75,8 @@ public class VersionController {
     public ApiResult<Map<String, Object>> version() {
         Map<String, Object> info = new LinkedHashMap<>();
         String currentCommitSha = displayCurrentCommitSha();
+        String repositoryUrl = buildRepoUrl();
+        String repositorySlug = buildRepositorySlug();
         info.put("currentVersion", displayCurrentVersion());
         info.put("buildTime", displayBuildTime());
         info.put("currentBranch", displayCurrentBranch());
@@ -84,9 +86,9 @@ public class VersionController {
         info.put("javaVersion", System.getProperty("java.version"));
         info.put("osName", System.getProperty("os.name"));
         info.put("osArch", System.getProperty("os.arch"));
-        info.put("updateSource", githubOwner + "/" + githubRepo);
-        info.put("defaultBranch", githubBranch);
-        info.put("repositoryUrl", buildRepoUrl());
+        info.put("updateSource", repositorySlug.isBlank() ? "GitHub 仓库待确认" : repositorySlug);
+        info.put("defaultBranch", effectiveGithubBranch());
+        info.put("repositoryUrl", repositoryUrl);
         return ApiResult.ok(info);
     }
 
@@ -134,7 +136,7 @@ public class VersionController {
         result.put("currentCommitSha", currentCommitSha);
         result.put("currentCommitShortSha", abbreviateSha(currentCommitSha));
         result.put("repositoryUrl", buildRepoUrl());
-        result.put("defaultBranch", githubBranch);
+        result.put("defaultBranch", effectiveGithubBranch());
         return result;
     }
 
@@ -207,7 +209,7 @@ public class VersionController {
     }
 
     private boolean tryFillFromCommit(Map<String, Object> result) throws Exception {
-        HttpResponse<String> response = sendGithubGet("/repos/" + encodedRepoPath() + "/commits/" + encodePathSegment(githubBranch));
+        HttpResponse<String> response = sendGithubGet("/repos/" + encodedRepoPath() + "/commits/" + encodePathSegment(effectiveGithubBranch()));
         ensureSuccess(response, "Commit");
 
         JsonNode node = objectMapper.readTree(response.body());
@@ -241,6 +243,9 @@ public class VersionController {
     }
 
     private HttpResponse<String> sendGithubGet(String path) throws Exception {
+        if (effectiveGithubOwner().isBlank() || effectiveGithubRepo().isBlank()) {
+            throw new IllegalStateException("当前仓库远端待确认，无法检查 GitHub 更新");
+        }
         HttpRequest.Builder builder = HttpRequest.newBuilder()
                 .uri(URI.create(trimTrailingSlash(githubApiBase) + path))
                 .timeout(Duration.ofSeconds(Math.max(requestTimeoutSeconds, 3)))
@@ -327,11 +332,33 @@ public class VersionController {
     }
 
     private String encodedRepoPath() {
-        return encodePathSegment(githubOwner) + "/" + encodePathSegment(githubRepo);
+        return encodePathSegment(effectiveGithubOwner()) + "/" + encodePathSegment(effectiveGithubRepo());
     }
 
     private String buildRepoUrl() {
-        return trimTrailingSlash(githubWebBase) + "/" + githubOwner + "/" + githubRepo;
+        String detectedUrl = buildMetadataService.repositoryUrl();
+        if (!detectedUrl.isBlank()) {
+            return detectedUrl;
+        }
+        String owner = effectiveGithubOwner();
+        String repo = effectiveGithubRepo();
+        if (owner.isBlank() || repo.isBlank()) {
+            return "";
+        }
+        return trimTrailingSlash(githubWebBase) + "/" + owner + "/" + repo;
+    }
+
+    private String buildRepositorySlug() {
+        String detectedSlug = buildMetadataService.repositorySlug();
+        if (!detectedSlug.isBlank()) {
+            return detectedSlug;
+        }
+        String owner = effectiveGithubOwner();
+        String repo = effectiveGithubRepo();
+        if (owner.isBlank() || repo.isBlank()) {
+            return "";
+        }
+        return owner + "/" + repo;
     }
 
     private String trimTrailingSlash(String value) {
@@ -364,6 +391,31 @@ public class VersionController {
             return e.getClass().getSimpleName();
         }
         return e.getMessage();
+    }
+
+    private String effectiveGithubOwner() {
+        return firstNonBlank(trimToEmpty(githubOwner), buildMetadataService.repositoryOwner(), "");
+    }
+
+    private String effectiveGithubRepo() {
+        return firstNonBlank(trimToEmpty(githubRepo), buildMetadataService.repositoryName(), "");
+    }
+
+    private String effectiveGithubBranch() {
+        return firstNonBlank(trimToEmpty(githubBranch), buildMetadataService.defaultRemoteBranch(), displayCurrentBranch(), "main");
+    }
+
+    private String trimToEmpty(String value) {
+        return value == null ? "" : value.trim();
+    }
+
+    private String firstNonBlank(String... values) {
+        for (String value : values) {
+            if (value != null && !value.isBlank()) {
+                return value;
+            }
+        }
+        return "";
     }
 
     private record VersionValue(int major, int minor, int patch, String prerelease) implements Comparable<VersionValue> {

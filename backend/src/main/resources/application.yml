@@ -48,9 +48,9 @@ app:
     github:
       api-base: ${APP_UPDATE_GITHUB_API_BASE:https://api.github.com}
       web-base: ${APP_UPDATE_GITHUB_WEB_BASE:https://github.com}
-      owner: ${APP_UPDATE_GITHUB_OWNER:chenbuh}
-      repo: ${APP_UPDATE_GITHUB_REPO:OmniSpark-AI}
-      branch: ${APP_UPDATE_GITHUB_BRANCH:main}
+      owner: ${APP_UPDATE_GITHUB_OWNER:}
+      repo: ${APP_UPDATE_GITHUB_REPO:}
+      branch: ${APP_UPDATE_GITHUB_BRANCH:}
       token: ${APP_UPDATE_GITHUB_TOKEN:}
   cors:
     # 可信来源白名单（逗号分隔），仅这些来源允许携带凭证跨域。生产环境部署后追加正式域名。
