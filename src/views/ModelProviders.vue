@@ -10,7 +10,7 @@
     <n-card class="glass-card table-card" :bordered="false">
       <div class="actions-bar">
         <span class="count-lbl">当前项目已配置: {{ currentProviders.length }} 个</span>
-        <n-button type="primary" size="medium" :disabled="providerMetaLoadState !== 'ready' || !canCreateCurrentProject" @click="handleOpenAddModal">
+        <n-button type="primary" size="medium" :disabled="providerMetaLoadState === 'loading' || !canCreateCurrentProject" @click="handleOpenAddModal">
           <template #icon><Plus /></template>添加提供商
         </n-button>
       </div>
@@ -267,11 +267,11 @@ const defaultResponseFormat = computed(() => providerMeta.value.defaults?.audioR
 const currentProject = computed(() =>
   projectStore.projects.find(project => project.id === projectStore.activeProjectId) || null
 )
-const canOperateCurrentProject = computed(() => !!currentProject.value)
+const canOperateCurrentProject = computed(() => !!projectStore.activeProjectId)
 const canCreateCurrentProject = computed(() =>
-  !!currentProject.value && currentProject.value.accessPermission !== 'view'
+  !!projectStore.activeProjectId && (currentProject.value ? currentProject.value.accessPermission !== 'view' : true)
 )
-const currentProjectPermissionLabel = computed(() => formatProjectPermissionLabel(currentProject.value?.accessPermission))
+const currentProjectPermissionLabel = computed(() => currentProject.value ? formatProjectPermissionLabel(currentProject.value.accessPermission) : '')
 const collaborationNotice = computed(() => {
   if (!currentProject.value || currentProject.value.ownedByCurrentUser) {
     return ''
@@ -557,7 +557,7 @@ const handleTestConnection = async (provider: ModelProvider) => {
 }
 
 const handleOpenAddModal = () => {
-  if (!currentProject.value) {
+  if (!projectStore.activeProjectId) {
     message.error('请先选择一个项目空间')
     return
   }
@@ -565,7 +565,7 @@ const handleOpenAddModal = () => {
     message.error(`当前项目仅有${currentProjectPermissionLabel.value}权限，不能新增提供商`)
     return
   }
-  if (typeOptions.value.length === 0) {
+  if (typeOptions.value.length === 0 && providerMetaLoadState.value === 'ready') {
     message.error('模型类型元数据尚未加载成功，暂时无法基于真实配置新增提供商')
     return
   }
