@@ -92,6 +92,7 @@ import { dictApi, type DataDictItem } from '@/api/dicts'
 import request from '@/api/request'
 import { taskApi } from '@/api/tasks'
 import { useTaskStore, type GenerationTask } from '@/store/task'
+import { downloadUrl } from '@/utils/download'
 
 type AssetType = 'image' | 'video' | 'reference'
 
@@ -434,13 +435,14 @@ function openPreview(asset: AdminAssetRecord) {
   void loadPreviewTask(asset)
 }
 
-function downloadAsset() {
+async function downloadAsset() {
   if (!previewAsset.value) return
-  const a = document.createElement('a')
-  a.href = previewAsset.value.fileUrl
-  a.download = previewAsset.value.fileName
-  a.target = '_blank'
-  a.click()
+  try {
+    await downloadUrl(`/api/admin/assets/${previewAsset.value.id}/download`, previewAsset.value.fileName)
+    message.success('下载已开始')
+  } catch (err: unknown) {
+    message.error(getErrorMessage(err, '下载失败，请稍后再试'))
+  }
 }
 </script>
 

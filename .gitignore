@@ -31,6 +31,9 @@ backend/runtime-logs
 # Generated test artifacts & local data (may contain secrets / large binaries)
 generated
 uploads
+output
+tmp
+runtime-logs
 
 # Local config overrides (keep secrets out of VCS)
 application-local.yml

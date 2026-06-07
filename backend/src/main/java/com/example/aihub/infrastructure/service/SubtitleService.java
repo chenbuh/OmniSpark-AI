@@ -3,6 +3,7 @@ package com.example.aihub.infrastructure.service;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.example.aihub.common.exception.BusinessException;
+import com.example.aihub.common.security.ModelApiKeyEncryptor;
 import com.example.aihub.common.result.PageResult;
 import com.example.aihub.common.security.UploadAccessSignatureService;
 import com.example.aihub.common.storage.UploadStorageResolver;
@@ -42,6 +43,7 @@ public class SubtitleService {
     private final com.example.aihub.common.security.ProjectAccessGuard projectAccessGuard;
     private final UploadAccessSignatureService uploadAccessSignatureService;
     private final UploadStorageResolver uploadStorageResolver;
+    private final ModelApiKeyEncryptor apiKeyEncryptor;
     private final OpenAiSpeechClient speechClient;
     private final OpenAiTranscriptionClient transcriptionClient;
     private final ObjectMapper objectMapper;
@@ -133,9 +135,10 @@ public class SubtitleService {
         try {
             ModelProvider provider = resolveVoiceProvider(sub.getProjectId());
             OpenAiSpeechClient.SpeechOptions speechOptions = resolveSpeechOptions(provider, sub.getLanguage());
+            String apiKey = resolveProviderApiKey(provider);
             OpenAiSpeechClient.SynthesizedAudio audio = speechClient.synthesize(
                     provider.getBaseUrl(),
-                    provider.getApiKey(),
+                    apiKey,
                     resolveSpeechModel(provider),
                     plainText,
                     speechOptions
@@ -198,9 +201,10 @@ public class SubtitleService {
         ModelProvider provider = resolveTranscriptionProvider(asset.getProjectId());
         String modelName = resolveTranscriptionModel(provider);
         OpenAiTranscriptionClient.MediaFile mediaFile = extractAudioForTranscription(asset);
+        String apiKey = resolveProviderApiKey(provider);
         String srt = transcriptionClient.transcribe(
                 provider.getBaseUrl(),
-                provider.getApiKey(),
+                apiKey,
                 modelName,
                 language,
                 prompt,
@@ -460,6 +464,18 @@ public class SubtitleService {
         } catch (Exception ignored) {
             return null;
         }
+    }
+
+    private String resolveProviderApiKey(ModelProvider provider) {
+        String encrypted = provider.getApiKey();
+        String decrypted = apiKeyEncryptor.decrypt(encrypted);
+        if (encrypted != null
+                && encrypted.startsWith("$AES$")
+                && decrypted != null
+                && decrypted.startsWith("$AES$")) {
+            throw new BusinessException("当前模型提供商的 API Key 无法解密，请重新填写并保存一次后再试。");
+        }
+        return decrypted == null ? null : decrypted.trim();
     }
 
     private String resolveFfmpegCommand() {

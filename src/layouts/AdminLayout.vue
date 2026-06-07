@@ -131,16 +131,16 @@ async function handleLogout() {
 </script>
 
 <style scoped>
-.admin-layout { height: 100vh; background-color: var(--bg-secondary); color: var(--text-primary); }
+.admin-layout { height: 100vh; background-color: var(--bg-secondary); color: var(--text-primary); overflow: hidden; }
 .admin-sider { background: var(--card-color) !important; backdrop-filter: blur(16px); border-right: 1px solid var(--border-color) !important; }
 .admin-logo { padding: 20px 16px; border-bottom: 1px solid var(--border-color); }
 .admin-logo-text { font-size: 16px; font-weight: 700; background: linear-gradient(to right, #10b981, #3b82f6); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
 .admin-menu-box { flex: 1; padding: 8px 0; overflow-y: auto; }
 .admin-footer { padding: 12px 16px; border-top: 1px solid var(--border-color); }
-.admin-content { background-color: var(--bg-secondary) !important; }
+.admin-content { display: flex; flex-direction: column; min-width: 0; min-height: 0; background-color: var(--bg-secondary) !important; }
 .admin-header { display: flex; align-items: center; justify-content: space-between; height: 56px; padding: 0 24px; background: var(--card-color) !important; border-bottom: 1px solid var(--border-color) !important; }
 .header-title { font-size: 15px; font-weight: 600; color: var(--text-secondary); }
 .header-right { display: flex; align-items: center; gap: 16px; }
 .header-user { font-size: 13px; color: var(--text-muted); }
-.admin-page-content { padding: 24px; min-height: calc(100vh - 56px); overflow-y: auto; }
+.admin-page-content { flex: 1; min-height: 0; padding: 24px; overflow-y: auto; }
 </style>

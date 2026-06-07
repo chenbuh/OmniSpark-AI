@@ -375,6 +375,7 @@ import { useAssetStore, type Asset } from '@/store/asset'
 import { assetApi } from '@/api/assets'
 import { generationApi, type GenerationMetaOption, type GenerationMetaVO } from '@/api/generation'
 import { taskApi } from '@/api/tasks'
+import { downloadUrl } from '@/utils/download'
 import {
   Zap,
   Download,
@@ -408,7 +409,7 @@ const selectedImageAsset = ref<Asset | null>(null)
 const selectedEndAsset = ref<Asset | null>(null)
 const assetPickerMode = ref<'start' | 'end'>('start')
 const activeTaskId = ref<number | null>(null)
-let taskPollingTimer: ReturnType<typeof setInterval> | null = null
+let taskPollingTimer: number | null = null
 let taskSyncing = false
 let pendingFetchAsset: Promise<Asset | null> | null = null
 
@@ -1367,14 +1368,15 @@ const handleToggleFavorite = async () => {
   }
 }
 
-const handleDownload = () => {
+const handleDownload = async () => {
   if (currentAsset.value) {
     message.info(`正在打包 ${currentAsset.value.fileName} 高清视频流资源...`)
-    const a = document.createElement('a')
-    a.href = currentAsset.value.fileUrl
-    a.download = currentAsset.value.fileName
-    a.target = '_blank'
-    a.click()
+    try {
+      await downloadUrl(`/api/assets/${currentAsset.value.id}/download`, currentAsset.value.fileName)
+      message.success('下载已开始')
+    } catch (err: unknown) {
+      message.error(getErrorMessage(err, '下载失败，请稍后再试'))
+    }
   }
 }
 
@@ -1385,9 +1387,16 @@ onBeforeUnmount(() => {
 
 <style scoped>
 .generate-container {
-  height: calc(100vh - 120px);
+  height: 100%;
+  min-height: 0;
   padding-bottom: 20px;
   color: var(--text-primary);
+  overflow: hidden;
+}
+
+.generate-container :deep(.n-row),
+.generate-container :deep(.n-col) {
+  min-height: 0;
 }
 
 .glass-card {
@@ -1400,6 +1409,7 @@ onBeforeUnmount(() => {
 
 .control-card {
   height: 100%;
+  min-height: 0;
 }
 
 .mode-tabs {
@@ -1419,6 +1429,7 @@ onBeforeUnmount(() => {
 
 .form-scrollbar {
   flex: 1;
+  min-height: 0;
 }
 
 .form-status {
@@ -1583,6 +1594,7 @@ onBeforeUnmount(() => {
   height: 100%;
   display: flex;
   flex-direction: column;
+  min-height: 0;
   position: relative;
 }
 

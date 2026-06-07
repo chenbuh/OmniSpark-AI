@@ -44,29 +44,32 @@ public class UploadAccessSignatureService {
     }
 
     public String signAuthenticatedUrl(String rawUrl) {
-        return signUrl(rawUrl, MODE_AUTHENTICATED, null);
+        return signUrl(rawUrl, MODE_AUTHENTICATED, null, currentUserId());
     }
 
     public String signProjectUrl(String rawUrl, Long projectId) {
-        if (projectId == null || projectId <= 0) {
-            return signAuthenticatedUrl(rawUrl);
-        }
-        return signUrl(rawUrl, MODE_PROJECT, projectId);
+        return signProjectUrl(rawUrl, projectId, currentUserId());
     }
 
-    private String signUrl(String rawUrl, String mode, Long projectId) {
+    public String signProjectUrl(String rawUrl, Long projectId, Long userId) {
+        if (projectId == null || projectId <= 0) {
+            return signUrl(rawUrl, MODE_AUTHENTICATED, null, userId);
+        }
+        return signUrl(rawUrl, MODE_PROJECT, projectId, userId);
+    }
+
+    private String signUrl(String rawUrl, String mode, Long projectId, Long userId) {
         if (!isLocalUploadUrl(rawUrl)) {
             return rawUrl;
         }
         String path = normalizePath(rawUrl);
         long expiresAt = Instant.now().getEpochSecond() + Math.max(ttlSeconds, 60);
         String normalizedMode = normalizeMode(mode);
-        Long currentUserId = currentUserId();
         String projectPart = MODE_PROJECT.equals(normalizedMode) && projectId != null && projectId > 0
                 ? "&pid=" + projectId
                 : "";
-        String userPart = currentUserId != null ? "&uid=" + currentUserId : "";
-        String signature = sign(path, expiresAt, normalizedMode, projectId, currentUserId);
+        String userPart = userId != null ? "&uid=" + userId : "";
+        String signature = sign(path, expiresAt, normalizedMode, projectId, userId);
         return path + "?exp=" + expiresAt + "&mode=" + normalizedMode + projectPart + userPart + "&sig=" + signature;
     }
 
@@ -205,10 +208,14 @@ public class UploadAccessSignatureService {
     }
 
     private Long currentUserId() {
-        if (!StpUtil.isLogin()) {
+        try {
+            if (!StpUtil.isLogin()) {
+                return null;
+            }
+            return StpUtil.getLoginIdAsLong();
+        } catch (Exception ignored) {
             return null;
         }
-        return StpUtil.getLoginIdAsLong();
     }
 
     public record AccessDescriptor(boolean valid, String mode, Long projectId, Long userId) {

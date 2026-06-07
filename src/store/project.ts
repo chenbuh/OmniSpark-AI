@@ -77,32 +77,27 @@ export const useProjectStore = defineStore('project', {
       this.activeProjectId = id
     },
     async addProject(name: string, description: string) {
-      const previousProjectIds = new Set(this.projects.map(item => item.id))
       const response = await projectApi.createProject({ name, description })
-      await this.refresh()
       const responseData = getResponseData(response, '项目创建结果待确认')
-      const createdId = parseRequiredProjectId(isPlainObject(responseData) ? responseData.id : null)
-      const expectedName = normalizeOptionalText(name)
-      const expectedDescription = normalizeOptionalText(description)
-      const hasExpectedFields = (project: Project) =>
-        normalizeOptionalText(project.name) === expectedName
-        && normalizeOptionalText(project.description) === expectedDescription
-      if (createdId != null) {
-        const createdById = this.projects.find(item => item.id === createdId)
-        if (createdById && hasExpectedFields(createdById)) {
-          this.activeProjectId = createdById.id
-          return createdById
-        }
+      const createdProject = this.normalizeProject(responseData)
+      if (
+        normalizeOptionalText(createdProject.name) !== normalizeOptionalText(name)
+        || normalizeOptionalText(createdProject.description) !== normalizeOptionalText(description)
+      ) {
+        throw new Error('项目创建结果待确认')
       }
-      const createdProject = this.projects.find(item =>
-        !previousProjectIds.has(item.id)
-        && hasExpectedFields(item)
-      )
-      if (createdProject) {
-        this.activeProjectId = createdProject.id
-        return createdProject
+
+      const existingIndex = this.projects.findIndex(item => item.id === createdProject.id)
+      if (existingIndex === -1) {
+        this.projects.unshift(createdProject)
+      } else {
+        this.projects[existingIndex] = createdProject
       }
-      throw new Error('项目创建结果待确认')
+      this.activeProjectId = createdProject.id
+      if (this.loadState === 'idle') {
+        this.loadState = 'ready'
+      }
+      return createdProject
     },
     async updateProject(id: number, name: string, description: string) {
       await projectApi.updateProject(id, { name, description })

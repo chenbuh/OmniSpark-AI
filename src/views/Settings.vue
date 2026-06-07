@@ -93,6 +93,65 @@
               <n-button type="primary" @click="handleChangePassword" :loading="changingPassword">修改密码</n-button>
             </n-row>
           </n-form>
+
+          <template v-if="isAdmin">
+            <n-divider style="margin: 20px 0 16px;" />
+            <div class="totp-admin-header">
+              <div>
+                <div class="totp-admin-title">管理员验证器</div>
+                <p class="totp-admin-hint">已登录后可在这里主动重置验证器绑定。旧手机令牌丢失或删除时，重新扫码即可。</p>
+              </div>
+              <n-button
+                v-if="!totpResetState.setupTicket"
+                tertiary
+                type="primary"
+                :loading="resettingTotp"
+                @click="handleBeginTotpReset"
+              >
+                重置验证器绑定
+              </n-button>
+            </div>
+
+            <div v-if="totpResetState.setupTicket" class="totp-reset-card">
+              <div class="totp-qr-section">
+                <div v-if="totpResetQrCodeUrl" class="totp-qr-box">
+                  <img :src="totpResetQrCodeUrl" alt="TOTP 重置二维码" class="totp-qr-image" />
+                </div>
+                <div class="totp-qr-copy">
+                  <span class="totp-qr-title">重新扫码绑定</span>
+                  <span class="totp-qr-hint">请先删除旧令牌，再使用新的二维码重新绑定。</span>
+                  <span class="totp-qr-hint">也支持复制密钥或绑定链接做手动导入。</span>
+                </div>
+              </div>
+
+              <div class="totp-meta">
+                <span>发行方</span>
+                <strong>{{ totpResetState.issuer }}</strong>
+              </div>
+              <div class="totp-meta">
+                <span>登录账号</span>
+                <strong>{{ userStore.userInfo?.username }}</strong>
+              </div>
+              <div class="totp-secret-box">{{ totpResetState.secret }}</div>
+              <div class="totp-actions">
+                <n-button secondary type="primary" @click="copyText(totpResetState.secret, '密钥已复制')">复制密钥</n-button>
+                <n-button secondary @click="copyText(totpResetState.otpauthUrl, '绑定链接已复制')">复制绑定链接</n-button>
+              </div>
+
+              <n-form-item label="动态验证码" style="margin-top: 16px;">
+                <n-input
+                  v-model:value="totpResetState.code"
+                  placeholder="输入新验证器当前显示的 6 位动态码"
+                  maxlength="6"
+                  @keyup.enter="handleConfirmTotpReset"
+                />
+              </n-form-item>
+              <div class="totp-actions">
+                <n-button type="primary" :loading="confirmingTotpReset" @click="handleConfirmTotpReset">确认新绑定</n-button>
+                <n-button :disabled="confirmingTotpReset" @click="resetTotpResetState">取消</n-button>
+              </div>
+            </div>
+          </template>
         </n-card>
       </n-col>
     </n-row>
@@ -137,9 +196,10 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, computed, onMounted, type Ref } from 'vue'
+import { ref, reactive, computed, onMounted, watch, type Ref } from 'vue'
 import { useMessage, useDialog } from 'naive-ui'
 import { Pencil } from 'lucide-vue-next'
+import QRCode from 'qrcode'
 import { useUserStore } from '@/store/user'
 import request from '@/api/request'
 import { authApi } from '@/api/auth'
@@ -151,6 +211,7 @@ const message = useMessage()
 const dialog = useDialog()
 const userStore = useUserStore()
 const displayRoleLabel = computed(() => formatUserRole(userStore.userInfo?.role))
+const isAdmin = computed(() => userStore.userInfo?.role?.toLowerCase() === 'admin')
 const NO_CACHE_HEADERS = { 'X-No-Cache': '1' }
 
 type ThemeWindow = Window & {
@@ -176,6 +237,19 @@ function getErrorMessage(error: unknown, fallback: string) {
     return error.message
   }
   return fallback
+}
+
+const copyText = async (value: string, successText: string) => {
+  if (!value.trim()) {
+    message.error('没有可复制的内容')
+    return
+  }
+  try {
+    await navigator.clipboard.writeText(value)
+    message.success(successText)
+  } catch {
+    message.error('复制失败，请手动复制')
+  }
 }
 
 // ===== 主题 =====
@@ -229,6 +303,58 @@ const passwordForm = reactive({
   confirmPassword: ''
 })
 
+const resettingTotp = ref(false)
+const confirmingTotpReset = ref(false)
+const totpResetQrCodeUrl = ref('')
+const totpResetState = reactive({
+  setupTicket: '',
+  secret: '',
+  otpauthUrl: '',
+  issuer: '',
+  code: ''
+})
+
+const isValidTotpCode = (value: string) => /^\d{6}$/.test(value.trim())
+
+const resetTotpResetState = () => {
+  totpResetState.setupTicket = ''
+  totpResetState.secret = ''
+  totpResetState.otpauthUrl = ''
+  totpResetState.issuer = ''
+  totpResetState.code = ''
+  totpResetQrCodeUrl.value = ''
+}
+
+const buildTotpResetQrCode = async (value: string) => {
+  const normalized = value.trim()
+  if (!normalized) {
+    totpResetQrCodeUrl.value = ''
+    return
+  }
+  try {
+    totpResetQrCodeUrl.value = await QRCode.toDataURL(normalized, {
+      errorCorrectionLevel: 'M',
+      margin: 1,
+      width: 220,
+      color: {
+        dark: '#0f172a',
+        light: '#ffffff'
+      }
+    })
+  } catch {
+    totpResetQrCodeUrl.value = ''
+    message.error('重置二维码生成失败，请先使用密钥或绑定链接完成手动导入')
+  }
+}
+
+const applyTotpSetupPayload = (payload: Awaited<ReturnType<typeof authApi.beginTotpReset>>) => {
+  totpResetState.setupTicket = payload.setupTicket
+  totpResetState.secret = payload.totpSecret
+  totpResetState.otpauthUrl = payload.totpOtpauthUrl
+  totpResetState.issuer = payload.totpIssuer
+  totpResetState.code = ''
+}
+
 async function handleChangePassword() {
   if (!passwordForm.oldPassword) { message.error('请输入当前密码'); return }
   if (!passwordForm.newPassword) { message.error('请输入新密码'); return }
@@ -267,6 +393,55 @@ async function handleChangePassword() {
       }
     }
   })
+}
+
+const handleBeginTotpReset = () => {
+  dialog.warning({
+    title: '确认重置验证器',
+    content: '重置后旧手机上的动态验证码将不再作为新的绑定来源，请使用新二维码重新绑定后再继续使用。',
+    positiveText: '开始重置',
+    negativeText: '取消',
+    onPositiveClick: async () => {
+      resettingTotp.value = true
+      try {
+        const result = await authApi.beginTotpReset()
+        applyTotpSetupPayload(result)
+        message.success('新的验证器绑定二维码已生成，请扫码后输入动态验证码完成确认')
+      } catch (err: unknown) {
+        message.error(getErrorMessage(err, '重置验证器失败，请稍后重试'))
+      } finally {
+        resettingTotp.value = false
+      }
+    }
+  })
+}
+
+async function handleConfirmTotpReset() {
+  if (!totpResetState.setupTicket.trim()) {
+    message.error('当前重置会话已失效，请重新开始')
+    resetTotpResetState()
+    return
+  }
+  if (!isValidTotpCode(totpResetState.code)) {
+    message.error('请输入 6 位数字动态验证码')
+    return
+  }
+  confirmingTotpReset.value = true
+  try {
+    await authApi.confirmTotpReset({
+      setupTicket: totpResetState.setupTicket,
+      totpCode: totpResetState.code.trim()
+    })
+    await authApi.getMe()
+    resetTotpResetState()
+    message.success('验证器已重置并重新绑定成功')
+  } catch (err: unknown) {
+    const errorMessage = getErrorMessage(err, '验证器绑定失败，请重新重置')
+    message.error(errorMessage)
+    totpResetState.code = ''
+  } finally {
+    confirmingTotpReset.value = false
+  }
 }
 
 
@@ -412,6 +587,10 @@ onMounted(async () => {
   await loadLoginLogs()
 })
 
+watch(() => totpResetState.otpauthUrl, (value) => {
+  void buildTotpResetQrCode(value)
+})
+
 async function loadLoginLogs() {
   try {
     loadingLogs.value = true
@@ -489,6 +668,101 @@ function formatFull(dateStr: string): string {
 .dark-preview { background: linear-gradient(135deg, #05070c 50%, #0f172a 50%); }
 .light-preview { background: linear-gradient(135deg, #ffffff 50%, #f0f0f0 50%); }
 
+.totp-admin-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.totp-admin-title {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.totp-admin-hint {
+  margin: 6px 0 0;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--text-muted);
+}
+
+.totp-reset-card {
+  margin-top: 16px;
+  padding: 16px;
+  border: 1px solid var(--border-color);
+  border-radius: 16px;
+  background: rgba(127, 127, 127, 0.04);
+}
+
+.totp-qr-section {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-bottom: 14px;
+}
+
+.totp-qr-box {
+  flex: 0 0 auto;
+  padding: 10px;
+  border-radius: 14px;
+  background: #ffffff;
+  box-shadow: 0 10px 24px rgba(15, 23, 42, 0.12);
+}
+
+.totp-qr-image {
+  display: block;
+  width: 132px;
+  height: 132px;
+  object-fit: contain;
+}
+
+.totp-qr-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.totp-qr-title {
+  font-size: 15px;
+  font-weight: 700;
+}
+
+.totp-qr-hint {
+  font-size: 12px;
+  line-height: 1.55;
+  color: var(--text-muted);
+}
+
+.totp-meta {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 10px;
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.totp-secret-box {
+  margin-top: 12px;
+  padding: 12px;
+  border-radius: 12px;
+  background: rgba(15, 23, 42, 0.68);
+  color: #e2e8f0;
+  font-family: "Consolas", "Courier New", monospace;
+  font-size: 13px;
+  line-height: 1.5;
+  word-break: break-all;
+}
+
+.totp-actions {
+  display: flex;
+  gap: 10px;
+  margin-top: 12px;
+}
+
 .count { font-size: 12px; color: var(--text-muted); }
 
 .log-table { background: transparent !important; }
@@ -498,4 +772,23 @@ function formatFull(dateStr: string): string {
 
 .s-icon { width: 14px; height: 14px; }
 .pagination-wrap { display: flex; justify-content: flex-end; margin-top: 12px; }
+
+@media (max-width: 900px) {
+  .totp-admin-header {
+    flex-direction: column;
+  }
+
+  .totp-qr-section {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .totp-qr-box {
+    align-self: center;
+  }
+
+  .totp-actions {
+    flex-direction: column;
+  }
+}
 </style>

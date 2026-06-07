@@ -25,11 +25,21 @@
           <h3>{{ totpState.stage === 'setup' ? '管理员首次登录验证' : '管理员动态验证码' }}</h3>
           <p class="subtitle">
             {{ totpState.stage === 'setup'
-              ? '请在验证器 App 中手动添加当前账号，然后输入 6 位动态验证码完成绑定。'
+              ? '请使用验证器 App 扫码绑定；如果 App 不支持扫码，也可以复制密钥或绑定链接完成令牌激活。'
               : '请输入验证器 App 当前显示的 6 位动态验证码。' }}
           </p>
 
           <div v-if="totpState.stage === 'setup'" class="totp-setup-card">
+            <div class="totp-qr-section">
+              <div v-if="totpQrCodeUrl" class="totp-qr-box">
+                <img :src="totpQrCodeUrl" alt="TOTP 绑定二维码" class="totp-qr-image" />
+              </div>
+              <div class="totp-qr-copy">
+                <span class="totp-qr-title">扫码绑定</span>
+                <span class="totp-qr-hint">支持 Google Authenticator、Microsoft Authenticator、2FAS、腾讯身份验证器等兼容 TOTP 的 App。</span>
+                <span class="totp-qr-hint">若当前 App 支持令牌激活，也可直接复制下方绑定链接导入。</span>
+              </div>
+            </div>
             <div class="totp-meta">
               <span>发行方</span>
               <strong>{{ totpState.issuer }}</strong>
@@ -225,6 +235,7 @@ import { useRouter } from 'vue-router'
 import { useMessage } from 'naive-ui'
 import type { FormInst } from 'naive-ui'
 import { gsap } from 'gsap'
+import QRCode from 'qrcode'
 import { authApi } from '@/api/auth'
 import { usePlatformStore } from '@/store/platform'
 import { User, Lock, Zap, Smile, ShieldCheck } from 'lucide-vue-next'
@@ -270,6 +281,7 @@ const totpState = reactive({
   issuer: '',
   code: ''
 })
+const totpQrCodeUrl = ref('')
 
 const shouldReduceMotion = () => window.matchMedia('(prefers-reduced-motion: reduce)').matches
 
@@ -516,6 +528,9 @@ const getErrorMessage = (error: unknown, fallback: string) => {
   return fallback
 }
 
+const isRetryableTotpError = (messageText: string) =>
+  messageText.includes('动态验证码无效')
+
 const resetTotpState = () => {
   totpState.stage = 'none'
   totpState.loginTicket = ''
@@ -524,6 +539,29 @@ const resetTotpState = () => {
   totpState.otpauthUrl = ''
   totpState.issuer = ''
   totpState.code = ''
+  totpQrCodeUrl.value = ''
+}
+
+const buildTotpQrCode = async (value: string) => {
+  const normalized = value.trim()
+  if (!normalized) {
+    totpQrCodeUrl.value = ''
+    return
+  }
+  try {
+    totpQrCodeUrl.value = await QRCode.toDataURL(normalized, {
+      errorCorrectionLevel: 'M',
+      margin: 1,
+      width: 220,
+      color: {
+        dark: '#0f172a',
+        light: '#ffffff'
+      }
+    })
+  } catch {
+    totpQrCodeUrl.value = ''
+    message.error('绑定二维码生成失败，请先使用密钥或绑定链接完成令牌激活')
+  }
 }
 
 const activateTotpFlow = (result: Awaited<ReturnType<typeof authApi.login>>) => {
@@ -590,7 +628,12 @@ const handleTotpSubmit = async () => {
     message.success(`登录成功，欢迎回来，${result.userInfo.nickname}👋`)
     router.push('/dashboard')
   } catch (err: unknown) {
-    message.error(getErrorMessage(err, '动态验证码校验失败，请重新登录'))
+    const errorMessage = getErrorMessage(err, '动态验证码校验失败，请重新登录')
+    message.error(errorMessage)
+    totpState.code = ''
+    if (isRetryableTotpError(errorMessage)) {
+      return
+    }
     handleTotpBack()
   } finally {
     loading.value = false
@@ -648,6 +691,10 @@ onMounted(() => {
 
 watch(isLoginMode, () => {
   void animateFormMode()
+})
+
+watch(() => totpState.otpauthUrl, (value) => {
+  void buildTotpQrCode(value)
 })
 
 onBeforeUnmount(() => {
@@ -906,6 +953,46 @@ onBeforeUnmount(() => {
   border-color: rgba(59, 130, 246, 0.16);
 }
 
+.totp-qr-section {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-bottom: 14px;
+}
+
+.totp-qr-box {
+  flex: 0 0 auto;
+  padding: 10px;
+  border-radius: 14px;
+  background: #ffffff;
+  box-shadow: 0 10px 24px rgba(15, 23, 42, 0.12);
+}
+
+.totp-qr-image {
+  display: block;
+  width: 132px;
+  height: 132px;
+  object-fit: contain;
+}
+
+.totp-qr-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.totp-qr-title {
+  font-size: 15px;
+  font-weight: 700;
+}
+
+.totp-qr-hint {
+  font-size: 12px;
+  line-height: 1.55;
+  color: var(--login-switch-color);
+}
+
 .totp-meta {
   display: flex;
   justify-content: space-between;
@@ -944,6 +1031,15 @@ onBeforeUnmount(() => {
 
   .totp-actions {
     flex-direction: column;
+  }
+
+  .totp-qr-section {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .totp-qr-box {
+    align-self: center;
   }
 }
 </style>

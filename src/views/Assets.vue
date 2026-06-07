@@ -341,6 +341,7 @@ import { subtitleApi, type SubtitleVO } from '@/api/subtitles'
 import { useAssetStore, type Asset, resolveAssetUrl } from '@/store/asset'
 import { useProjectStore } from '@/store/project'
 import { useTaskStore, type GenerationTask } from '@/store/task'
+import { downloadUrl } from '@/utils/download'
 import { buildGenerationReuseLocation } from '@/utils/generationReuse'
 import {
   Library,
@@ -1041,12 +1042,13 @@ async function handleToggleFavorite(asset: Asset) {
   }
 }
 
-function handleDownload(asset: Asset) {
-  const anchor = document.createElement('a')
-  anchor.href = asset.fileUrl
-  anchor.download = asset.fileName
-  anchor.target = '_blank'
-  anchor.click()
+async function handleDownload(asset: Asset) {
+  try {
+    await downloadUrl(`/api/assets/${asset.id}/download`, asset.fileName)
+    message.success('下载已开始')
+  } catch (err: unknown) {
+    message.error(err instanceof Error && err.message ? err.message : '下载失败，请稍后再试')
+  }
 }
 
 function handleOpenOriginal(asset: Asset) {

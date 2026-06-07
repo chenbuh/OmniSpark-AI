@@ -37,7 +37,8 @@ public class CorsFilter implements Filter {
             response.setHeader("Access-Control-Allow-Headers",
                     "Content-Type, Authorization, satoken, X-Api-Key, " +
                     "X-Timestamp, X-Nonce, X-Sign, X-Challenge-Id, " +
-                    "X-Risk-Captcha-Ticket, X-No-Cache, X-Requested-With");
+                    "X-Risk-Captcha-Ticket, X-No-Cache, X-Requested-With, " +
+                    "Cache-Control, Pragma");
             response.setHeader("Access-Control-Max-Age", "3600");
         }
 

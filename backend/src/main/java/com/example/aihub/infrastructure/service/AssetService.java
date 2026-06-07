@@ -130,6 +130,15 @@ public class AssetService {
         return toVO(asset);
     }
 
+    public AssetDownloadPayload resolveDownload(Long id) {
+        Asset asset = assetMapper.selectById(id);
+        if (asset == null) {
+            throw new BusinessException("资产不存在");
+        }
+        projectAccessGuard.assertAccess(asset.getProjectId());
+        return toDownloadPayload(asset);
+    }
+
     public List<AssetVO> listVersions(Long id, int limit) {
         Asset asset = assetMapper.selectById(id);
         if (asset == null) {
@@ -292,6 +301,14 @@ public class AssetService {
         return vo;
     }
 
+    public AssetDownloadPayload resolveAdminDownload(Long id) {
+        Asset asset = assetMapper.selectById(id);
+        if (asset == null) {
+            throw new BusinessException("资产不存在");
+        }
+        return toDownloadPayload(asset);
+    }
+
     /** 管理员删除资产:删 DB 记录并联动删物理文件,不做项目归属校验(由 admin 角色保证)。 */
     @Transactional(rollbackFor = Exception.class)
     public void adminDelete(Long id) {
@@ -331,6 +348,42 @@ public class AssetService {
         styleCardMapper.update(null, new LambdaUpdateWrapper<StyleCard>()
                 .in(StyleCard::getRefAssetId, assetIds)
                 .set(StyleCard::getRefAssetId, null));
+    }
+
+    private AssetDownloadPayload toDownloadPayload(Asset asset) {
+        Path filePath = uploadStorageResolver.resolveLocalUploadPath(asset.getFileUrl());
+        if (filePath == null || !Files.exists(filePath) || !Files.isRegularFile(filePath)) {
+            throw new BusinessException("资产文件不存在或暂不支持下载");
+        }
+        String fileName = normalizeDownloadFileName(asset.getFileName(), filePath);
+        String mimeType = normalizeMimeType(asset.getMimeType(), filePath);
+        return new AssetDownloadPayload(filePath, fileName, mimeType);
+    }
+
+    private String normalizeDownloadFileName(String fileName, Path filePath) {
+        String normalized = fileName == null ? "" : fileName.trim();
+        if (!normalized.isEmpty()) {
+            return normalized;
+        }
+        return filePath.getFileName() == null ? "download" : filePath.getFileName().toString();
+    }
+
+    private String normalizeMimeType(String mimeType, Path filePath) {
+        String normalized = mimeType == null ? "" : mimeType.trim();
+        if (!normalized.isEmpty()) {
+            return normalized;
+        }
+        try {
+            String detected = Files.probeContentType(filePath);
+            if (detected != null && !detected.isBlank()) {
+                return detected;
+            }
+        } catch (Exception ignored) {
+        }
+        return "application/octet-stream";
+    }
+
+    public record AssetDownloadPayload(Path filePath, String fileName, String mimeType) {
     }
 
     private List<Long> resolveProjectIds(String scope, Long projectId) {

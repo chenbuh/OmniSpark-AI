@@ -1,5 +1,6 @@
 package com.example.aihub.common.config;
 
+import cn.dev33.satoken.stp.StpUtil;
 import com.example.aihub.common.security.ClientIpResolver;
 import com.example.aihub.common.security.SecurityRequestAttributes;
 import com.example.aihub.infrastructure.service.AntiCrawlerRiskService;
@@ -52,6 +53,13 @@ public class AntiCrawlerRiskInterceptor implements HandlerInterceptor {
         if (path == null || !path.startsWith("/api/")) {
             return false;
         }
+        // 已手动登录的站内用户操作，不再走这层通用防爬拦截，避免正常浏览器交互被误伤。
+        try {
+            if (StpUtil.isLogin()) {
+                return false;
+            }
+        } catch (Exception ignored) {
+        }
         // 认证链路本身已经叠加了签名、滑块验证码和接口级限流，避免再被通用风险标记卡住登录/注册。
         return !(path.startsWith("/api/auth/")
                 || path.equals("/api/auth/sign/challenge")
@@ -61,7 +69,7 @@ public class AntiCrawlerRiskInterceptor implements HandlerInterceptor {
     private void writeRiskResponse(HttpServletResponse response) throws Exception {
         response.setStatus(429);
         response.setContentType("application/json;charset=UTF-8");
-        response.getWriter().write("{\"code\":429,\"message\":\"检测到异常访问模式，已临时降速，请稍后再试或完成二次验证码\",\"data\":null}");
+        response.getWriter().write("{\"code\":429,\"message\":\"检测到异常访问模式，已临时降速，请稍后再试\",\"data\":null}");
         response.getWriter().flush();
     }
 }

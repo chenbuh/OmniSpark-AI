@@ -27,7 +27,6 @@ public class AdminTotpService {
     private static final String HMAC_SHA1 = "HmacSHA1";
     private static final int DIGITS = 6;
     private static final int STEP_SECONDS = 30;
-    private static final int ALLOWED_DRIFT_WINDOWS = 1;
     private static final String BASE32_ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
 
     private final StringRedisTemplate redisTemplate;
@@ -36,6 +35,9 @@ public class AdminTotpService {
 
     @Value("${app.security.totp.issuer:OmniSpark AI}")
     private String issuer;
+
+    @Value("${app.security.totp.allowed-drift-windows:2}")
+    private int allowedDriftWindows;
 
     public PendingTotpSetup beginSetup(User user, String clientIp, String userAgent, String deviceId) {
         String secret = generateSecret();
@@ -57,12 +59,9 @@ public class AdminTotpService {
         if (!"setup".equals(state.stage) || state.pendingSecret == null || state.pendingSecret.isBlank()) {
             throw new BusinessException("管理员动态验证初始化状态已失效，请重新登录");
         }
-        try {
-            assertCodeValid(state.pendingSecret, totpCode, "动态验证码无效，请重新输入");
-            return new CompletedTotpChallenge(state.userId, state.username, state.ip, state.userAgent, state.deviceId, state.pendingSecret);
-        } finally {
-            redisTemplate.delete(SETUP_TICKET_PREFIX + setupTicket);
-        }
+        assertCodeValid(state.pendingSecret, totpCode, "动态验证码无效，请重新输入");
+        redisTemplate.delete(SETUP_TICKET_PREFIX + setupTicket);
+        return new CompletedTotpChallenge(state.userId, state.username, state.ip, state.userAgent, state.deviceId, state.pendingSecret);
     }
 
     public PendingLoginState peekLoginState(String loginTicket) {
@@ -81,12 +80,9 @@ public class AdminTotpService {
         if (persistedSecret == null || persistedSecret.isBlank()) {
             throw new BusinessException("管理员动态验证尚未初始化");
         }
-        try {
-            assertCodeValid(persistedSecret, totpCode, "动态验证码无效，请重新输入");
-            return new CompletedTotpChallenge(state.userId, state.username, state.ip, state.userAgent, state.deviceId, null);
-        } finally {
-            redisTemplate.delete(LOGIN_TICKET_PREFIX + loginTicket);
-        }
+        assertCodeValid(persistedSecret, totpCode, "动态验证码无效，请重新输入");
+        redisTemplate.delete(LOGIN_TICKET_PREFIX + loginTicket);
+        return new CompletedTotpChallenge(state.userId, state.username, state.ip, state.userAgent, state.deviceId, null);
     }
 
     public boolean isAdmin(User user) {
@@ -118,7 +114,8 @@ public class AdminTotpService {
 
     private boolean matches(String secret, String code) {
         long currentWindow = Instant.now().getEpochSecond() / STEP_SECONDS;
-        for (int drift = -ALLOWED_DRIFT_WINDOWS; drift <= ALLOWED_DRIFT_WINDOWS; drift++) {
+        int driftWindows = Math.max(0, allowedDriftWindows);
+        for (int drift = -driftWindows; drift <= driftWindows; drift++) {
             if (code.equals(generateTotpCode(secret, currentWindow + drift))) {
                 return true;
             }

@@ -7,13 +7,21 @@ import cn.dev33.satoken.annotation.SaCheckRole;
 import com.example.aihub.common.util.PagingUtil;
 import com.example.aihub.common.result.PageResult;
 import com.example.aihub.common.result.ApiResult;
+import com.example.aihub.common.exception.BusinessException;
 import com.example.aihub.infrastructure.entity.Asset;
 import com.example.aihub.infrastructure.mapper.AssetMapper;
 import com.example.aihub.infrastructure.service.AssetService;
 import com.example.aihub.infrastructure.vo.AssetVO;
 import lombok.RequiredArgsConstructor;
+import org.springframework.core.io.FileSystemResource;
+import org.springframework.core.io.Resource;
+import org.springframework.http.ContentDisposition;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
+import java.nio.charset.StandardCharsets;
 import java.util.List;
 
 @RestController
@@ -53,9 +61,32 @@ public class AdminAssetsController {
         return ApiResult.ok(assetService.toVO(asset));
     }
 
+    @GetMapping("/{id}/download")
+    public ResponseEntity<Resource> download(@PathVariable Long id) {
+        AssetService.AssetDownloadPayload payload = assetService.resolveAdminDownload(id);
+        return buildDownloadResponse(payload);
+    }
+
     @DeleteMapping("/{id}")
     public ApiResult<Void> delete(@PathVariable Long id) {
         assetService.adminDelete(id);
         return ApiResult.ok();
+    }
+
+    private ResponseEntity<Resource> buildDownloadResponse(AssetService.AssetDownloadPayload payload) {
+        FileSystemResource resource = new FileSystemResource(payload.filePath());
+        try {
+            MediaType mediaType = MediaType.parseMediaType(payload.mimeType());
+            return ResponseEntity.ok()
+                    .contentType(mediaType)
+                    .contentLength(resource.contentLength())
+                    .header(HttpHeaders.CONTENT_DISPOSITION, ContentDisposition.attachment()
+                            .filename(payload.fileName(), StandardCharsets.UTF_8)
+                            .build()
+                            .toString())
+                    .body(resource);
+        } catch (Exception ex) {
+            throw new BusinessException("资产下载失败，请稍后重试");
+        }
     }
 }

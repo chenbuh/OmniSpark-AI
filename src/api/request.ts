@@ -323,17 +323,11 @@ async function hmacSha256Base64(value: string, secret: string): Promise<string> 
 }
 
 async function fetchSignChallenge(): Promise<SignChallenge> {
-  const token = localStorage.getItem('satoken')
-  const headers: Record<string, string> = {
-    'Cache-Control': 'no-store',
-    'X-No-Cache': '1'
-  }
-  if (token) {
-    headers.satoken = token
-  }
-  const response = await fetch(`${API_BASE_URL}/api/auth/sign/challenge`, {
+  const challengeUrl = new URL('/api/auth/sign/challenge', API_BASE_URL)
+  challengeUrl.searchParams.set('_', Date.now().toString())
+  const response = await fetch(challengeUrl.toString(), {
     method: 'GET',
-    headers
+    cache: 'no-store'
   })
   if (!response.ok) {
     throw new Error('签名挑战获取失败，请刷新页面后重试')

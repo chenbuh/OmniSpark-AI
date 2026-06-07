@@ -130,6 +130,24 @@ public class AuthController {
         return ApiResult.ok(authService.changePassword(userId, resolvedOldPassword, resolvedNewPassword));
     }
 
+    @PostMapping("/totp/reset/begin")
+    @SaCheckLogin
+    @RateLimit(count = 5, seconds = 300, dimension = RateLimit.Dimension.USER, message = "重置验证器请求过于频繁，请稍后再试")
+    public ApiResult<LoginVO> beginTotpReset(HttpServletRequest request) {
+        Long userId = Long.valueOf(String.valueOf(StpUtil.getLoginId()));
+        String ip = clientIpResolver.resolve(request);
+        String ua = request.getHeader("User-Agent");
+        return ApiResult.ok(authService.beginTotpReset(userId, ip, ua));
+    }
+
+    @PostMapping("/totp/reset/confirm")
+    @SaCheckLogin
+    @RateLimit(count = 10, seconds = 300, dimension = RateLimit.Dimension.USER, message = "验证器确认尝试过于频繁，请稍后再试")
+    public ApiResult<UserVO> confirmTotpReset(@Valid @RequestBody LoginTotpSetupDTO dto) {
+        Long userId = Long.valueOf(String.valueOf(StpUtil.getLoginId()));
+        return ApiResult.ok(authService.confirmTotpReset(userId, dto));
+    }
+
     @GetMapping("/login-logs")
     @SaCheckLogin
     public ApiResult<PageResult<LoginLog>> loginLogs(@RequestParam(defaultValue = "1") long page,

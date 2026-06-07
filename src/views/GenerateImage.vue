@@ -151,13 +151,26 @@
                       { 'active': form.aspectRatio === item.value },
                       item.value === 'custom' ? 'custom-ratio-card' : ''
                     ]"
-                    @click="form.aspectRatio = item.value"
+                    @click="handleSelectAspectRatio(item.value)"
                   >
                     <div class="shape-container">
                       <div class="ratio-shape" :class="'ratio-' + item.value"></div>
                     </div>
                     <span class="ratio-label">{{ item.label }}</span>
                   </div>
+                </div>
+                <div class="config-hint aspect-ratio-hint">
+                  <span>{{ aspectRatioHint }}</span>
+                  <n-button
+                    v-if="generateMode === 'txt2img' && aspectRatioSelectionMode === 'manual'"
+                    text
+                    type="primary"
+                    size="tiny"
+                    class="aspect-ratio-hint__action"
+                    @click="handleRestoreAutoAspectRatio"
+                  >
+                    恢复自动推荐
+                  </n-button>
                 </div>
                 <div v-if="form.aspectRatio === 'custom'" class="custom-config-inputs">
                   <div class="custom-input-item">
@@ -490,6 +503,7 @@ import { useAssetStore, type Asset } from '@/store/asset'
 import { assetApi } from '@/api/assets'
 import { generationApi, type GenerationMetaOption, type GenerationMetaVO, type PromptOptimizeResult } from '@/api/generation'
 import { taskApi } from '@/api/tasks'
+import { downloadUrl } from '@/utils/download'
 import {
   Sparkles,
   Zap,
@@ -524,7 +538,7 @@ const generating = ref(false)
 const submitting = ref(false)
 const taskCompleted = ref(false)
 const elapsedTick = ref(0)
-let elapsedTimer: ReturnType<typeof setInterval> | null = null
+let elapsedTimer: number | null = null
 const showLightbox = ref(false)
 const refImagePreviews = ref<string[]>([])
 const selectedRefAssets = ref<(Asset | string)[]>([])
@@ -547,7 +561,7 @@ const generationMeta = ref<GenerationMetaVO>({})
 const metaLoadState = ref<'loading' | 'ready' | 'error'>('loading')
 const providerLoadState = ref<'loading' | 'ready' | 'error'>('loading')
 const historyLoadState = ref<'loading' | 'ready' | 'error'>('loading')
-let taskPollingTimer: ReturnType<typeof setInterval> | null = null
+let taskPollingTimer: number | null = null
 let taskSyncing = false
 const resultVersion = ref(0)
 let entranceMatchMedia: gsap.MatchMedia | null = null
@@ -598,6 +612,44 @@ const aspectRatios = [
   { label: '自定义比例', value: 'custom' }
 ]
 
+type AspectRatioValue = typeof aspectRatios[number]['value']
+type AspectRatioSelectionMode = 'auto' | 'manual'
+type AspectRatioRecommendation = {
+  value: AspectRatioValue
+  reason: string
+}
+
+const aspectRatioSelectionMode = ref<AspectRatioSelectionMode>('auto')
+const aspectRatioLabelMap = aspectRatios.reduce<Record<string, string>>((result, item) => {
+  result[item.value] = item.label
+  return result
+}, {})
+
+const portraitPromptPatterns = [
+  /角色设定|角色设计|立绘|人设|设定图|服装设计|时装设计|换装|全身|半身|人物特写|古风美人|女角色|男角色/i,
+  /character\s*sheet|character\s*design|concept\s*art|full\s*body|fashion\s*design|costume\s*design/i
+]
+const posterPromptPatterns = [
+  /海报|封面|杂志|宣传图|卡面|书封|专辑封面|电影海报/i,
+  /poster|cover|editorial|magazine/i
+]
+const squarePromptPatterns = [
+  /头像|头像框|图标|logo|徽标|表情包|贴纸|方形构图|商品主图/i,
+  /avatar|icon|logo|sticker|square/i
+]
+const widescreenPromptPatterns = [
+  /全景|横幅|宽银幕|电影感大场景|史诗场景|天际线|群像横构图|横版壁纸/i,
+  /panorama|panoramic|banner|cinematic\s*wide|ultra\s*wide|widescreen/i
+]
+const landscapePromptPatterns = [
+  /风景|景观|山川|海景|城市夜景|建筑外观|室内空间|街景|电脑壁纸|横版场景/i,
+  /landscape|scenery|environment|cityscape|interior|exterior|wide\s*shot/i
+]
+const mobileVerticalPromptPatterns = [
+  /手机壁纸|竖屏壁纸|短视频封面|直播封面|故事封面|小红书封面|抖音封面|竖版海报/i,
+  /phone\s*wallpaper|mobile\s*wallpaper|story\s*cover|reels|shorts|vertical\s*cover/i
+]
+
 const resolutionOptions = computed(() => generationMeta.value.image?.resolutionOptions || [])
 const qualityOptions = computed(() => generationMeta.value.image?.qualityOptions || [])
 const defaultImageResolution = computed(() => generationMeta.value.image?.defaults?.resolution || resolutionOptions.value[0]?.value || '')
@@ -638,6 +690,107 @@ function resolveOptionValue(options: GenerationMetaOption[], preferredValue?: st
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === 'object' && !Array.isArray(value)
+}
+
+function matchesPromptPattern(prompt: string, patterns: RegExp[]) {
+  return patterns.some(pattern => pattern.test(prompt))
+}
+
+function inferAspectRatioRecommendation(prompt: string): AspectRatioRecommendation {
+  const normalizedPrompt = prompt.trim().toLowerCase()
+  if (!normalizedPrompt) {
+    return {
+      value: '1-1',
+      reason: '未提供明显构图线索时，默认使用通用方图。'
+    }
+  }
+  if (matchesPromptPattern(normalizedPrompt, mobileVerticalPromptPatterns)) {
+    return {
+      value: '9-16',
+      reason: '检测到竖屏封面或手机壁纸类内容，优先使用竖屏画幅。'
+    }
+  }
+  if (matchesPromptPattern(normalizedPrompt, widescreenPromptPatterns)) {
+    return {
+      value: '21-9',
+      reason: '检测到全景、横幅或电影宽银幕类内容，优先展开横向空间。'
+    }
+  }
+  if (matchesPromptPattern(normalizedPrompt, squarePromptPatterns)) {
+    return {
+      value: '1-1',
+      reason: '检测到头像、图标或方形主图类内容，方图更稳妥。'
+    }
+  }
+  if (matchesPromptPattern(normalizedPrompt, posterPromptPatterns)) {
+    return {
+      value: '3-4',
+      reason: '检测到海报、封面或卡面类内容，更适合竖版展示主体。'
+    }
+  }
+  if (matchesPromptPattern(normalizedPrompt, portraitPromptPatterns)) {
+    return {
+      value: '2-3',
+      reason: '检测到角色、人像或设定图类内容，竖版更容易放下完整主体。'
+    }
+  }
+  if (matchesPromptPattern(normalizedPrompt, landscapePromptPatterns)) {
+    return {
+      value: '16-9',
+      reason: '检测到风景、场景或横版壁纸类内容，更适合横向构图。'
+    }
+  }
+  return {
+    value: '1-1',
+    reason: '当前提示词更适合从通用方图起步，后续可手动微调。'
+  }
+}
+
+const aspectRatioRecommendation = computed(() => {
+  if (generateMode.value !== 'txt2img') {
+    return null
+  }
+  return inferAspectRatioRecommendation(form.prompt)
+})
+
+const aspectRatioHint = computed(() => {
+  if (generateMode.value !== 'txt2img') {
+    return '图生图和局部重绘建议按参考图构图手动选择比例。'
+  }
+  const recommendation = aspectRatioRecommendation.value
+  if (!recommendation) {
+    return '系统会根据提示词自动推荐更合适的画幅。'
+  }
+  const ratioLabel = aspectRatioLabelMap[recommendation.value] || recommendation.value
+  if (aspectRatioSelectionMode.value === 'manual') {
+    const currentLabel = aspectRatioLabelMap[form.aspectRatio] || form.aspectRatio
+    return `当前已手动固定为 ${currentLabel}；自动推荐仍是 ${ratioLabel}。`
+  }
+  return `已自动推荐 ${ratioLabel}。${recommendation.reason}`
+})
+
+function applyAutoAspectRatio(force = false) {
+  const recommendation = aspectRatioRecommendation.value
+  if (!recommendation) {
+    return
+  }
+  if (!force && aspectRatioSelectionMode.value === 'manual') {
+    return
+  }
+  if (form.aspectRatio !== recommendation.value) {
+    form.aspectRatio = recommendation.value
+  }
+  aspectRatioSelectionMode.value = 'auto'
+}
+
+function handleSelectAspectRatio(value: AspectRatioValue) {
+  form.aspectRatio = value
+  aspectRatioSelectionMode.value = 'manual'
+}
+
+function handleRestoreAutoAspectRatio() {
+  aspectRatioSelectionMode.value = 'auto'
+  applyAutoAspectRatio(true)
 }
 
 function getResponseData(response: unknown, errorMessage: string) {
@@ -973,6 +1126,7 @@ const clearForm = () => {
   form.steps = 25
   form.quality = defaultImageQuality.value
   form.aspectRatio = '1-1'
+  aspectRatioSelectionMode.value = 'auto'
   form.resolution = defaultImageResolution.value
   selectedRefAssets.value = []
   refImagePreviews.value = []
@@ -1579,17 +1733,20 @@ onMounted(async () => {
   }
   if (route.query.aspectRatio) {
     form.aspectRatio = route.query.aspectRatio as string
+    aspectRatioSelectionMode.value = 'manual'
   }
   if (route.query.aspectWidth) {
     const aspectWidth = parseInt(route.query.aspectWidth as string)
     if (Number.isFinite(aspectWidth) && aspectWidth > 0) {
       form.ratioWidth = aspectWidth
+      aspectRatioSelectionMode.value = 'manual'
     }
   }
   if (route.query.aspectHeight) {
     const aspectHeight = parseInt(route.query.aspectHeight as string)
     if (Number.isFinite(aspectHeight) && aspectHeight > 0) {
       form.ratioHeight = aspectHeight
+      aspectRatioSelectionMode.value = 'manual'
     }
   }
   if (route.query.cfg) {
@@ -1607,9 +1764,12 @@ onMounted(async () => {
         form.resolution = 'custom'
         form.customWidth = w
         form.customHeight = h
+        aspectRatioSelectionMode.value = 'manual'
       }
     }
   }
+
+  applyAutoAspectRatio()
 
   // 刷新后恢复未完成任务的轮询
   restoreActiveTaskPolling()
@@ -2177,11 +2337,18 @@ const previewVisualState = computed(() => {
 })
 
 watch(generateMode, () => {
+  if (generateMode.value === 'txt2img') {
+    applyAutoAspectRatio()
+  }
   void animateModeSurface()
 })
 
 watch(() => form.aspectRatio, () => {
   void animateActiveSelection('.ratio-card.active')
+})
+
+watch(() => form.prompt, () => {
+  applyAutoAspectRatio()
 })
 
 watch(previewVisualState, () => {
@@ -2602,14 +2769,15 @@ const handleToggleFavorite = async () => {
   }
 }
 
-const handleDownload = () => {
+const handleDownload = async () => {
   if (currentAsset.value) {
     message.info(`正在准备打包 ${currentAsset.value.fileName} 高清原图下载...`)
-    const a = document.createElement('a')
-    a.href = currentAsset.value.fileUrl
-    a.download = currentAsset.value.fileName
-    a.target = '_blank'
-    a.click()
+    try {
+      await downloadUrl(`/api/assets/${currentAsset.value.id}/download`, currentAsset.value.fileName)
+      message.success('下载已开始')
+    } catch (err: unknown) {
+      message.error(getErrorMessage(err, '下载失败，请稍后再试'))
+    }
   }
 }
 
@@ -2699,7 +2867,8 @@ onBeforeUnmount(() => {
 <style scoped>
 .generate-container {
   position: relative;
-  height: calc(100vh - 120px);
+  height: 100%;
+  min-height: 0;
   padding-bottom: 20px;
   color: var(--text-primary);
   overflow: hidden;
@@ -2735,6 +2904,11 @@ onBeforeUnmount(() => {
 .generate-container > * {
   position: relative;
   z-index: 1;
+}
+
+.generate-container :deep(.n-row),
+.generate-container :deep(.n-col) {
+  min-height: 0;
 }
 
 .glass-card {
@@ -2781,6 +2955,7 @@ onBeforeUnmount(() => {
 
 .control-card {
   height: 100%;
+  min-height: 0;
 }
 
 .mode-tabs {
@@ -2800,6 +2975,7 @@ onBeforeUnmount(() => {
 
 .form-scrollbar {
   flex: 1;
+  min-height: 0;
 }
 
 .form-status {
@@ -3042,6 +3218,7 @@ onBeforeUnmount(() => {
   height: 100%;
   display: flex;
   flex-direction: column;
+  min-height: 0;
   position: relative;
 }
 
@@ -3385,6 +3562,19 @@ onBeforeUnmount(() => {
   margin-top: 10px;
   font-size: 12px;
   color: #94a3b8;
+}
+
+.aspect-ratio-hint {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  line-height: 1.5;
+}
+
+.aspect-ratio-hint__action {
+  flex-shrink: 0;
+  padding: 0;
 }
 
 .thumb-loading-overlay {

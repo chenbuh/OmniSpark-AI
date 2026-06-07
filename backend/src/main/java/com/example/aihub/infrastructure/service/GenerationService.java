@@ -5,6 +5,7 @@ import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.example.aihub.common.exception.BusinessException;
 import com.example.aihub.common.result.PageResult;
+import com.example.aihub.common.security.ModelApiKeyEncryptor;
 import com.example.aihub.common.security.UploadAccessSignatureService;
 import com.example.aihub.common.storage.UploadStorageResolver;
 import com.example.aihub.common.util.PagingUtil;
@@ -113,6 +114,7 @@ public class GenerationService {
     private final com.example.aihub.common.security.ProjectAccessGuard projectAccessGuard;
     private final UploadAccessSignatureService uploadAccessSignatureService;
     private final UploadStorageResolver uploadStorageResolver;
+    private final ModelApiKeyEncryptor apiKeyEncryptor;
     private final AssetService assetService;
     private final StringRedisTemplate redisTemplate;
 
@@ -214,16 +216,17 @@ public class GenerationService {
         dto.setDuration(normalizeVideoDuration(dto.getDuration()));
         dto.setOptions(normalizeVideoOptions(dto.getOptions()));
         ModelProvider provider = requireProvider(dto.getProviderId(), dto.getProjectId(), "video");
+        Long userId = SecurityUtil.loginUserId();
         String modelName = resolveModelName(dto.getModelName(), dto.getOptions(), provider.getModelName());
         GenerationTask task = createTask(dto.getProjectId(), provider.getId(), "video", dto.getPrompt(),
                 null, dto.getDuration(), null, dto.getOptions(), null, dto.getSourceAssetId(), dto.getDuration(), dto.getEndAssetId(), modelName);
         try {
             List<MediaRecord> mediaList = generateVideoMedia(provider, dto, modelName);
-            return completeTask(task, null, mediaList, "video");
+            return completeTask(task, userId, null, mediaList, "video");
         } catch (Exception ex) {
             log.error("Video generation failed. taskId={}, providerId={}, modelName={}, prompt={}",
                     task.getId(), provider.getId(), modelName, dto.getPrompt(), ex);
-            markTaskFailed(task.getId(), ex.getMessage());
+            markTaskFailed(task.getId(), userId, ex.getMessage());
             throw new BusinessException(ex.getMessage());
         }
     }
@@ -235,9 +238,10 @@ public class GenerationService {
         if (modelName == null || modelName.isBlank()) {
             throw new BusinessException("未找到可用的提示词润色文本模型，请在模型配置中心为 OpenAI / Custom 提供商填写文本模型（例如 gpt-4o-mini）");
         }
+        String apiKey = resolveProviderApiKey(provider);
         String optimizedPrompt = textClient.optimizeImagePrompt(
                 provider.getBaseUrl(),
-                provider.getApiKey(),
+                apiKey,
                 modelName,
                 dto.getPrompt()
         );
@@ -339,10 +343,11 @@ public class GenerationService {
                 int count = dto.getCount() == null || dto.getCount() < 1 ? 1 : dto.getCount();
                 String requestSize = resolveRequestSize(dto.getSize(), options);
                 String quality = resolveImageQuality(options);
+                String apiKey = resolveProviderApiKey(provider);
                 updateTaskProgress(task.getId(), 40, "素材准备完成，正在请求模型服务");
                 List<OpenAiImageClient.RenderedMedia> mediaList = imageClient.generateImage(
                         provider.getBaseUrl(),
-                        provider.getApiKey(),
+                        apiKey,
                         modelName,
                         dto.getPrompt(),
                         count,
@@ -379,10 +384,11 @@ public class GenerationService {
                 OpenAiImageClient.ReferenceImage maskImage = loadMaskImage(maskAssetId, task.getProjectId());
                 int count = dto.getCount() == null || dto.getCount() < 1 ? 1 : dto.getCount();
                 String requestSize = resolveRequestSize(dto.getSize(), options);
+                String apiKey = resolveProviderApiKey(provider);
                 updateTaskProgress(task.getId(), 40, "素材准备完成，正在请求模型服务");
                 List<OpenAiImageClient.RenderedMedia> mediaList = imageClient.generateImageInpaint(
                         provider.getBaseUrl(),
-                        provider.getApiKey(),
+                        apiKey,
                         modelName,
                         dto.getPrompt(),
                         count,
@@ -491,7 +497,7 @@ public class GenerationService {
                                           Integer count,
                                           List<?> mediaList,
                                           String taskType) throws Exception {
-        return completeTask(task, SecurityUtil.loginUserId(), count, mediaList, taskType);
+        return completeTask(task, SecurityUtil.tryLoginUserId(), count, mediaList, taskType);
     }
 
     private GenerationTaskVO completeTask(GenerationTask task,
@@ -514,7 +520,7 @@ public class GenerationService {
             if (resultAssetId == null) {
                 resultAssetId = asset.getId();
             }
-            assetVOs.add(toSignedAssetVO(asset));
+            assetVOs.add(toSignedAssetVO(asset, userId));
         }
 
         task.setStatus("success");
@@ -587,7 +593,7 @@ public class GenerationService {
     }
 
     private void markTaskFailed(Long taskId, String message) {
-        markTaskFailed(taskId, SecurityUtil.loginUserId(), message);
+        markTaskFailed(taskId, SecurityUtil.tryLoginUserId(), message);
     }
 
     private void markTaskFailed(Long taskId, Long userId, String message) {
@@ -791,7 +797,7 @@ public class GenerationService {
             Asset endAsset = requireProjectAsset(dto.getEndAssetId(), dto.getProjectId(), "尾帧图片不存在");
             payload.put("endAssetUrl", endAsset.getFileUrl());
         }
-        JsonNode response = postJson(resolveEndpoint(provider.getBaseUrl(), "/videos/generations"), provider.getApiKey(), payload);
+        JsonNode response = postJson(resolveEndpoint(provider.getBaseUrl(), "/videos/generations"), resolveProviderApiKey(provider), payload);
         return extractMedia(response, modelName, "video");
     }
 
@@ -1075,7 +1081,14 @@ public class GenerationService {
         if (provider.getEnabled() != null && provider.getEnabled() == 0) {
             return Integer.MIN_VALUE;
         }
-        if (isBlank(provider.getBaseUrl()) || isBlank(provider.getApiKey())) {
+        if (isBlank(provider.getBaseUrl())) {
+            return Integer.MIN_VALUE;
+        }
+        try {
+            if (isBlank(resolveProviderApiKey(provider))) {
+                return Integer.MIN_VALUE;
+            }
+        } catch (BusinessException ex) {
             return Integer.MIN_VALUE;
         }
 
@@ -1146,6 +1159,18 @@ public class GenerationService {
                 || value.contains("audio");
     }
 
+    private String resolveProviderApiKey(ModelProvider provider) {
+        String encrypted = provider.getApiKey();
+        String decrypted = apiKeyEncryptor.decrypt(encrypted);
+        if (encrypted != null
+                && encrypted.startsWith("$AES$")
+                && decrypted != null
+                && decrypted.startsWith("$AES$")) {
+            throw new BusinessException("当前模型提供商的 API Key 无法解密，请重新填写并保存一次后再生成。");
+        }
+        return decrypted == null ? null : decrypted.trim();
+    }
+
     private String extractProviderConfigText(String configJson, String... keys) {
         if (isBlank(configJson) || keys == null || keys.length == 0) {
             return null;
@@ -1214,10 +1239,10 @@ public class GenerationService {
         return asset;
     }
 
-    private AssetVO toSignedAssetVO(Asset asset) {
+    private AssetVO toSignedAssetVO(Asset asset, Long userId) {
         AssetVO vo = VoMapper.copy(asset, AssetVO.class);
-        vo.setFileUrl(uploadAccessSignatureService.signProjectUrl(vo.getFileUrl(), asset.getProjectId()));
-        vo.setThumbUrl(uploadAccessSignatureService.signProjectUrl(vo.getThumbUrl(), asset.getProjectId()));
+        vo.setFileUrl(uploadAccessSignatureService.signProjectUrl(vo.getFileUrl(), asset.getProjectId(), userId));
+        vo.setThumbUrl(uploadAccessSignatureService.signProjectUrl(vo.getThumbUrl(), asset.getProjectId(), userId));
         return vo;
     }
 

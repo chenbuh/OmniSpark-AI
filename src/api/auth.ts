@@ -36,6 +36,7 @@ interface LoginRequiresTotpSetupResult {
 }
 
 export type LoginFlowResult = LoginSuccessResult | LoginRequiresTotpResult | LoginRequiresTotpSetupResult
+export type TotpSetupPayload = LoginRequiresTotpSetupResult
 
 const DEVICE_ID_STORAGE_KEY = 'loginDeviceId'
 
@@ -230,6 +231,15 @@ export const authApi = {
     }
   },
 
+  async beginTotpReset() {
+    const response = await request.post('/api/auth/totp/reset/begin')
+    const flowResult = normalizeLoginFlowResult(getResponseData(response, '验证器重置结果待确认'))
+    if (flowResult.type !== 'totp-setup') {
+      throw new Error('验证器重置结果待确认')
+    }
+    return flowResult
+  },
+
   async completeTotpSetup(params: { setupTicket: string; totpCode: string }) {
     let loginResult: LoginSuccessResult | null = null
     try {
@@ -249,6 +259,11 @@ export const authApi = {
       clearSessionState()
       throw error
     }
+  },
+
+  async confirmTotpReset(params: { setupTicket: string; totpCode: string }) {
+    const response = await request.post('/api/auth/totp/reset/confirm', params)
+    return normalizeUserInfo(getResponseData(response, '验证器绑定结果待确认'))
   },
 
   // 注册

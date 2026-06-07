@@ -482,6 +482,9 @@ public class OpenAiImageClient {
             return false;
         }
         String normalized = message.toLowerCase(Locale.ROOT);
+        if (isPermanentAuthenticationError(normalized)) {
+            return false;
+        }
         return normalized.contains("header parser received no bytes")
                 || normalized.contains("connection reset")
                 || normalized.contains("http connect timed out")
@@ -491,6 +494,26 @@ public class OpenAiImageClient {
                 || normalized.contains("空响应体")
                 || normalized.contains("empty response")
                 || isRetryableGatewayError(normalized);
+    }
+
+    private boolean isPermanentAuthenticationError(String normalizedMessage) {
+        boolean authFailure = normalizedMessage.contains("invalid token")
+                || normalizedMessage.contains("invalid api key")
+                || normalizedMessage.contains("incorrect api key")
+                || normalizedMessage.contains("invalid_api_key")
+                || normalizedMessage.contains("unauthorized")
+                || normalizedMessage.contains("authentication failed")
+                || normalizedMessage.contains("forbidden");
+        if (!authFailure) {
+            return false;
+        }
+        return !normalizedMessage.contains("（retry）")
+                && !normalizedMessage.contains("(retry)")
+                && !normalizedMessage.contains("可用渠道")
+                && !normalizedMessage.contains("无可用渠道")
+                && !normalizedMessage.contains("渠道不存在")
+                && !normalizedMessage.contains("no available channel")
+                && !normalizedMessage.contains("no channel");
     }
 
     /**

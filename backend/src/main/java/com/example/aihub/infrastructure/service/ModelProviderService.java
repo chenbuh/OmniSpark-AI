@@ -116,7 +116,15 @@ public class ModelProviderService {
     /** 将 apiKey 脱敏后再转 VO，避免明文密钥下发到前端。 */
     private ModelProviderVO toMaskedVO(ModelProvider provider) {
         ModelProviderVO vo = VoMapper.copy(provider, ModelProviderVO.class);
-        vo.setApiKey(maskApiKey(apiKeyEncryptor.decrypt(provider.getApiKey())));
+        String decrypted = apiKeyEncryptor.decrypt(provider.getApiKey());
+        if (provider.getApiKey() != null
+                && provider.getApiKey().startsWith("$AES$")
+                && decrypted != null
+                && decrypted.startsWith("$AES$")) {
+            vo.setApiKey(SensitiveValueMasker.FULL_MASK);
+        } else {
+            vo.setApiKey(maskApiKey(decrypted));
+        }
         return vo;
     }
 
@@ -147,7 +155,9 @@ public class ModelProviderService {
             throw new BusinessException("模型提供商不存在");
         }
         projectAccessGuard.assertEditAccess(provider.getProjectId());
-        boolean apiKeyChanged = dto.getApiKey() != null && !isMaskedValue(dto.getApiKey());
+        boolean apiKeyChanged = dto.getApiKey() != null
+                && !dto.getApiKey().isBlank()
+                && !isMaskedValue(dto.getApiKey());
         if (apiKeyChanged) {
             provider.setApiKey(dto.getApiKey());
         }
@@ -174,7 +184,7 @@ public class ModelProviderService {
             provider.setIsDefault(dto.getIsDefault() ? 1 : 0);
         }
         if (dto.getConfigJson() != null) {
-            provider.setConfigJson(dto.getConfigJson());
+            provider.setConfigJson(normalizeConfigJson(dto.getConfigJson()));
         }
         validateProviderBeforeSave(provider);
         if (apiKeyChanged) {
@@ -201,7 +211,7 @@ public class ModelProviderService {
             throw new BusinessException("模型提供商不存在");
         }
         projectAccessGuard.assertEditAccess(provider.getProjectId());
-        String rawKey = apiKeyEncryptor.decrypt(provider.getApiKey());
+        String rawKey = resolvePlainApiKey(provider);
         if (isBlank(provider.getBaseUrl()) || isBlank(rawKey)) {
             throw new BusinessException("API Key 或 Base URL 不能为空");
         }
@@ -243,7 +253,7 @@ public class ModelProviderService {
         provider.setModelName(normalizeText(dto.getModelName()));
         provider.setEnabled(Boolean.TRUE.equals(dto.getEnabled()) ? 1 : 0);
         provider.setIsDefault(Boolean.TRUE.equals(dto.getIsDefault()) ? 1 : 0);
-        provider.setConfigJson(dto.getConfigJson());
+        provider.setConfigJson(normalizeConfigJson(dto.getConfigJson()));
         return provider;
     }
 
@@ -278,6 +288,18 @@ public class ModelProviderService {
         return value == null || value.isBlank();
     }
 
+    private String resolvePlainApiKey(ModelProvider provider) {
+        String encrypted = provider.getApiKey();
+        String decrypted = apiKeyEncryptor.decrypt(encrypted);
+        if (encrypted != null
+                && encrypted.startsWith("$AES$")
+                && decrypted != null
+                && decrypted.startsWith("$AES$")) {
+            throw new BusinessException("当前模型 API Key 无法解密，通常是服务重启后加密主密钥已变化。请重新填写 API Key 后保存一次。");
+        }
+        return decrypted;
+    }
+
     private String normalizeText(String value) {
         return value == null ? null : value.trim();
     }
@@ -296,6 +318,11 @@ public class ModelProviderService {
             normalized = normalized.substring(0, normalized.length() - 1);
         }
         return normalized;
+    }
+
+    private String normalizeConfigJson(String value) {
+        String normalized = normalizeText(value);
+        return normalized == null || normalized.isBlank() ? null : normalized;
     }
 
     private void validateProviderConfig(ModelProvider provider) {
@@ -323,7 +350,7 @@ public class ModelProviderService {
     private void validateNoHtmlEndpoint(ModelProvider provider) {
         try {
             String endpoint = resolveEndpoint(provider.getBaseUrl(), "/models");
-            String validateKey = apiKeyEncryptor.decrypt(provider.getApiKey());
+            String validateKey = resolvePlainApiKey(provider);
             HttpRequest request = HttpRequest.newBuilder(URI.create(endpoint))
                     .timeout(Duration.ofSeconds(20))
                     .header("Authorization", "Bearer " + validateKey)

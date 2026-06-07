@@ -72,7 +72,7 @@
 
         <div class="header-right">
           <!-- 通知中心 -->
-          <n-popover trigger="click" placement="bottom-end" :width="360">
+          <n-popover v-model:show="showNotificationPopover" trigger="click" placement="bottom-end" :width="360">
             <template #trigger>
               <n-badge :value="unreadBadgeValue" :max="99">
                 <n-button circle secondary class="notify-btn">
@@ -141,6 +141,8 @@
       title="创建新项目"
       positive-text="确认创建"
       negative-text="取消"
+      :positive-button-props="{ loading: creatingProject }"
+      :negative-button-props="{ disabled: creatingProject }"
       @positive-click="handleAddProject"
     >
       <n-form :model="addProjectForm" style="margin-top: 15px;">
@@ -281,6 +283,7 @@ const platformName = computed(() => platformStore.platformName || 'OmniSpark AI'
 const collapsed = ref(false)
 const showAddProjectModal = ref(false)
 const showDeleteProjectModal = ref(false)
+const creatingProject = ref(false)
 
 const addProjectForm = reactive({
   name: '',
@@ -867,10 +870,14 @@ const handleOpenShareModal = () => {
 
 // 新建项目
 const handleAddProject = async () => {
+  if (creatingProject.value) {
+    return false
+  }
   if (!addProjectForm.name) {
     message.error('项目名称不能为空')
     return false
   }
+  creatingProject.value = true
   try {
     const createdProject = await projectStore.addProject(addProjectForm.name, addProjectForm.description)
     const createdId = Number(createdProject.id ?? projectStore.activeProjectId)
@@ -885,6 +892,8 @@ const handleAddProject = async () => {
   } catch (err: unknown) {
     message.error(getErrorMessage(err, '项目创建失败'))
     return false
+  } finally {
+    creatingProject.value = false
   }
 }
 
@@ -1213,39 +1222,146 @@ const handleExportProject = async () => {
 // ===== 通知系统 =====
 const notifications = ref<NotificationItem[] | null>(null)
 const unreadCount = ref<number | null>(null)
+const showNotificationPopover = ref(false)
 let stompClient: StompClient | null = null
-let notificationPollTimer: ReturnType<typeof setInterval> | null = null
 const NOTIFICATION_HEADERS = { 'X-No-Cache': '1' }
 let notificationErrorNotified = false
+let notificationCountLoadPromise: Promise<void> | null = null
+let notificationListLoadPromise: Promise<void> | null = null
+let notificationRateLimitedUntil = 0
 
 const unreadBadgeValue = computed(() => unreadCount.value == null ? 0 : unreadCount.value)
 const unreadCountLabel = computed(() => unreadCount.value == null ? '未读待确认' : `${unreadCount.value} 未读`)
 const hasUnreadNotifications = computed(() => (unreadCount.value ?? 0) > 0)
 
-const loadNotifications = async () => {
-  try {
-    const [countRes, allRes] = await Promise.all([
-      request.get<unknown>('/api/notifications/count', {
+function isNotificationRateLimited(error: unknown) {
+  if (!(error instanceof Error)) {
+    return false
+  }
+  const normalized = error.message.trim()
+  return normalized.includes('429')
+    || normalized.includes('Too Many Requests')
+    || normalized.includes('读取请求过于频繁')
+    || normalized.includes('操作过于频繁')
+}
+
+function isNotificationCooldownActive() {
+  return Date.now() < notificationRateLimitedUntil
+}
+
+function enterNotificationRateLimitCooldown() {
+  notificationRateLimitedUntil = Date.now() + 60_000
+}
+
+const loadUnreadNotificationCount = async (force = false) => {
+  if (notificationCountLoadPromise) {
+    return notificationCountLoadPromise
+  }
+  if (!force && isNotificationCooldownActive()) {
+    return
+  }
+
+  notificationCountLoadPromise = (async () => {
+    try {
+      const response = await request.get<unknown>('/api/notifications/count', {
         headers: NOTIFICATION_HEADERS
-      }),
-      request.get<unknown>('/api/notifications', {
+      })
+      unreadCount.value = requireUnreadCount(getResponseData(response, '通知数据待确认'))
+      notificationErrorNotified = false
+      notificationRateLimitedUntil = 0
+    } catch (err: unknown) {
+      if (isNotificationRateLimited(err)) {
+        enterNotificationRateLimitCooldown()
+        return
+      }
+      if (!notificationErrorNotified) {
+        message.error(getErrorMessage(err, '通知数据待确认'))
+        notificationErrorNotified = true
+      }
+    } finally {
+      notificationCountLoadPromise = null
+    }
+  })()
+
+  return notificationCountLoadPromise
+}
+
+const loadNotificationList = async (force = false) => {
+  if (notificationListLoadPromise) {
+    return notificationListLoadPromise
+  }
+  if (!force && isNotificationCooldownActive()) {
+    return
+  }
+
+  notificationListLoadPromise = (async () => {
+    try {
+      const response = await request.get<unknown>('/api/notifications', {
         params: { limit: 20 },
         headers: NOTIFICATION_HEADERS
       })
-    ])
-    const unreadTotal = requireUnreadCount(getResponseData(countRes, '通知数据待确认'))
-    const allItems = normalizeNotificationList(getResponseData(allRes, '通知数据待确认'))
-    unreadCount.value = unreadTotal
-    notifications.value = allItems
-    notificationErrorNotified = false
-  } catch (err: unknown) {
-    unreadCount.value = null
-    notifications.value = null
-    if (!notificationErrorNotified) {
-      message.error(getErrorMessage(err, '通知数据待确认'))
-      notificationErrorNotified = true
+      notifications.value = normalizeNotificationList(getResponseData(response, '通知数据待确认'))
+      notificationErrorNotified = false
+      notificationRateLimitedUntil = 0
+    } catch (err: unknown) {
+      if (isNotificationRateLimited(err)) {
+        enterNotificationRateLimitCooldown()
+        return
+      }
+      if (!notificationErrorNotified) {
+        message.error(getErrorMessage(err, '通知数据待确认'))
+        notificationErrorNotified = true
+      }
+    } finally {
+      notificationListLoadPromise = null
     }
+  })()
+
+  return notificationListLoadPromise
+}
+
+const refreshNotifications = async (options?: { includeList?: boolean; force?: boolean }) => {
+  const includeList = Boolean(options?.includeList)
+  const force = Boolean(options?.force)
+  const tasks: Promise<void | undefined>[] = [loadUnreadNotificationCount(force)]
+  if (includeList) {
+    tasks.push(loadNotificationList(force))
   }
+  await Promise.all(tasks)
+}
+
+function markNotificationReadLocally(notificationId: number) {
+  const current = notifications.value
+  if (!current || !current.length) {
+    if (unreadCount.value != null && unreadCount.value > 0) {
+      unreadCount.value -= 1
+    }
+    return
+  }
+  let changed = false
+  notifications.value = current.map((item) => {
+    if (Number(item.id) !== Number(notificationId) || normalizeNotificationReadFlag(item.isRead) === true) {
+      return item
+    }
+    changed = true
+    return {
+      ...item,
+      isRead: true
+    }
+  })
+  if (changed && unreadCount.value != null && unreadCount.value > 0) {
+    unreadCount.value -= 1
+  }
+}
+
+function markAllNotificationsReadLocally() {
+  if (notifications.value) {
+    notifications.value = notifications.value.map((item) => ({
+      ...item,
+      isRead: true
+    }))
+  }
+  unreadCount.value = 0
 }
 
 function requireUnreadCount(value: unknown) {
@@ -1267,7 +1383,9 @@ const connectWebSocket = async () => {
   if (!token) return
   try {
     const SockJS = getThemeWindow().SockJS
-    if (!SockJS) return
+    if (!SockJS) {
+      return
+    }
     const StompJs = await import('@stomp/stompjs')
     const socketUrl = new URL('/ws', API_BASE_URL)
     socketUrl.searchParams.set('satoken', token)
@@ -1293,31 +1411,21 @@ const connectWebSocket = async () => {
               unreadCount.value = (unreadCount.value ?? 0) + 1
             }
           } catch {
-            void loadNotifications()
+            void refreshNotifications({ includeList: true })
           }
         })
-      }
+      },
+      onStompError: () => {},
+      onWebSocketClose: () => {},
+      onWebSocketError: () => {}
     })
     stompClient.activate()
-  } catch { /* WebSocket not available, fall back to polling */ }
-}
-
-function startNotificationPolling() {
-  if (notificationPollTimer) {
-    clearInterval(notificationPollTimer)
+  } catch {
+    return
   }
-  notificationPollTimer = setInterval(() => {
-    if (userStore.isLoggedIn && document.visibilityState === 'visible') {
-      void loadNotifications()
-    }
-  }, 30000)
 }
 
 function stopNotificationRealtime() {
-  if (notificationPollTimer) {
-    clearInterval(notificationPollTimer)
-    notificationPollTimer = null
-  }
   if (stompClient) {
     try {
       stompClient.deactivate()
@@ -1328,13 +1436,19 @@ function stopNotificationRealtime() {
 
 watch(() => userStore.isLoggedIn, (val) => {
   if (val) {
-    void loadNotifications()
+    void refreshNotifications()
     void connectWebSocket()
-    startNotificationPolling()
   } else {
     stopNotificationRealtime()
     notifications.value = null
     unreadCount.value = null
+    notificationRateLimitedUntil = 0
+  }
+})
+
+watch(showNotificationPopover, (visible) => {
+  if (visible) {
+    void refreshNotifications({ includeList: true })
   }
 })
 
@@ -1350,9 +1464,8 @@ const handleMaintenanceNotice = (event: Event) => {
 onMounted(() => {
   window.addEventListener('notify-maintenance', handleMaintenanceNotice as EventListener)
   if (userStore.isLoggedIn) {
-    void loadNotifications()
+    void refreshNotifications()
     void connectWebSocket()
-    startNotificationPolling()
   }
 })
 
@@ -1365,11 +1478,8 @@ const handleMarkRead = async (n: NotificationItem) => {
   if (normalizeNotificationReadFlag(n?.isRead) === true) return
   try {
     await request.post(`/api/notifications/${n.id}/read`, null, { headers: NOTIFICATION_HEADERS })
-    await loadNotifications()
-    const confirmed = notifications.value?.find((item) => Number(item.id) === Number(n.id))
-    if (!confirmed || normalizeNotificationReadFlag(confirmed.isRead) !== true) {
-      throw new Error('通知已读结果待确认')
-    }
+    markNotificationReadLocally(Number(n.id))
+    void refreshNotifications({ includeList: showNotificationPopover.value })
   } catch (err: unknown) {
     message.error(getErrorMessage(err, '通知已读失败'))
   }
@@ -1396,13 +1506,8 @@ const handleNotificationClick = async (n: NotificationItem) => {
 const handleMarkAllRead = async () => {
   try {
     await request.post('/api/notifications/read-all', null, { headers: NOTIFICATION_HEADERS })
-    await loadNotifications()
-    if (unreadCount.value !== 0) {
-      throw new Error('通知全部已读结果待确认')
-    }
-    if (notifications.value?.some((item) => normalizeNotificationReadFlag(item.isRead) !== true)) {
-      throw new Error('通知全部已读结果待确认')
-    }
+    markAllNotificationsReadLocally()
+    void refreshNotifications({ includeList: showNotificationPopover.value })
   } catch (err: unknown) {
     message.error(getErrorMessage(err, '通知全部已读失败'))
   }
@@ -1487,6 +1592,10 @@ const handleUserDropdownSelect = async (key: string) => {
 
 
 .main-layout-content {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
   background-color: var(--bg-secondary) !important;
 }
 
@@ -1586,8 +1695,9 @@ const handleUserDropdownSelect = async (key: string) => {
 }
 
 .page-content-wrapper {
+  flex: 1;
   padding: 24px;
-  min-height: calc(100vh - 70px);
+  min-height: 0;
   background-color: var(--bg-secondary) !important;
   overflow-y: auto;
 }

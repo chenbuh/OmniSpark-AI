@@ -1,6 +1,7 @@
 package com.example.aihub.module.asset;
 
 import cn.dev33.satoken.annotation.SaCheckLogin;
+import com.example.aihub.common.exception.BusinessException;
 import com.example.aihub.common.result.PageResult;
 import com.example.aihub.common.result.ApiResult;
 import com.example.aihub.common.util.PagingUtil;
@@ -8,6 +9,12 @@ import com.example.aihub.infrastructure.service.AssetService;
 import com.example.aihub.infrastructure.vo.AssetVO;
 import com.example.aihub.infrastructure.vo.AssetStatsVO;
 import lombok.RequiredArgsConstructor;
+import org.springframework.core.io.FileSystemResource;
+import org.springframework.core.io.Resource;
+import org.springframework.http.ContentDisposition;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -17,6 +24,7 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.multipart.MultipartFile;
 
+import java.nio.charset.StandardCharsets;
 import java.util.List;
 
 @RestController
@@ -59,6 +67,12 @@ public class AssetController {
         return ApiResult.ok(assetService.get(id));
     }
 
+    @GetMapping("/{id}/download")
+    public ResponseEntity<Resource> download(@PathVariable Long id) {
+        AssetService.AssetDownloadPayload payload = assetService.resolveDownload(id);
+        return buildDownloadResponse(payload);
+    }
+
     @GetMapping("/{id}/versions")
     public ApiResult<List<AssetVO>> versions(@PathVariable Long id,
                                              @RequestParam(defaultValue = "12") int limit) {
@@ -87,5 +101,22 @@ public class AssetController {
     @PostMapping("/{id}/favorite")
     public ApiResult<AssetVO> favorite(@PathVariable Long id) {
         return ApiResult.ok(assetService.favorite(id));
+    }
+
+    private ResponseEntity<Resource> buildDownloadResponse(AssetService.AssetDownloadPayload payload) {
+        FileSystemResource resource = new FileSystemResource(payload.filePath());
+        try {
+            MediaType mediaType = MediaType.parseMediaType(payload.mimeType());
+            return ResponseEntity.ok()
+                    .contentType(mediaType)
+                    .contentLength(resource.contentLength())
+                    .header(HttpHeaders.CONTENT_DISPOSITION, ContentDisposition.attachment()
+                            .filename(payload.fileName(), StandardCharsets.UTF_8)
+                            .build()
+                            .toString())
+                    .body(resource);
+        } catch (Exception ex) {
+            throw new BusinessException("资产下载失败，请稍后重试");
+        }
     }
 }

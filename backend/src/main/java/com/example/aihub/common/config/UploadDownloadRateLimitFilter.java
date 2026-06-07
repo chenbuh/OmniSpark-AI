@@ -94,6 +94,10 @@ public class UploadDownloadRateLimitFilter implements Filter {
             chain.doFilter(request, response);
             return;
         }
+        if (isCurrentSessionSignedUser(req)) {
+            chain.doFilter(request, response);
+            return;
+        }
 
         String clientIp = clientIpResolver.resolve(req);
         try {
@@ -304,6 +308,18 @@ public class UploadDownloadRateLimitFilter implements Filter {
             }
         }
         return null;
+    }
+
+    private boolean isCurrentSessionSignedUser(HttpServletRequest request) {
+        Long signedUserId = asLong(request.getAttribute(SecurityRequestAttributes.UPLOAD_SIGNED_USER_ID));
+        if (signedUserId == null || signedUserId <= 0) {
+            return false;
+        }
+        try {
+            return StpUtil.isLogin() && signedUserId.equals(StpUtil.getLoginIdAsLong());
+        } catch (Exception ignored) {
+            return false;
+        }
     }
 
     private String userAgentBucket(String userAgent) {

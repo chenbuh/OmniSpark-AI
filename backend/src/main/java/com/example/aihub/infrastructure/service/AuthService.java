@@ -95,6 +95,37 @@ public class AuthService {
         return finalizeLogin(refreshed, state.ip, state.userAgent, state.deviceId);
     }
 
+    public LoginVO beginTotpReset(Long userId, String ip, String userAgent) {
+        User user = requireUser(userId);
+        if (!adminTotpService.isAdmin(user)) {
+            throw new BusinessException("当前账号不支持重置验证器");
+        }
+        AdminTotpService.PendingTotpSetup pendingSetup = adminTotpService.beginSetup(user, ip, userAgent, null);
+        LoginVO vo = new LoginVO();
+        vo.setRequiresTotpSetup(true);
+        vo.setSetupTicket(pendingSetup.setupTicket());
+        vo.setTotpSecret(pendingSetup.secret());
+        vo.setTotpOtpauthUrl(pendingSetup.otpauthUrl());
+        vo.setTotpIssuer(pendingSetup.issuer());
+        return vo;
+    }
+
+    @Transactional(rollbackFor = Exception.class)
+    public UserVO confirmTotpReset(Long userId, LoginTotpSetupDTO dto) {
+        User user = requireUser(userId);
+        if (!adminTotpService.isAdmin(user)) {
+            throw new BusinessException("当前账号不支持重置验证器");
+        }
+        AdminTotpService.CompletedTotpChallenge challenge = adminTotpService.completeSetup(dto.getSetupTicket(), dto.getTotpCode());
+        if (!userId.equals(challenge.userId())) {
+            throw new BusinessException("验证器重置会话与当前账号不匹配，请重新操作");
+        }
+        user.setTotpSecret(challenge.secretToPersist());
+        user.setTotpEnabled(1);
+        userMapper.updateById(user);
+        return toUserVO(requireUser(userId));
+    }
+
     @Transactional(rollbackFor = Exception.class)
     public UserVO register(RegisterDTO dto) {
         Long count = userMapper.selectCount(new LambdaQueryWrapper<User>()

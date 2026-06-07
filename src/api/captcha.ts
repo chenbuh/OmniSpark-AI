@@ -117,9 +117,7 @@ export const captchaApi = {
     const response = await request.get<unknown>('/api/auth/captcha/generate', {
       params: { _: Date.now() },
       headers: {
-        'x-no-cache': '1',
-        'Cache-Control': 'no-cache',
-        Pragma: 'no-cache'
+        'x-no-cache': '1'
       }
     })
     return requireCaptchaData(getResponseData(response))

@@ -10,7 +10,7 @@
     <n-card class="glass-card table-card" :bordered="false">
       <div class="actions-bar">
         <span class="count-lbl">当前项目已配置: {{ currentProviders.length }} 个</span>
-        <n-button type="primary" size="medium" :disabled="!canCreateCurrentProject" @click="handleOpenAddModal">
+        <n-button type="primary" size="medium" @click="handleOpenAddModal">
           <template #icon><Plus /></template>添加提供商
         </n-button>
       </div>
@@ -147,8 +147,9 @@
             v-model:value="form.apiKey"
             type="password"
             show-password-on="mousedown"
-            placeholder="请输入您的私有 API Key"
+            :placeholder="isEditMode ? '留空表示保留当前 API Key；仅在需要更换时重新填写' : '请输入您的私有 API Key'"
           />
+          <div v-if="isEditMode" class="field-hint">编辑已有提供商时，留空会保留原来的 API Key，不会用脱敏值覆盖。</div>
         </n-form-item>
 
         <n-form-item :label="form.type === 'audio' ? '配音模型 (TTS Model)' : '模型具体名称 (Model Name)'">
@@ -556,7 +557,7 @@ const handleTestConnection = async (provider: ModelProvider) => {
   }
 }
 
-const handleOpenAddModal = () => {
+const handleOpenAddModal = async () => {
   if (!projectStore.activeProjectId) {
     message.error('请先选择一个项目空间')
     return
@@ -565,7 +566,10 @@ const handleOpenAddModal = () => {
     message.error(`当前项目仅有${currentProjectPermissionLabel.value}权限，不能新增提供商`)
     return
   }
-  if (typeOptions.value.length === 0 && providerMetaLoadState.value === 'ready') {
+  if (providerMetaLoadState.value !== 'ready') {
+    await loadProviderMeta()
+  }
+  if (providerMetaLoadState.value !== 'ready' || typeOptions.value.length === 0) {
     message.error('模型类型元数据尚未加载成功，暂时无法基于真实配置新增提供商')
     return
   }
@@ -602,7 +606,7 @@ const handleOpenEditModal = (provider: ModelProvider) => {
   form.name = provider.name
   form.type = provider.type
   form.baseUrl = provider.baseUrl
-  form.apiKey = provider.apiKey
+  form.apiKey = ''
   form.modelName = provider.modelName
   form.enabled = provider.enabled === true
   form.isDefault = provider.isDefault === true
@@ -636,7 +640,7 @@ const handleSave = async () => {
     message.error('请选择真实的模型类型后再保存')
     return false
   }
-  if (!form.name || !form.baseUrl || !form.apiKey || !form.modelName) {
+  if (!form.name || !form.baseUrl || !form.modelName || (!isEditMode.value && !form.apiKey.trim())) {
     message.error('请完整填写所有核心模型配置字段！')
     return false
   }
@@ -648,9 +652,11 @@ const handleSave = async () => {
       name: form.name,
       type: form.type,
       baseUrl: form.baseUrl,
-      apiKey: form.apiKey,
       modelName: form.modelName,
       configJson
+    }
+    if (form.apiKey.trim()) {
+      payload.apiKey = form.apiKey.trim()
     }
     if (!preserveUnknownEnabled.value || enabledTouched.value) {
       payload.enabled = form.enabled
@@ -675,7 +681,7 @@ const handleSave = async () => {
         name: form.name,
         type: form.type,
         baseUrl: form.baseUrl,
-        apiKey: form.apiKey,
+        apiKey: form.apiKey.trim(),
         modelName: form.modelName,
         enabled: form.enabled,
         isDefault: form.isDefault,
@@ -727,7 +733,7 @@ const parseConfigJson = (value?: string) => {
 
 const buildConfigJson = () => {
   if (form.type !== 'audio') {
-    return form.configJson || ''
+    return form.configJson.trim() || undefined
   }
   const payload: Record<string, unknown> = {}
   if (form.transcriptionModel.trim()) payload.transcriptionModel = form.transcriptionModel.trim()
@@ -740,7 +746,7 @@ const buildConfigJson = () => {
     }
   }
   if (form.instructions.trim()) payload.instructions = form.instructions.trim()
-  return Object.keys(payload).length ? JSON.stringify(payload) : ''
+  return Object.keys(payload).length ? JSON.stringify(payload) : undefined
 }
 
 onMounted(async () => {
