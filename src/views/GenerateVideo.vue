@@ -422,7 +422,7 @@ const form = reactive({
   cameraMotion: '',
   motionSpeed: 5,
   aspectRatio: '16:9',
-  seed: null as number | null as number | null
+  seed: null as number | null
 })
 
 const aspectRatioOptions = [
