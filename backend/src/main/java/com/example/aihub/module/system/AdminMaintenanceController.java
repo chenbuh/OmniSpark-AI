@@ -3,6 +3,7 @@ package com.example.aihub.module.system;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import cn.dev33.satoken.annotation.SaCheckLogin;
 import cn.dev33.satoken.annotation.SaCheckRole;
+import com.example.aihub.common.annotation.RateLimit;
 import com.example.aihub.common.result.ApiResult;
 import com.example.aihub.infrastructure.entity.SystemConfig;
 import com.example.aihub.infrastructure.mapper.SystemConfigMapper;
@@ -40,6 +41,7 @@ public class AdminMaintenanceController {
     }
 
     @PostMapping
+    @RateLimit(count = 10, seconds = 60, dimension = RateLimit.Dimension.USER_API, message = "操作过于频繁")
     public ApiResult<Void> toggle(@RequestParam boolean enabled, @RequestParam(defaultValue = DEFAULT_MESSAGE) String message) {
         upsertConfig(MAINTENANCE_MODE_KEY, enabled ? "true" : "false", "maintenance", "维护模式开关");
         upsertConfig(MAINTENANCE_MESSAGE_KEY, normalizeMessage(message), "maintenance", "维护提示消息");

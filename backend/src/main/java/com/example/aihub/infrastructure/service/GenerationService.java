@@ -30,6 +30,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.annotation.PreDestroy;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 
 import java.io.ByteArrayInputStream;
@@ -110,6 +111,13 @@ public class GenerationService {
     private final UploadAccessSignatureService uploadAccessSignatureService;
     private final UploadStorageResolver uploadStorageResolver;
     private final AssetService assetService;
+    private final StringRedisTemplate redisTemplate;
+
+    /** 每个用户同时在跑的生成任务上限，超过时拒绝提交。 */
+    private static final int MAX_CONCURRENT_TASKS_PER_USER = 3;
+    private static final String REDIS_RUNNING_KEY_PREFIX = "gen:running:";
+    private static final long REDIS_RUNNING_KEY_TTL_SECS = 3600;
+
     // 有界队列 + AbortPolicy：过载时拒绝而非无限堆积内存，由调用方捕获并提示用户稍后重试
     private final ThreadPoolExecutor generationExecutor = new ThreadPoolExecutor(
             4, 4,
@@ -394,11 +402,51 @@ public class GenerationService {
      * 提交后台生成任务到有界线程池。队列满时拒绝执行，将任务标记为失败并抛出友好异常，
      * 避免任务无限堆积导致内存压力。
      */
+    /**
+     * 检查用户在跑任务数是否达到上限（Redis SET 计数），若已达上限则拒绝提交。
+     * 通过后将 taskId 注册到 Redis，任务完成/失败时自动移除。
+     */
+    private void checkAndRegisterRunningTask(Long taskId, Long userId) {
+        if (userId == null || userId <= 0) {
+            return; // 匿名用户不做并发限制
+        }
+        String key = REDIS_RUNNING_KEY_PREFIX + userId;
+        try {
+            Long count = redisTemplate.opsForSet().size(key);
+            if (count != null && count >= MAX_CONCURRENT_TASKS_PER_USER) {
+                log.warn("用户 {} 在跑任务数已达上限（{}），拒绝新任务 taskId={}", userId, MAX_CONCURRENT_TASKS_PER_USER, taskId);
+                markTaskFailed(taskId, userId, "您同时在跑的任务数已达上限（" + MAX_CONCURRENT_TASKS_PER_USER + "个），请等待正在进行的任务完成后再试");
+                throw new BusinessException("您同时在跑的任务数已达上限（" + MAX_CONCURRENT_TASKS_PER_USER + "个），请等待正在进行的任务完成后再试");
+            }
+            redisTemplate.opsForSet().add(key, String.valueOf(taskId));
+            redisTemplate.expire(key, java.time.Duration.ofSeconds(REDIS_RUNNING_KEY_TTL_SECS));
+        } catch (BusinessException ex) {
+            throw ex;
+        } catch (Exception ex) {
+            // Redis 异常时放行（fail-open），避免缓存故障阻塞生成
+            log.warn("检查用户在跑任务数时 Redis 异常，放行。taskId={}, userId={}", taskId, userId, ex);
+        }
+    }
+
+    /** 任务完成时从 Redis 在跑集合中移除。 */
+    private void unregisterRunningTask(Long taskId, Long userId) {
+        if (userId == null || userId <= 0) {
+            return;
+        }
+        try {
+            redisTemplate.opsForSet().remove(REDIS_RUNNING_KEY_PREFIX + userId, String.valueOf(taskId));
+        } catch (Exception ex) {
+            log.warn("移除用户在跑任务标记时 Redis 异常，忽略。taskId={}, userId={}", taskId, userId);
+        }
+    }
+
     private void submitGenerationJob(Long taskId, Long userId, Runnable job) {
+        checkAndRegisterRunningTask(taskId, userId);
         try {
             generationExecutor.submit(job);
         } catch (RejectedExecutionException ex) {
             log.warn("生成任务队列已满，拒绝新任务。taskId={}", taskId);
+            unregisterRunningTask(taskId, userId);
             markTaskFailed(taskId, userId, "当前生成任务过多，请稍后重试");
             throw new BusinessException("当前生成任务过多，请稍后重试");
         }
@@ -497,6 +545,7 @@ public class GenerationService {
             );
         } catch (Exception ignored) {}
 
+        unregisterRunningTask(task.getId(), userId);
         return toTaskVO(task);
     }
 
@@ -564,8 +613,9 @@ public class GenerationService {
                     task.getId()
             );
         } catch (Exception ignored) {}
-    }
 
+        unregisterRunningTask(task.getId(), userId);
+    }
     private ModelProvider requireProvider(Long providerId, Long projectId, String taskType) {
         ModelProvider provider = providerMapper.selectById(providerId);
         if (provider == null) {

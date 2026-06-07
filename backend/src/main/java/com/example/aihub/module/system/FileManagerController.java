@@ -4,6 +4,7 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import cn.dev33.satoken.annotation.SaCheckLogin;
 import cn.dev33.satoken.annotation.SaCheckRole;
+import com.example.aihub.common.annotation.RateLimit;
 import com.example.aihub.common.result.ApiResult;
 import com.example.aihub.common.storage.UploadStorageResolver;
 import com.example.aihub.infrastructure.entity.Asset;
@@ -135,6 +136,7 @@ public class FileManagerController {
     }
 
     @DeleteMapping
+    @RateLimit(count = 20, seconds = 60, dimension = RateLimit.Dimension.USER_API, message = "删除过于频繁")
     public ApiResult<Void> delete(@RequestParam String path) {
         try {
             Path baseDir = uploadStorageResolver.getUploadRoot();

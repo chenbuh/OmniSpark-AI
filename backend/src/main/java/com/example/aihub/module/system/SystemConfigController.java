@@ -4,6 +4,7 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import cn.dev33.satoken.annotation.SaCheckLogin;
 import cn.dev33.satoken.annotation.SaCheckRole;
+import com.example.aihub.common.annotation.RateLimit;
 import com.example.aihub.common.result.ApiResult;
 import com.example.aihub.common.result.PageResult;
 import com.example.aihub.common.security.SensitiveConfigPolicy;
@@ -55,6 +56,7 @@ public class SystemConfigController {
     }
 
     @PutMapping("/{id}")
+    @RateLimit(count = 30, seconds = 60, dimension = RateLimit.Dimension.USER_API, message = "修改配置过于频繁")
     public ApiResult<Void> update(@PathVariable Long id, @RequestParam String value) {
         SystemConfig config = configMapper.selectById(id);
         if (config == null) return ApiResult.fail("配置项不存在");
