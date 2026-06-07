@@ -52,6 +52,10 @@ public class AdminStatsController {
 
     @GetMapping("/overview")
     public ApiResult<Map<String, Object>> overview() {
+        long now = System.currentTimeMillis();
+        if (cachedOverview != null && now - cachedOverviewAt < 30_000L) {
+            return ApiResult.ok(cachedOverview);
+        }
         Map<String, Object> stats = new LinkedHashMap<>();
         stats.put("totalUsers", userMapper.selectCount(null));
         stats.put("totalProjects", projectMapper.selectCount(null));
@@ -219,4 +223,5 @@ public class AdminStatsController {
         response.getWriter().write(csv.toString());
     }
 }
+
 
