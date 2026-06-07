@@ -2,20 +2,35 @@ package com.example.aihub.common.config;
 
 import cn.dev33.satoken.interceptor.SaInterceptor;
 import com.example.aihub.common.storage.UploadStorageResolver;
+import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.core.env.Environment;
 import org.springframework.web.servlet.config.annotation.InterceptorRegistry;
 import org.springframework.web.servlet.config.annotation.ResourceHandlerRegistry;
 import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
 
 @Configuration
 @RequiredArgsConstructor
+@Slf4j
 public class WebConfig implements WebMvcConfigurer {
+    private final Environment environment;
     private final MaintenanceInterceptor maintenanceInterceptor;
     private final ApiSignInterceptor apiSignInterceptor;
     private final AntiCrawlerRiskInterceptor antiCrawlerRiskInterceptor;
     private final RateLimitInterceptor rateLimitInterceptor;
     private final UploadStorageResolver uploadStorageResolver;
+
+    @PostConstruct
+    public void validateConfig() {
+        String dbPassword = environment.getProperty("spring.datasource.password");
+        if (dbPassword == null || dbPassword.isEmpty()) {
+            throw new IllegalStateException(
+                "数据库密码未设置！请通过环境变量 DB_PASSWORD 设置数据库密码。"
+            );
+        }
+    }
 
     @Override
     public void addInterceptors(InterceptorRegistry registry) {

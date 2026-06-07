@@ -14,10 +14,30 @@ interface AuthUserInfo {
   role: string
 }
 
-interface LoginResult {
+interface LoginSuccessResult {
+  type: 'success'
   token: string
   userInfo: AuthUserInfo
 }
+
+interface LoginRequiresTotpResult {
+  type: 'totp'
+  requiresTotp: true
+  loginTicket: string
+}
+
+interface LoginRequiresTotpSetupResult {
+  type: 'totp-setup'
+  requiresTotpSetup: true
+  setupTicket: string
+  totpSecret: string
+  totpOtpauthUrl: string
+  totpIssuer: string
+}
+
+export type LoginFlowResult = LoginSuccessResult | LoginRequiresTotpResult | LoginRequiresTotpSetupResult
+
+const DEVICE_ID_STORAGE_KEY = 'loginDeviceId'
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === 'object' && !Array.isArray(value)
@@ -67,14 +87,46 @@ function normalizeUserInfo(payload: unknown): AuthUserInfo {
   }
 }
 
-function normalizeLoginResult(payload: unknown): LoginResult {
+function normalizeLoginFlowResult(payload: unknown): LoginFlowResult {
   if (!isPlainObject(payload)) {
     throw new Error('登录结果待确认')
   }
+
+  if (payload.requiresTotpSetup === true) {
+    if (
+      typeof payload.setupTicket !== 'string' || !payload.setupTicket.trim()
+      || typeof payload.totpSecret !== 'string' || !payload.totpSecret.trim()
+      || typeof payload.totpOtpauthUrl !== 'string' || !payload.totpOtpauthUrl.trim()
+      || typeof payload.totpIssuer !== 'string' || !payload.totpIssuer.trim()
+    ) {
+      throw new Error('登录结果待确认')
+    }
+    return {
+      type: 'totp-setup',
+      requiresTotpSetup: true,
+      setupTicket: payload.setupTicket,
+      totpSecret: payload.totpSecret,
+      totpOtpauthUrl: payload.totpOtpauthUrl,
+      totpIssuer: payload.totpIssuer
+    }
+  }
+
+  if (payload.requiresTotp === true) {
+    if (typeof payload.loginTicket !== 'string' || !payload.loginTicket.trim()) {
+      throw new Error('登录结果待确认')
+    }
+    return {
+      type: 'totp',
+      requiresTotp: true,
+      loginTicket: payload.loginTicket
+    }
+  }
+
   if (typeof payload.token !== 'string' || !payload.token.trim()) {
     throw new Error('登录结果待确认')
   }
   return {
+    type: 'success',
     token: payload.token,
     userInfo: normalizeUserInfo(payload.userInfo)
   }
@@ -85,7 +137,7 @@ async function fetchCurrentUser() {
   return normalizeUserInfo(getResponseData(response, '用户信息待确认'))
 }
 
-function assertConfirmedLogin(result: LoginResult, confirmedUser: AuthUserInfo) {
+function assertConfirmedLogin(result: LoginSuccessResult, confirmedUser: AuthUserInfo) {
   if (
     confirmedUser.id !== result.userInfo.id
     || confirmedUser.username !== result.userInfo.username
@@ -96,26 +148,98 @@ function assertConfirmedLogin(result: LoginResult, confirmedUser: AuthUserInfo) 
   }
 }
 
+function generateDeviceId() {
+  if (window.crypto?.randomUUID) {
+    return window.crypto.randomUUID()
+  }
+  const bytes = new Uint8Array(16)
+  window.crypto.getRandomValues(bytes)
+  return Array.from(bytes).map(byte => byte.toString(16).padStart(2, '0')).join('')
+}
+
+function getDeviceId() {
+  const stored = localStorage.getItem(DEVICE_ID_STORAGE_KEY)?.trim()
+  if (stored) {
+    return stored
+  }
+  const created = generateDeviceId()
+  localStorage.setItem(DEVICE_ID_STORAGE_KEY, created)
+  return created
+}
+
+async function confirmAndHydrateSession(result: LoginSuccessResult) {
+  useUserStore().setSession(result.userInfo, result.token)
+  const confirmedUser = await fetchCurrentUser()
+  assertConfirmedLogin(result, confirmedUser)
+  useUserStore().setSession(confirmedUser, result.token)
+  await hydrateWorkspace()
+  return {
+    type: 'success' as const,
+    token: result.token,
+    userInfo: confirmedUser
+  }
+}
+
 export const authApi = {
   // 登录
-  async login(params: { username: string; password?: string; captchaTicket?: string }) {
-    let loginResult: LoginResult | null = null
+  async login(params: { username: string; password?: string; captchaTicket?: string; deviceId?: string }) {
+    let loginResult: LoginSuccessResult | null = null
     try {
       const response = await request.post('/api/auth/login', {
         username: params.username,
         encryptedPassword: await encryptPassword(params.password || ''),
-        captchaTicket: params.captchaTicket
+        captchaTicket: params.captchaTicket,
+        deviceId: params.deviceId || getDeviceId()
       })
-      loginResult = normalizeLoginResult(getResponseData(response, '登录结果待确认'))
-      useUserStore().setSession(loginResult.userInfo, loginResult.token)
-      const confirmedUser = await fetchCurrentUser()
-      assertConfirmedLogin(loginResult, confirmedUser)
-      useUserStore().setSession(confirmedUser, loginResult.token)
-      await hydrateWorkspace()
-      return {
-        token: loginResult.token,
-        userInfo: confirmedUser
+      const flowResult = normalizeLoginFlowResult(getResponseData(response, '登录结果待确认'))
+      if (flowResult.type !== 'success') {
+        clearSessionState()
+        return flowResult
       }
+      loginResult = flowResult
+      return await confirmAndHydrateSession(loginResult)
+    } catch (error) {
+      if (loginResult?.token) {
+        try {
+          await request.post('/api/auth/logout')
+        } catch {}
+      }
+      clearSessionState()
+      throw error
+    }
+  },
+
+  async completeTotpLogin(params: { loginTicket: string; totpCode: string }) {
+    let loginResult: LoginSuccessResult | null = null
+    try {
+      const response = await request.post('/api/auth/login/totp', params)
+      const flowResult = normalizeLoginFlowResult(getResponseData(response, '登录结果待确认'))
+      if (flowResult.type !== 'success') {
+        throw new Error('登录结果待确认')
+      }
+      loginResult = flowResult
+      return await confirmAndHydrateSession(loginResult)
+    } catch (error) {
+      if (loginResult?.token) {
+        try {
+          await request.post('/api/auth/logout')
+        } catch {}
+      }
+      clearSessionState()
+      throw error
+    }
+  },
+
+  async completeTotpSetup(params: { setupTicket: string; totpCode: string }) {
+    let loginResult: LoginSuccessResult | null = null
+    try {
+      const response = await request.post('/api/auth/login/totp/setup', params)
+      const flowResult = normalizeLoginFlowResult(getResponseData(response, '登录结果待确认'))
+      if (flowResult.type !== 'success') {
+        throw new Error('登录结果待确认')
+      }
+      loginResult = flowResult
+      return await confirmAndHydrateSession(loginResult)
     } catch (error) {
       if (loginResult?.token) {
         try {

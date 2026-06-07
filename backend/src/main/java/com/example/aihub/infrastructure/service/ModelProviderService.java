@@ -4,6 +4,7 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.example.aihub.common.exception.BusinessException;
 import com.example.aihub.common.result.PageResult;
+import com.example.aihub.common.security.ModelApiKeyEncryptor;
 import com.example.aihub.common.security.SensitiveValueMasker;
 import com.example.aihub.common.util.PagingUtil;
 import com.example.aihub.common.util.VoMapper;
@@ -55,6 +56,7 @@ public class ModelProviderService {
     private final ModelProviderMapper providerMapper;
     private final ObjectMapper objectMapper;
     private final com.example.aihub.common.security.ProjectAccessGuard projectAccessGuard;
+    private final ModelApiKeyEncryptor apiKeyEncryptor;
     private final HttpClient httpClient = HttpClient.newBuilder()
             .connectTimeout(Duration.ofSeconds(20))
             .build();
@@ -114,7 +116,7 @@ public class ModelProviderService {
     /** 将 apiKey 脱敏后再转 VO，避免明文密钥下发到前端。 */
     private ModelProviderVO toMaskedVO(ModelProvider provider) {
         ModelProviderVO vo = VoMapper.copy(provider, ModelProviderVO.class);
-        vo.setApiKey(maskApiKey(provider.getApiKey()));
+        vo.setApiKey(maskApiKey(apiKeyEncryptor.decrypt(provider.getApiKey())));
         return vo;
     }
 
@@ -132,6 +134,7 @@ public class ModelProviderService {
         ModelProvider provider = toEntity(dto);
         projectAccessGuard.assertEditAccess(provider.getProjectId());
         validateProviderBeforeSave(provider);
+        provider.setApiKey(apiKeyEncryptor.encrypt(provider.getApiKey()));
         providerMapper.insert(provider);
         applyDefaultRule(provider);
         return toMaskedVO(provider);
@@ -144,6 +147,10 @@ public class ModelProviderService {
             throw new BusinessException("模型提供商不存在");
         }
         projectAccessGuard.assertEditAccess(provider.getProjectId());
+        boolean apiKeyChanged = dto.getApiKey() != null && !isMaskedValue(dto.getApiKey());
+        if (apiKeyChanged) {
+            provider.setApiKey(dto.getApiKey());
+        }
         if (dto.getProjectId() != null) {
             projectAccessGuard.assertEditAccess(dto.getProjectId());
             provider.setProjectId(dto.getProjectId());
@@ -156,9 +163,6 @@ public class ModelProviderService {
         }
         if (dto.getBaseUrl() != null) {
             provider.setBaseUrl(dto.getBaseUrl());
-        }
-        if (dto.getApiKey() != null && !isMaskedValue(dto.getApiKey())) {
-            provider.setApiKey(dto.getApiKey());
         }
         if (dto.getModelName() != null) {
             provider.setModelName(dto.getModelName());
@@ -173,6 +177,9 @@ public class ModelProviderService {
             provider.setConfigJson(dto.getConfigJson());
         }
         validateProviderBeforeSave(provider);
+        if (apiKeyChanged) {
+            provider.setApiKey(apiKeyEncryptor.encrypt(provider.getApiKey()));
+        }
         providerMapper.updateById(provider);
         applyDefaultRule(provider);
         return toMaskedVO(provider);
@@ -194,14 +201,15 @@ public class ModelProviderService {
             throw new BusinessException("模型提供商不存在");
         }
         projectAccessGuard.assertEditAccess(provider.getProjectId());
-        if (isBlank(provider.getBaseUrl()) || isBlank(provider.getApiKey())) {
+        String rawKey = apiKeyEncryptor.decrypt(provider.getApiKey());
+        if (isBlank(provider.getBaseUrl()) || isBlank(rawKey)) {
             throw new BusinessException("API Key 或 Base URL 不能为空");
         }
         try {
             String endpoint = resolveEndpoint(provider.getBaseUrl(), "/models");
             HttpRequest request = HttpRequest.newBuilder(URI.create(endpoint))
                     .timeout(Duration.ofSeconds(30))
-                    .header("Authorization", "Bearer " + provider.getApiKey())
+                    .header("Authorization", "Bearer " + rawKey)
                     .header("Accept", "application/json")
                     .GET()
                     .build();
@@ -315,9 +323,10 @@ public class ModelProviderService {
     private void validateNoHtmlEndpoint(ModelProvider provider) {
         try {
             String endpoint = resolveEndpoint(provider.getBaseUrl(), "/models");
+            String validateKey = apiKeyEncryptor.decrypt(provider.getApiKey());
             HttpRequest request = HttpRequest.newBuilder(URI.create(endpoint))
                     .timeout(Duration.ofSeconds(20))
-                    .header("Authorization", "Bearer " + provider.getApiKey())
+                    .header("Authorization", "Bearer " + validateKey)
                     .header("Accept", "application/json")
                     .GET()
                     .build();

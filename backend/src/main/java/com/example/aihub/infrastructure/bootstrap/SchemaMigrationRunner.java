@@ -62,6 +62,8 @@ public class SchemaMigrationRunner implements CommandLineRunner {
         ensureColumn("api_key", "frozen_reason", "ALTER TABLE `api_key` ADD COLUMN `frozen_reason` varchar(255) DEFAULT NULL AFTER `last_user_agent`");
         ensureColumn("api_key", "risk_score", "ALTER TABLE `api_key` ADD COLUMN `risk_score` int NOT NULL DEFAULT 0 AFTER `frozen_reason`");
         ensureColumn("api_key", "updated_at", "ALTER TABLE `api_key` ADD COLUMN `updated_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP AFTER `created_at`");
+        ensureColumn("user", "totp_secret", "ALTER TABLE `user` ADD COLUMN `totp_secret` varchar(255) DEFAULT NULL AFTER `status`");
+        ensureColumn("user", "totp_enabled", "ALTER TABLE `user` ADD COLUMN `totp_enabled` tinyint NOT NULL DEFAULT 0 AFTER `totp_secret`");
         ensureTable("public_content_like", """
                 CREATE TABLE IF NOT EXISTS `public_content_like` (
                   `id` bigint NOT NULL AUTO_INCREMENT,

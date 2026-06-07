@@ -14,4 +14,6 @@ public class LoginDTO {
 
     /** 滑块验证码通过后获得的一次性票据，登录时核销。 */
     private String captchaTicket;
+
+    private String deviceId;
 }

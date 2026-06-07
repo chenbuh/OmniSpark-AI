@@ -6,4 +6,11 @@ import lombok.Data;
 public class LoginVO {
     private String token;
     private UserVO userInfo;
+    private Boolean requiresTotp;
+    private Boolean requiresTotpSetup;
+    private String loginTicket;
+    private String setupTicket;
+    private String totpSecret;
+    private String totpOtpauthUrl;
+    private String totpIssuer;
 }

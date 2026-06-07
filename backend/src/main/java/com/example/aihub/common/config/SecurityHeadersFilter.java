@@ -16,7 +16,15 @@ import java.io.IOException;
 @Order(-2)
 public class SecurityHeadersFilter implements Filter {
     private static final String CONTENT_SECURITY_POLICY =
-            "default-src 'self'; base-uri 'self'; frame-ancestors 'none'; object-src 'none'";
+            "default-src 'self'; " +
+            "script-src 'self'; " +
+            "style-src 'self' 'unsafe-inline'; " +  // Naive UI 需要 unsafe-inline
+            "img-src 'self' data: https://images.unsplash.com; " +
+            "font-src 'self'; " +
+            "connect-src 'self' ws:; " +
+            "base-uri 'self'; " +
+            "frame-ancestors 'none'; " +
+            "object-src 'none'";
 
     @Override
     public void doFilter(ServletRequest req, ServletResponse res, FilterChain chain)
@@ -29,9 +37,7 @@ public class SecurityHeadersFilter implements Filter {
         response.setHeader("Referrer-Policy", "strict-origin-when-cross-origin");
         response.setHeader("Permissions-Policy", "camera=(), microphone=(), geolocation=()");
         response.setHeader("Content-Security-Policy", CONTENT_SECURITY_POLICY);
-        if (request.isSecure()) {
-            response.setHeader("Strict-Transport-Security", "max-age=31536000; includeSubDomains");
-        }
+        response.setHeader("Strict-Transport-Security", "max-age=31536000; includeSubDomains");
 
         chain.doFilter(req, res);
     }

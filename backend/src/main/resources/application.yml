@@ -67,6 +67,7 @@ app:
       challenge-ttl-seconds: 120
     canary:
       secret: ${APP_CANARY_SECRET:omnispark-dev-canary-secret-2026}
+    model-key-encryption-key: ${APP_MODEL_KEY_ENCRYPTION_KEY:}
     upload-access:
       secret: ${APP_UPLOAD_ACCESS_SECRET:omnispark-dev-upload-access-secret-2026}
       ttl-seconds: 7200

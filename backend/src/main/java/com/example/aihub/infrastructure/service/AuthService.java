@@ -5,9 +5,11 @@ import com.example.aihub.common.exception.BusinessException;
 import com.example.aihub.common.util.PasswordUtil;
 import com.example.aihub.common.util.VoMapper;
 import com.example.aihub.infrastructure.dto.LoginDTO;
+import com.example.aihub.infrastructure.dto.LoginTotpDTO;
+import com.example.aihub.infrastructure.dto.LoginTotpSetupDTO;
 import com.example.aihub.infrastructure.dto.RegisterDTO;
-import com.example.aihub.infrastructure.entity.User;
 import com.example.aihub.infrastructure.entity.LoginLog;
+import com.example.aihub.infrastructure.entity.User;
 import com.example.aihub.infrastructure.mapper.LoginLogMapper;
 import com.example.aihub.infrastructure.mapper.QuotaRecordMapper;
 import com.example.aihub.infrastructure.mapper.UserMapper;
@@ -28,11 +30,18 @@ public class AuthService {
     private final UserMapper userMapper;
     private final QuotaRecordMapper quotaRecordMapper;
     private final LoginLogMapper loginLogMapper;
+    private final LoginProtectionService loginProtectionService;
+    private final AdminTotpService adminTotpService;
 
     public LoginVO login(LoginDTO dto, String ip, String userAgent) {
+        String username = normalizeUsername(dto.getUsername());
+        String deviceId = normalizeDeviceId(dto.getDeviceId());
+        loginProtectionService.ensureAllowed(username, ip, deviceId);
+
         User user = userMapper.selectOne(new LambdaQueryWrapper<User>()
-                .eq(User::getUsername, dto.getUsername()));
+                .eq(User::getUsername, username));
         if (user == null || !PasswordUtil.matches(dto.getPassword(), user.getPassword())) {
+            loginProtectionService.recordFailure(username, ip, deviceId);
             throw new BusinessException("账号或密码错误");
         }
         if (user.getStatus() != null && user.getStatus() == 0) {
@@ -45,22 +54,45 @@ public class AuthService {
             userMapper.updateById(user);
         }
 
-        cn.dev33.satoken.stp.StpUtil.login(user.getId());
-        // 记录登录日志
-        try {
-            LoginLog log = new LoginLog();
-            log.setUserId(user.getId());
-            log.setUsername(user.getUsername());
-            log.setIp(ip);
-            log.setUserAgent(userAgent != null && userAgent.length() > 500 ? userAgent.substring(0, 500) : userAgent);
-            loginLogMapper.insert(log);
-        } catch (Exception ignored) {}
+        if (adminTotpService.isAdmin(user)) {
+            if (user.getTotpEnabled() == null || user.getTotpEnabled() != 1
+                    || user.getTotpSecret() == null || user.getTotpSecret().isBlank()) {
+                AdminTotpService.PendingTotpSetup pendingSetup = adminTotpService.beginSetup(user, ip, userAgent, deviceId);
+                LoginVO vo = new LoginVO();
+                vo.setRequiresTotpSetup(true);
+                vo.setSetupTicket(pendingSetup.setupTicket());
+                vo.setTotpSecret(pendingSetup.secret());
+                vo.setTotpOtpauthUrl(pendingSetup.otpauthUrl());
+                vo.setTotpIssuer(pendingSetup.issuer());
+                return vo;
+            }
+            String loginTicket = adminTotpService.beginLoginChallenge(user, ip, userAgent, deviceId);
+            LoginVO vo = new LoginVO();
+            vo.setRequiresTotp(true);
+            vo.setLoginTicket(loginTicket);
+            return vo;
+        }
 
-        UserVO userVO = toUserVO(user);
-        LoginVO vo = new LoginVO();
-        vo.setToken(cn.dev33.satoken.stp.StpUtil.getTokenValue());
-        vo.setUserInfo(userVO);
-        return vo;
+        return finalizeLogin(user, ip, userAgent, deviceId);
+    }
+
+    @Transactional(rollbackFor = Exception.class)
+    public LoginVO completeTotpSetup(LoginTotpSetupDTO dto) {
+        AdminTotpService.CompletedTotpChallenge challenge = adminTotpService.completeSetup(dto.getSetupTicket(), dto.getTotpCode());
+        User user = requireUser(challenge.userId());
+        user.setTotpSecret(challenge.secretToPersist());
+        user.setTotpEnabled(1);
+        userMapper.updateById(user);
+        User refreshed = requireUser(user.getId());
+        return finalizeLogin(refreshed, challenge.ip(), challenge.userAgent(), challenge.deviceId());
+    }
+
+    public LoginVO completeTotpLogin(LoginTotpDTO dto) {
+        AdminTotpService.PendingLoginState state = adminTotpService.peekLoginState(dto.getLoginTicket());
+        User user = requireUser(state.userId);
+        adminTotpService.completeLogin(dto.getLoginTicket(), dto.getTotpCode(), user.getTotpSecret());
+        User refreshed = requireUser(user.getId());
+        return finalizeLogin(refreshed, state.ip, state.userAgent, state.deviceId);
     }
 
     @Transactional(rollbackFor = Exception.class)
@@ -183,5 +215,49 @@ public class AuthService {
         if (error != null) {
             throw new BusinessException(error);
         }
+    }
+
+    private LoginVO finalizeLogin(User user, String ip, String userAgent, String deviceId) {
+        cn.dev33.satoken.stp.StpUtil.login(user.getId());
+        loginProtectionService.clearFailures(user.getUsername(), ip, deviceId);
+        try {
+            LoginLog log = new LoginLog();
+            log.setUserId(user.getId());
+            log.setUsername(user.getUsername());
+            log.setIp(ip);
+            log.setUserAgent(userAgent != null && userAgent.length() > 500 ? userAgent.substring(0, 500) : userAgent);
+            loginLogMapper.insert(log);
+        } catch (Exception ignored) {
+        }
+
+        LoginVO vo = new LoginVO();
+        vo.setToken(cn.dev33.satoken.stp.StpUtil.getTokenValue());
+        vo.setUserInfo(toUserVO(user));
+        vo.setRequiresTotp(false);
+        vo.setRequiresTotpSetup(false);
+        return vo;
+    }
+
+    private User requireUser(Long userId) {
+        User user = userMapper.selectById(userId);
+        if (user == null) {
+            throw new BusinessException("用户不存在");
+        }
+        if (user.getStatus() != null && user.getStatus() == 0) {
+            throw new BusinessException("账号已被禁用，请联系管理员");
+        }
+        return user;
+    }
+
+    private String normalizeUsername(String username) {
+        return username == null ? null : username.trim();
+    }
+
+    private String normalizeDeviceId(String deviceId) {
+        if (deviceId == null) {
+            return null;
+        }
+        String normalized = deviceId.trim();
+        return normalized.isBlank() ? null : normalized;
     }
 }

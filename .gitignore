@@ -40,3 +40,4 @@ application-local.yaml
 
 # Claude Code local settings (may contain tokens/keys in allowlisted commands)
 .claude
+.reasonix/

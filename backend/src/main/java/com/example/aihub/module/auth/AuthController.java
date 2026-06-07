@@ -10,9 +10,11 @@ import com.example.aihub.common.result.ApiResult;
 import com.example.aihub.common.util.PagingUtil;
 import jakarta.servlet.http.HttpServletRequest;
 import com.example.aihub.infrastructure.dto.LoginDTO;
+import com.example.aihub.infrastructure.dto.LoginTotpDTO;
+import com.example.aihub.infrastructure.dto.LoginTotpSetupDTO;
 import com.example.aihub.infrastructure.entity.LoginLog;
-import com.example.aihub.infrastructure.mapper.LoginLogMapper;
 import com.example.aihub.infrastructure.dto.RegisterDTO;
+import com.example.aihub.infrastructure.mapper.LoginLogMapper;
 import com.example.aihub.infrastructure.service.AuthService;
 import com.example.aihub.infrastructure.service.CaptchaService;
 import com.example.aihub.infrastructure.service.PasswordEncryptionService;
@@ -43,6 +45,7 @@ public class AuthController {
     private final SigningChallengeService signingChallengeService;
 
     @GetMapping("/public-key")
+    @RateLimit(count = 30, seconds = 60, dimension = RateLimit.Dimension.IP, message = "请求过于频繁，请稍后再试")
     public ApiResult<PasswordPublicKeyVO> publicKey() {
         return ApiResult.ok(passwordEncryptionService.getPublicKey());
     }
@@ -61,6 +64,18 @@ public class AuthController {
         String ua = request.getHeader("User-Agent");
         dto.setPassword(passwordEncryptionService.resolvePassword(dto.getPassword(), dto.getEncryptedPassword()));
         return ApiResult.ok(authService.login(dto, ip, ua));
+    }
+
+    @PostMapping("/login/totp/setup")
+    @RateLimit(count = 10, seconds = 60, dimension = RateLimit.Dimension.IP, message = "动态验证初始化尝试过于频繁，请稍后再试")
+    public ApiResult<LoginVO> completeTotpSetup(@Valid @RequestBody LoginTotpSetupDTO dto) {
+        return ApiResult.ok(authService.completeTotpSetup(dto));
+    }
+
+    @PostMapping("/login/totp")
+    @RateLimit(count = 10, seconds = 60, dimension = RateLimit.Dimension.IP, message = "动态验证尝试过于频繁，请稍后再试")
+    public ApiResult<LoginVO> completeTotpLogin(@Valid @RequestBody LoginTotpDTO dto) {
+        return ApiResult.ok(authService.completeTotpLogin(dto));
     }
 
     @PostMapping("/register")

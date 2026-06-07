@@ -1,6 +1,9 @@
 package com.example.aihub.common.security;
 
 import cn.dev33.satoken.stp.StpUtil;
+import jakarta.annotation.PostConstruct;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
@@ -13,6 +16,7 @@ import java.util.Locale;
 
 @Service
 public class UploadAccessSignatureService {
+    private static final Logger log = LoggerFactory.getLogger(UploadAccessSignatureService.class);
     private static final String HMAC_ALGORITHM = "HmacSHA256";
     public static final String MODE_AUTHENTICATED = "auth";
     public static final String MODE_PROJECT = "project";
@@ -22,6 +26,18 @@ public class UploadAccessSignatureService {
 
     @Value("${app.security.upload-access.ttl-seconds:7200}")
     private long ttlSeconds;
+
+    @PostConstruct
+    public void validateConfig() {
+        if ("omnispark-dev-upload-access-secret-2026".equals(secret)) {
+            log.warn("⚠ 上传访问签名密钥使用了不安全的默认值（omnispark-dev-upload-access-secret-2026），"
+                    + "生产环境请通过环境变量 APP_UPLOAD_ACCESS_SECRET 设置一个强随机密钥！");
+        } else if (secret.length() < 16) {
+            log.warn("⚠ 上传访问签名密钥长度（{}）不足 16 个字符，建议使用更长的密钥", secret.length());
+        } else {
+            log.info("上传访问签名密钥已配置");
+        }
+    }
 
     public String signUrl(String rawUrl) {
         return signAuthenticatedUrl(rawUrl);

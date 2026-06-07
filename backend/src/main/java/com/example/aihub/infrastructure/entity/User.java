@@ -18,4 +18,6 @@ public class User extends BaseEntity {
     private String avatar;
     private String role;
     private Integer status;
+    private String totpSecret;
+    private Integer totpEnabled;
 }

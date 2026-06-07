@@ -16,9 +16,70 @@
         <p class="subtitle">{{ isLoginMode ? '一体化高保真生图与视频创作平台' : '加入多维 AI 创意空间' }}</p>
       </div>
 
-      <!-- 1. 登录表单 -->
+      <!-- 1. 管理员二次验证 -->
       <n-form
-        v-if="isLoginMode"
+        v-if="isLoginMode && totpState.stage !== 'none'"
+        class="login-form"
+      >
+        <div class="totp-panel">
+          <h3>{{ totpState.stage === 'setup' ? '管理员首次登录验证' : '管理员动态验证码' }}</h3>
+          <p class="subtitle">
+            {{ totpState.stage === 'setup'
+              ? '请在验证器 App 中手动添加当前账号，然后输入 6 位动态验证码完成绑定。'
+              : '请输入验证器 App 当前显示的 6 位动态验证码。' }}
+          </p>
+
+          <div v-if="totpState.stage === 'setup'" class="totp-setup-card">
+            <div class="totp-meta">
+              <span>发行方</span>
+              <strong>{{ totpState.issuer }}</strong>
+            </div>
+            <div class="totp-meta">
+              <span>登录账号</span>
+              <strong>{{ loginForm.username }}</strong>
+            </div>
+            <div class="totp-secret-box">{{ totpState.secret }}</div>
+            <div class="totp-actions">
+              <n-button secondary type="primary" @click="copyText(totpState.secret, '密钥已复制')">复制密钥</n-button>
+              <n-button secondary @click="copyText(totpState.otpauthUrl, '绑定链接已复制')">复制绑定链接</n-button>
+            </div>
+          </div>
+
+          <n-form-item label="动态验证码">
+            <n-input
+              v-model:value="totpState.code"
+              placeholder="请输入 6 位数字验证码"
+              maxlength="6"
+              size="large"
+              @keyup.enter="handleTotpSubmit"
+            >
+              <template #prefix>
+                <ShieldCheck class="input-icon" />
+              </template>
+            </n-input>
+          </n-form-item>
+
+          <n-button
+            type="primary"
+            block
+            size="large"
+            :loading="loading"
+            class="submit-btn"
+            @click="handleTotpSubmit"
+          >
+            {{ totpState.stage === 'setup' ? '完成绑定并登录' : '验证并登录' }}
+          </n-button>
+
+          <div class="switch-mode-row">
+            <span>需要重新输入账号密码？</span>
+            <n-button text type="primary" class="switch-link" @click="handleTotpBack">返回登录</n-button>
+          </div>
+        </div>
+      </n-form>
+
+      <!-- 2. 登录表单 -->
+      <n-form
+        v-else-if="isLoginMode"
         :model="loginForm"
         ref="loginFormRef"
         :rules="loginRules"
@@ -69,7 +130,7 @@
         </div>
       </n-form>
 
-      <!-- 2. 注册表单 -->
+      <!-- 3. 注册表单 -->
       <n-form
         v-else
         :model="registerForm"
@@ -196,6 +257,18 @@ const registerForm = reactive({
   nickname: '',
   password: '',
   confirmPassword: ''
+})
+
+type TotpStage = 'none' | 'verify' | 'setup'
+
+const totpState = reactive({
+  stage: 'none' as TotpStage,
+  loginTicket: '',
+  setupTicket: '',
+  secret: '',
+  otpauthUrl: '',
+  issuer: '',
+  code: ''
 })
 
 const shouldReduceMotion = () => window.matchMedia('(prefers-reduced-motion: reduce)').matches
@@ -389,6 +462,7 @@ const registerRules = {
 // 切换模式
 const toggleMode = (mode: boolean) => {
   isLoginMode.value = mode
+  resetTotpState()
   // 清空表单
   registerForm.username = ''
   registerForm.nickname = ''
@@ -442,6 +516,87 @@ const getErrorMessage = (error: unknown, fallback: string) => {
   return fallback
 }
 
+const resetTotpState = () => {
+  totpState.stage = 'none'
+  totpState.loginTicket = ''
+  totpState.setupTicket = ''
+  totpState.secret = ''
+  totpState.otpauthUrl = ''
+  totpState.issuer = ''
+  totpState.code = ''
+}
+
+const activateTotpFlow = (result: Awaited<ReturnType<typeof authApi.login>>) => {
+  if (result.type === 'totp') {
+    totpState.stage = 'verify'
+    totpState.loginTicket = result.loginTicket
+    totpState.setupTicket = ''
+    totpState.secret = ''
+    totpState.otpauthUrl = ''
+    totpState.issuer = ''
+    totpState.code = ''
+    message.warning('检测到管理员账号，请输入动态验证码继续登录')
+    return
+  }
+  if (result.type === 'totp-setup') {
+    totpState.stage = 'setup'
+    totpState.loginTicket = ''
+    totpState.setupTicket = result.setupTicket
+    totpState.secret = result.totpSecret
+    totpState.otpauthUrl = result.totpOtpauthUrl
+    totpState.issuer = result.totpIssuer
+    totpState.code = ''
+    message.warning('管理员账号首次登录，请先完成验证器绑定')
+  }
+}
+
+const copyText = async (value: string, successText: string) => {
+  if (!value.trim()) {
+    message.error('没有可复制的内容')
+    return
+  }
+  try {
+    await navigator.clipboard.writeText(value)
+    message.success(successText)
+  } catch {
+    message.error('复制失败，请手动复制')
+  }
+}
+
+const handleTotpBack = () => {
+  resetTotpState()
+  loginForm.password = ''
+}
+
+const isValidTotpCode = (value: string) => /^\d{6}$/.test(value.trim())
+
+const handleTotpSubmit = async () => {
+  if (!isValidTotpCode(totpState.code)) {
+    message.error('请输入 6 位数字动态验证码')
+    return
+  }
+  loading.value = true
+  try {
+    const result = totpState.stage === 'setup'
+      ? await authApi.completeTotpSetup({
+          setupTicket: totpState.setupTicket,
+          totpCode: totpState.code.trim()
+        })
+      : await authApi.completeTotpLogin({
+          loginTicket: totpState.loginTicket,
+          totpCode: totpState.code.trim()
+        })
+    resetTotpState()
+    message.success(`登录成功，欢迎回来，${result.userInfo.nickname}👋`)
+    router.push('/dashboard')
+  } catch (err: unknown) {
+    message.error(getErrorMessage(err, '动态验证码校验失败，请重新登录'))
+    handleTotpBack()
+  } finally {
+    loading.value = false
+  }
+}
+
 const doLogin = async (captchaTicket: string) => {
   loading.value = true
   try {
@@ -450,8 +605,13 @@ const doLogin = async (captchaTicket: string) => {
       password: loginForm.password,
       captchaTicket
     })
-    message.success(`登录成功，欢迎回来，${result.userInfo.nickname}👋`)
-    router.push('/dashboard')
+    if (result.type === 'success') {
+      resetTotpState()
+      message.success(`登录成功，欢迎回来，${result.userInfo.nickname}👋`)
+      router.push('/dashboard')
+      return
+    }
+    activateTotpFlow(result)
   } catch (err: unknown) {
     message.error(getErrorMessage(err, '账户或安全密码校验失败，请重试！'))
   } finally {
@@ -721,9 +881,69 @@ onBeforeUnmount(() => {
   font-weight: 600;
 }
 
+.totp-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.totp-panel h3 {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 700;
+}
+
+.totp-setup-card {
+  position: relative;
+  padding: 14px;
+  border-radius: 16px;
+  border: 1px solid rgba(59, 130, 246, 0.18);
+  background: rgba(15, 23, 42, 0.16);
+}
+
+:global(body.light) .totp-setup-card {
+  background: rgba(255, 255, 255, 0.82);
+  border-color: rgba(59, 130, 246, 0.16);
+}
+
+.totp-meta {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 8px;
+  font-size: 13px;
+}
+
+.totp-secret-box {
+  margin-top: 12px;
+  padding: 12px;
+  border-radius: 12px;
+  background: rgba(15, 23, 42, 0.68);
+  color: #e2e8f0;
+  font-family: "Consolas", "Courier New", monospace;
+  font-size: 13px;
+  line-height: 1.5;
+  word-break: break-all;
+}
+
+:global(body.light) .totp-secret-box {
+  background: rgba(226, 232, 240, 0.9);
+  color: #0f172a;
+}
+
+.totp-actions {
+  display: flex;
+  gap: 10px;
+  margin-top: 12px;
+}
+
 @media (max-width: 640px) {
   .login-card {
     width: min(420px, calc(100vw - 28px));
+  }
+
+  .totp-actions {
+    flex-direction: column;
   }
 }
 </style>

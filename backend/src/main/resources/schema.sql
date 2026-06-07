@@ -6,6 +6,8 @@ CREATE TABLE IF NOT EXISTS `user` (
   `avatar` varchar(512) DEFAULT NULL,
   `role` varchar(32) NOT NULL DEFAULT 'user',
   `status` tinyint NOT NULL DEFAULT 1,
+  `totp_secret` varchar(255) DEFAULT NULL,
+  `totp_enabled` tinyint NOT NULL DEFAULT 0,
   `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
   `updated_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   PRIMARY KEY (`id`),
