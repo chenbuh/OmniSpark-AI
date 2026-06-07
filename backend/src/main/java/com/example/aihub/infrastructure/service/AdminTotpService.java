@@ -77,11 +77,11 @@ public class AdminTotpService {
         if (!"login".equals(state.stage)) {
             throw new BusinessException("管理员动态验证状态已失效，请重新登录");
         }
+        redisTemplate.delete(LOGIN_TICKET_PREFIX + loginTicket);
         if (persistedSecret == null || persistedSecret.isBlank()) {
             throw new BusinessException("管理员动态验证尚未初始化");
         }
         assertCodeValid(persistedSecret, totpCode, "动态验证码无效，请重新输入");
-        redisTemplate.delete(LOGIN_TICKET_PREFIX + loginTicket);
         return new CompletedTotpChallenge(state.userId, state.username, state.ip, state.userAgent, state.deviceId, null);
     }
 
