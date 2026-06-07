@@ -47,7 +47,8 @@ public class WebConfig implements WebMvcConfigurer {
                         "/api/auth/login",
                         "/api/auth/register",
                         "/api/auth/captcha/generate",
-                        "/api/auth/captcha/verify"
+                        "/api/auth/captcha/verify",
+                        "/api/system/health"
                 );
     }
 

@@ -47,5 +47,5 @@ jobs:
           distribution: 'temurin'
           cache: 'maven'
 
-      - name: Compile
-        run: mvn compile -q
+      - name: Compile & Test
+        run: mvn test -q

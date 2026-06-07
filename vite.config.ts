@@ -1,6 +1,7 @@
 import { defineConfig } from 'vite'
 import vue from '@vitejs/plugin-vue'
 import { VitePWA } from 'vite-plugin-pwa'
+import viteCompression from 'vite-plugin-compression'
 import path from 'path'
 
 // https://vite.dev/config/
@@ -27,6 +28,12 @@ export default defineConfig({
         globPatterns: ['**/*.{js,css,html,ico,png,svg,woff2}'],
         maximumFileSizeToCacheInBytes: 5 * 1024 * 1024
       }
+    }),
+    viteCompression({
+      algorithm: 'gzip',
+      ext: '.gz',
+      threshold: 1024,
+      deleteOriginFile: false
     })
   ],
   build: {
