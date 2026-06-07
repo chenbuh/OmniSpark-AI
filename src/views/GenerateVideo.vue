@@ -384,8 +384,7 @@ import {
   Tv,
   ArrowRight,
   Dice1,
-  Lightbulb,
-  ChevronDown
+  Lightbulb
 } from 'lucide-vue-next'
 
 const route = useRoute()
@@ -443,7 +442,6 @@ const promptSuggestions = [
   '镜头从水下缓缓升起，穿越水面进入阳光明媚的世界'
 ]
 
-const showAdvanced = ref(false)
 const showPromptTips = ref(false)
 
 const durations = computed(() => {
