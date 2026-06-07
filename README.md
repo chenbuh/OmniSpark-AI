@@ -13,7 +13,6 @@
 | **实时通信** | WebSocket (STOMP) 通知推送 |
 | **PWA** | vite-plugin-pwa 离线缓存 |
 | **AI API** | OpenAI 兼容接口 / 自定义 HTTP 服务商 |
-| **MCP** | Puppeteer / Browser-use / Fetch / Filesystem |
 
 ## 功能清单
 
@@ -131,14 +130,6 @@
 - **CSS 变量体系** — `--text-primary`, `--border-color` 等全站统一
 - **全局覆盖** — 32+ 页面适配双主题
 - **Naive UI 深度集成** — 菜单、表格、弹窗、输入框全部同步
-
-### 🔌 MCP 集成
-| 服务器 | 功能 |
-|--------|------|
-| **Puppeteer** | Chrome 浏览器自动化控制 |
-| **Browser-use** | 高级浏览器操控 |
-| **Fetch** | 网页内容抓取 + DuckDuckGo 搜索 |
-| **Filesystem** | D 盘文件读写 |
 
 ## 快速启动
 
