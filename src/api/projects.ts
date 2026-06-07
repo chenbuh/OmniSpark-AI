@@ -1,4 +1,5 @@
 import request from './request'
+import { collectAllPageRecords } from './pagination'
 
 export interface ProjectPageResult<T> {
   total: number
@@ -10,6 +11,13 @@ export const projectApi = {
   // 获取项目列表
   async getProjects() {
     return request.get('/api/projects')
+  },
+
+  async getAllProjects() {
+    return collectAllPageRecords({
+      loadPage: (page, pageSize) => projectApi.getProjectsPage({ page, pageSize }),
+      errorMessage: '项目数据待确认'
+    })
   },
 
   async getProjectsPage(params: { page: number; pageSize: number }) {

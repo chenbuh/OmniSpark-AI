@@ -1,6 +1,7 @@
 package com.example.aihub.infrastructure.service;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.example.aihub.common.domain.PublicLibraryScope;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.example.aihub.common.exception.BusinessException;
 import com.example.aihub.common.result.PageResult;
@@ -22,16 +23,14 @@ import java.util.Set;
 @Service
 @RequiredArgsConstructor
 public class PromptTemplateService {
-    private static final long PUBLIC_LIBRARY_PROJECT_ID = 0L;
-
     private final PromptTemplateMapper templateMapper;
     private final UserMapper userMapper;
     private final PublicContentInteractionService interactionService;
 
-    public PageResult<PromptTemplateVO> page(Long projectId, String tag, String search, String sort,
+    public PageResult<PromptTemplateVO> page(String tag, String search, String sort,
                                              Long currentUserId, long page, long size) {
         LambdaQueryWrapper<PromptTemplate> wrapper = new LambdaQueryWrapper<>();
-        wrapper.eq(PromptTemplate::getProjectId, PUBLIC_LIBRARY_PROJECT_ID);
+        wrapper.eq(PromptTemplate::getProjectId, PublicLibraryScope.storageProjectId());
         wrapper.eq(PromptTemplate::getStatus, 1);
         if (tag != null && !tag.isBlank()) {
             wrapper.eq(PromptTemplate::getTag, tag);
@@ -59,7 +58,7 @@ public class PromptTemplateService {
     public PromptTemplateVO get(Long id, Long currentUserId) {
         PromptTemplate template = templateMapper.selectById(id);
         if (template == null
-                || template.getProjectId() != PUBLIC_LIBRARY_PROJECT_ID
+                || !PublicLibraryScope.matches(template.getProjectId())
                 || template.getStatus() == null
                 || template.getStatus() != 1) {
             throw new BusinessException("模板不存在");
@@ -75,7 +74,7 @@ public class PromptTemplateService {
     public PromptTemplateVO create(PromptTemplateSaveDTO dto) {
         User currentUser = requireCurrentUser();
         PromptTemplate template = new PromptTemplate();
-        template.setProjectId(PUBLIC_LIBRARY_PROJECT_ID);
+        template.setProjectId(PublicLibraryScope.storageProjectId());
         template.setUserId(currentUser.getId());
         template.setUsername(currentUser.getUsername());
         template.setNickname(currentUser.getNickname());
@@ -95,11 +94,11 @@ public class PromptTemplateService {
     @Transactional(rollbackFor = Exception.class)
     public PromptTemplateVO update(Long id, PromptTemplateSaveDTO dto) {
         PromptTemplate template = templateMapper.selectById(id);
-        if (template == null || template.getProjectId() != PUBLIC_LIBRARY_PROJECT_ID) {
+        if (template == null || !PublicLibraryScope.matches(template.getProjectId())) {
             throw new BusinessException("模板不存在");
         }
         assertOwner(template);
-        template.setProjectId(PUBLIC_LIBRARY_PROJECT_ID);
+        template.setProjectId(PublicLibraryScope.storageProjectId());
         template.setName(dto.getName());
         template.setContent(dto.getContent());
         template.setNegativePrompt(dto.getNegativePrompt());
@@ -113,7 +112,7 @@ public class PromptTemplateService {
     @Transactional(rollbackFor = Exception.class)
     public void delete(Long id) {
         PromptTemplate template = templateMapper.selectById(id);
-        if (template == null || template.getProjectId() != PUBLIC_LIBRARY_PROJECT_ID) {
+        if (template == null || !PublicLibraryScope.matches(template.getProjectId())) {
             throw new BusinessException("模板不存在");
         }
         assertOwner(template);
@@ -122,7 +121,7 @@ public class PromptTemplateService {
 
     public List<String> tags() {
         return templateMapper.selectList(new LambdaQueryWrapper<PromptTemplate>()
-                        .eq(PromptTemplate::getProjectId, PUBLIC_LIBRARY_PROJECT_ID)
+                        .eq(PromptTemplate::getProjectId, PublicLibraryScope.storageProjectId())
                         .eq(PromptTemplate::getStatus, 1))
                 .stream()
                 .map(PromptTemplate::getTag)

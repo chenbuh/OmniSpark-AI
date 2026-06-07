@@ -110,8 +110,7 @@
                 v-model:value="form.category"
                 :options="categoryOptions"
                 filterable
-                tag
-                placeholder="选择或输入一个分类"
+                placeholder="选择一个分类"
               />
             </n-form-item>
           </n-col>

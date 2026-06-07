@@ -82,6 +82,7 @@ public class VersionController {
         String currentCommitSha = displayCurrentCommitSha();
         String repositoryUrl = buildRepoUrl();
         String repositorySlug = buildRepositorySlug();
+        boolean updateConfigured = isUpdateSourceConfigured();
         info.put("currentVersion", displayCurrentVersion());
         info.put("buildTime", displayBuildTime());
         info.put("currentBranch", displayCurrentBranch());
@@ -91,9 +92,11 @@ public class VersionController {
         info.put("javaVersion", System.getProperty("java.version"));
         info.put("osName", System.getProperty("os.name"));
         info.put("osArch", System.getProperty("os.arch"));
-        info.put("updateSource", repositorySlug.isBlank() ? "GitHub 仓库待确认" : repositorySlug);
+        info.put("updateSource", updateConfigured ? repositorySlug : "未配置 GitHub 更新源");
         info.put("defaultBranch", effectiveGithubBranch());
         info.put("repositoryUrl", repositoryUrl);
+        info.put("updateConfigured", updateConfigured);
+        info.put("updateUnavailableReason", updateConfigured ? "" : missingUpdateSourceMessage());
         return ApiResult.ok(info);
     }
 
@@ -105,6 +108,11 @@ public class VersionController {
         }
 
         Map<String, Object> result = baseCheckResult();
+        if (!isUpdateSourceConfigured()) {
+            result.put("hasUpdate", false);
+            result.put("error", missingUpdateSourceMessage());
+            return cacheAndReturn(result);
+        }
         try {
             if (preferRelease && tryFillFromRelease(result)) {
                 return cacheAndReturn(result);
@@ -137,6 +145,10 @@ public class VersionController {
         }
 
         Map<String, Object> result = baseHistoryResult();
+        if (!isUpdateSourceConfigured()) {
+            result.put("error", missingUpdateSourceMessage());
+            return cacheAndReturnHistory(result, safeLimit);
+        }
         try {
             if (preferRelease && tryFillHistoryFromRelease(result, safeLimit)) {
                 return cacheAndReturnHistory(result, safeLimit);
@@ -182,6 +194,8 @@ public class VersionController {
         result.put("repositoryUrl", buildRepoUrl());
         result.put("defaultBranch", defaultBranch);
         result.put("latestRefName", defaultBranch);
+        result.put("updateConfigured", isUpdateSourceConfigured());
+        result.put("updateUnavailableReason", isUpdateSourceConfigured() ? "" : missingUpdateSourceMessage());
         return result;
     }
 
@@ -199,6 +213,8 @@ public class VersionController {
         result.put("sourceLabel", "未知来源");
         result.put("items", new ArrayList<>());
         result.put("total", 0);
+        result.put("updateConfigured", isUpdateSourceConfigured());
+        result.put("updateUnavailableReason", isUpdateSourceConfigured() ? "" : missingUpdateSourceMessage());
         return result;
     }
 
@@ -569,6 +585,14 @@ public class VersionController {
 
     private String effectiveGithubBranch() {
         return firstNonBlank(trimToEmpty(githubBranch), buildMetadataService.defaultRemoteBranch(), displayCurrentBranch(), "main");
+    }
+
+    private boolean isUpdateSourceConfigured() {
+        return !effectiveGithubOwner().isBlank() && !effectiveGithubRepo().isBlank();
+    }
+
+    private String missingUpdateSourceMessage() {
+        return "未配置 GitHub 仓库 owner/repo，系统更新检查当前不可用";
     }
 
     private String trimToEmpty(String value) {

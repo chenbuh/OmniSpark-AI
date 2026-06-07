@@ -1,4 +1,5 @@
 import request from './request'
+import { collectAllPageRecords } from './pagination'
 
 export interface ProjectShare {
   id: number
@@ -19,6 +20,13 @@ export interface ProjectSharePageResult<T> {
 export const projectShareApi = {
   async getShares(projectId: number) {
     return request.get(`/api/project-shares/${projectId}`)
+  },
+
+  async getAllShares(projectId: number) {
+    return collectAllPageRecords<ProjectShare>({
+      loadPage: (page, pageSize) => projectShareApi.getSharesPage(projectId, { page, pageSize }),
+      errorMessage: '共享列表待确认'
+    })
   },
 
   async getSharesPage(projectId: number, params: { page: number; pageSize: number }) {

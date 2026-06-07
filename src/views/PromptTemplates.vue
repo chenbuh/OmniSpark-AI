@@ -198,8 +198,6 @@ let searchTimer: ReturnType<typeof setTimeout> | null = null
 const page = ref(1)
 const pageSize = ref(12)
 const pageSizeOptions = [12, 24, 48, 96]
-const PUBLIC_TEMPLATE_LIBRARY_PROJECT_ID = 0
-
 const form = reactive({
   name: '', tag: '', content: '', negativePrompt: '', modelName: ''
 })
@@ -303,7 +301,6 @@ function requireTemplateDetail(value: unknown, action: 'create' | 'update') {
   const base = requireTemplateResult(value, action)
   return {
     ...base,
-    projectId: normalizeTemplateProjectId(value.projectId, action),
     userId: normalizeOptionalPositiveNumber(value.userId),
     username: normalizeOptionalText(value.username),
     nickname: normalizeOptionalText(value.nickname),
@@ -379,14 +376,6 @@ function normalizeOptionalPositiveNumber(value: unknown) {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : undefined
 }
 
-function normalizeTemplateProjectId(value: unknown, action: 'create' | 'update') {
-  const parsed = Number(value)
-  if (!Number.isFinite(parsed) || parsed !== PUBLIC_TEMPLATE_LIBRARY_PROJECT_ID) {
-    throw new Error(action === 'create' ? '模板创建结果待确认' : '模板更新结果待确认')
-  }
-  return parsed
-}
-
 function normalizeInteractionCount(value: unknown, action: 'create' | 'update') {
   const parsed = Number(value)
   if (!Number.isFinite(parsed) || parsed < 0) {
@@ -429,7 +418,6 @@ function buildTemplateExpectation(payload: {
   modelName?: string
 }) {
   return {
-    projectId: PUBLIC_TEMPLATE_LIBRARY_PROJECT_ID,
     name: payload.name.trim(),
     tag: normalizeOptionalText(payload.tag),
     content: payload.content.trim(),
@@ -444,8 +432,7 @@ function assertTemplateMatches(
   action: 'create' | 'update'
 ) {
   if (
-    template.projectId !== expected.projectId
-    || template.name !== expected.name
+    template.name !== expected.name
     || template.tag !== expected.tag
     || template.content !== expected.content
     || template.negativePrompt !== expected.negativePrompt
@@ -649,7 +636,6 @@ const handleSave = async () => {
   saving.value = true
   try {
     const payload = {
-      projectId: PUBLIC_TEMPLATE_LIBRARY_PROJECT_ID,
       name: form.name,
       tag: form.tag.trim() || undefined,
       content: form.content,
@@ -668,7 +654,6 @@ const handleSave = async () => {
       if (
         !loaded
         || Number(loaded.id) !== updated.id
-        || Number(loaded.projectId) !== refreshed.projectId
         || loaded.name !== refreshed.name
         || loaded.content !== refreshed.content
         || normalizeOptionalText(loaded.tag) !== refreshed.tag
@@ -687,7 +672,6 @@ const handleSave = async () => {
       const loaded = findLoadedTemplate(created.id)
       if (
         !loaded
-        || Number(loaded.projectId) !== refreshed.projectId
         || loaded.name !== refreshed.name
         || loaded.content !== refreshed.content
         || normalizeOptionalText(loaded.tag) !== refreshed.tag

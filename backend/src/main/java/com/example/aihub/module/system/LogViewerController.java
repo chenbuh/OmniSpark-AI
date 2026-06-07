@@ -30,16 +30,23 @@ public class LogViewerController {
             @RequestParam(required = false) String search,
             @RequestParam(defaultValue = "app.log") String file) {
         Map<String, Object> result = new LinkedHashMap<>();
-        List<String> logLines = new ArrayList<>();
+        List<String> logLines = List.of();
+        String requestedFile = file == null || file.isBlank() ? "app.log" : file.trim();
+        result.put("available", false);
+        result.put("message", "");
+        result.put("requestedFile", requestedFile);
+        result.put("resolvedFile", "");
+        result.put("logDir", "");
+        result.put("lines", logLines);
+        result.put("total", 0);
 
         try {
             Path base = Paths.get(logPath).toAbsolutePath().normalize();
-            Path logFile = base.resolve(file).normalize();
+            Path logFile = base.resolve(requestedFile).normalize();
+            result.put("logDir", base.toString());
             // 校验:必须仍在日志目录内，且仅允许 .log 文件，杜绝路径穿越读取任意文件
-            if (!logFile.startsWith(base) || !file.toLowerCase().endsWith(".log")) {
-                result.put("lines", List.of("非法的日志文件名"));
-                result.put("total", 0);
-                result.put("file", file);
+            if (!logFile.startsWith(base) || !requestedFile.toLowerCase(Locale.ROOT).endsWith(".log")) {
+                result.put("message", "非法的日志文件名");
                 return ApiResult.ok(result);
             }
             if (!Files.exists(logFile)) {
@@ -69,17 +76,18 @@ public class LogViewerController {
                     int start = Math.max(0, allLines.size() - lines);
                     logLines = allLines.subList(start, allLines.size());
                 }
+                result.put("available", true);
+                result.put("message", "");
+                result.put("resolvedFile", logFile.toString());
+                result.put("lines", logLines);
+                result.put("total", logLines.size());
             } else {
-                logLines.add("日志文件不存在: " + logFile.toAbsolutePath());
-                logLines.add("请确认日志文件路径配置: " + logPath);
+                result.put("message", "日志文件不存在，请确认日志目录与文件名配置");
+                result.put("resolvedFile", logFile.toAbsolutePath().toString());
             }
         } catch (Exception e) {
-            logLines.add("读取日志失败: " + e.getMessage());
+            result.put("message", "读取日志失败: " + e.getMessage());
         }
-
-        result.put("lines", logLines);
-        result.put("total", logLines.size());
-        result.put("file", logPath + "/" + file);
         return ApiResult.ok(result);
     }
 }

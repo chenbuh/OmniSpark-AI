@@ -1,4 +1,5 @@
 import request from './request'
+import { collectAllPageRecords } from './pagination'
 
 export interface Team {
   id: number
@@ -35,6 +36,13 @@ export const teamApi = {
     return request.get('/api/teams')
   },
 
+  async getAllTeams() {
+    return collectAllPageRecords<Team>({
+      loadPage: (page, pageSize) => teamApi.getTeamsPage({ page, pageSize }),
+      errorMessage: '团队数据待确认'
+    })
+  },
+
   async getTeamsPage(params: { page: number; pageSize: number }) {
     return request.get('/api/teams/page', { params })
   },
@@ -57,6 +65,13 @@ export const teamApi = {
 
   async getMembers(teamId: number) {
     return request.get(`/api/teams/${teamId}/members`)
+  },
+
+  async getAllMembers(teamId: number) {
+    return collectAllPageRecords<TeamMember>({
+      loadPage: (page, pageSize) => teamApi.getMembersPage(teamId, { page, pageSize }),
+      errorMessage: '成员数据待确认'
+    })
   },
 
   async getMembersPage(teamId: number, params: { page: number; pageSize: number }) {

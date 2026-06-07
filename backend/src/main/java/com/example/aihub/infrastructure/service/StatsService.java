@@ -33,6 +33,9 @@ import java.util.Map;
 @Service
 @RequiredArgsConstructor
 public class StatsService {
+    private static final String DASHBOARD_SCOPE = "project-usage-snapshot";
+    private static final String DASHBOARD_MESSAGE = "当前仅提供当前访问范围内的概览、最近 14 天趋势、项目活跃排行和最近 8 条活动，不包含完整审计流水、逐小时计费明细或长期历史归档";
+
     private final ProjectMapper projectMapper;
     private final GenerationTaskMapper taskMapper;
     private final AssetMapper assetMapper;
@@ -50,6 +53,8 @@ public class StatsService {
         ProjectMetrics metrics = loadProjectMetrics(scope.projectIds(), scope.userId());
 
         StatsDashboardVO vo = new StatsDashboardVO();
+        vo.setScope(DASHBOARD_SCOPE);
+        vo.setMessage(DASHBOARD_MESSAGE);
         vo.setOverview(buildOverview(scope, metrics));
         vo.setDistribution(buildDistribution(metrics));
         vo.setTrends(buildTrends(metrics));

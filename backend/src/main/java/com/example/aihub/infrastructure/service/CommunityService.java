@@ -6,6 +6,7 @@ import com.example.aihub.common.security.UploadAccessSignatureService;
 import com.example.aihub.common.result.PageResult;
 import com.example.aihub.common.util.VoMapper;
 import com.example.aihub.infrastructure.dto.CommunityPostDTO;
+import com.example.aihub.infrastructure.entity.DataDictItem;
 import com.example.aihub.infrastructure.entity.CommunityPost;
 import com.example.aihub.infrastructure.entity.User;
 import com.example.aihub.infrastructure.mapper.CommunityPostMapper;
@@ -17,17 +18,20 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Locale;
 import java.util.Set;
 
 @Service
 @RequiredArgsConstructor
 public class CommunityService {
     private static final String FALLBACK_CATEGORY = "uncategorized";
+    private static final String COMMUNITY_CATEGORY_DICT_CODE = "community_category";
 
     private final CommunityPostMapper postMapper;
     private final UserMapper userMapper;
     private final PublicContentInteractionService interactionService;
     private final UploadAccessSignatureService uploadAccessSignatureService;
+    private final DataDictService dataDictService;
 
     public List<CommunityPostVO> list(String category, String search, Long currentUserId) {
         return list(category, search, "newest", currentUserId);
@@ -108,7 +112,7 @@ public class CommunityService {
         post.setNegativePrompt(dto.getNegativePrompt());
         post.setModelName(dto.getModelName());
         post.setImageUrl(dto.getImageUrl());
-        post.setCategory(normalizeCategory(dto.getCategory()));
+        post.setCategory(normalizeCategoryForWrite(dto.getCategory()));
         post.setTags(dto.getTags());
         post.setLikesCount(0);
         post.setCommentsCount(0);
@@ -132,7 +136,7 @@ public class CommunityService {
         post.setNegativePrompt(dto.getNegativePrompt());
         post.setModelName(dto.getModelName());
         post.setImageUrl(dto.getImageUrl());
-        post.setCategory(normalizeCategory(dto.getCategory()));
+        post.setCategory(normalizeCategoryForWrite(dto.getCategory()));
         post.setTags(dto.getTags());
         postMapper.updateById(post);
         return toVO(post, false);
@@ -151,19 +155,17 @@ public class CommunityService {
     }
 
     public List<String> categories() {
-        return postMapper.selectList(new LambdaQueryWrapper<CommunityPost>()
-                        .eq(CommunityPost::getStatus, 1))
+        return dataDictService.getEnabledItemsByCode(COMMUNITY_CATEGORY_DICT_CODE, 100)
                 .stream()
-                .map(CommunityPost::getCategory)
-                .map(this::normalizeCategory)
-                .filter(c -> c != null && !c.isBlank())
-                .distinct()
+                .map(DataDictItem::getItemName)
+                .map(this::normalizeStoredCategory)
+                .filter(category -> category != null && !category.isBlank())
                 .toList();
     }
 
     private CommunityPostVO toVO(CommunityPost post, boolean liked) {
         CommunityPostVO vo = VoMapper.copy(post, CommunityPostVO.class);
-        vo.setCategory(normalizeCategory(vo.getCategory()));
+        vo.setCategory(normalizeStoredCategory(vo.getCategory()));
         vo.setImageUrl(uploadAccessSignatureService.signUrl(vo.getImageUrl()));
         vo.setLiked(liked ? 1 : 0);
         return vo;
@@ -181,7 +183,7 @@ public class CommunityService {
         wrapper.orderByDesc(CommunityPost::getId);
     }
 
-    private String normalizeCategory(String category) {
+    private String normalizeStoredCategory(String category) {
         if (category == null) {
             return null;
         }
@@ -190,5 +192,24 @@ public class CommunityService {
             return null;
         }
         return normalized;
+    }
+
+    private String normalizeCategoryForWrite(String category) {
+        String normalized = normalizeStoredCategory(category);
+        if (normalized == null) {
+            return null;
+        }
+        if (!isEnabledCommunityCategory(normalized)) {
+            throw new BusinessException("社区分类不存在或已停用");
+        }
+        return normalized;
+    }
+
+    private boolean isEnabledCommunityCategory(String category) {
+        return dataDictService.getEnabledItemsByCode(COMMUNITY_CATEGORY_DICT_CODE, 100)
+                .stream()
+                .map(DataDictItem::getItemName)
+                .filter(itemName -> itemName != null && !itemName.isBlank())
+                .anyMatch(itemName -> itemName.trim().equalsIgnoreCase(category.trim()));
     }
 }

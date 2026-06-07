@@ -39,8 +39,7 @@ public class AuditController {
 
     @GetMapping("/actions")
     public ApiResult<java.util.List<String>> actions() {
-        Long userId = StpUtil.hasRole("admin") ? null : Long.valueOf(String.valueOf(StpUtil.getLoginId()));
-        return ApiResult.ok(auditLogService.actions(userId));
+        return ApiResult.ok(auditLogService.actions());
     }
 
     @GetMapping("/cleanup-preview")

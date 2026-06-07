@@ -6,6 +6,8 @@ import java.util.List;
 
 @Data
 public class StatsDashboardVO {
+    private String scope;
+    private String message;
     private StatsOverviewVO overview;
     private StatsDistributionVO distribution;
     private List<StatsTrendPointVO> trends;

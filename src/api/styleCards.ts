@@ -8,7 +8,6 @@ export interface PageResult<T> {
 
 export interface StyleCard {
   id: number
-  projectId: number
   userId?: number
   username?: string
   nickname?: string
@@ -34,7 +33,6 @@ export interface StyleCard {
 }
 
 export interface StyleCardPayload {
-  projectId: number
   name: string
   type: 'character' | 'style'
   content: string
@@ -53,7 +51,6 @@ export interface StyleCardPayload {
 
 export const styleCardApi = {
   async list(params?: {
-    projectId?: number
     type?: string
     search?: string
     sort?: string
@@ -62,7 +59,6 @@ export const styleCardApi = {
   }) {
     return request.get<PageResult<StyleCard>>('/api/style-cards', {
       params: {
-        projectId: params?.projectId,
         type: params?.type,
         search: params?.search,
         sort: params?.sort || 'newest',

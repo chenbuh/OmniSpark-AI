@@ -2,9 +2,11 @@
   <div class="workflows-container">
     <div class="page-header">
       <div>
-        <h2>工作流编排 (Workflows)</h2>
-        <p class="subtitle">把图像生成、视频生成和字幕处理编成可复用链路，减少重复操作。</p>
-        <p v-if="collaborationNotice" class="scope-notice">{{ collaborationNotice }}</p>
+        <h2>顺序工作流 (Workflows)</h2>
+        <p class="subtitle">把生图、生视频和字幕步骤按顺序串起来复用，减少重复操作。</p>
+        <div v-if="scopeNotices.length > 0" class="scope-notices">
+          <p v-for="notice in scopeNotices" :key="notice" class="scope-notice">{{ notice }}</p>
+        </div>
       </div>
       <n-space>
         <n-button secondary :loading="loading" @click="loadPageData">
@@ -126,7 +128,7 @@
           </div>
 
           <n-collapse style="margin-top: 18px;">
-            <n-collapse-item name="runs" title="运行历史">
+            <n-collapse-item name="runs" title="执行记录">
               <div v-if="runsLoading && runs === null" class="loading-box">
                 <n-spin size="small" />
               </div>
@@ -170,12 +172,12 @@
         </n-card>
 
         <n-card v-else class="glass-card" :bordered="false">
-          <n-empty :description="workflows === null ? '工作流数据待确认，请稍后重试。' : '从左侧选择一个工作流，或新建一条自动化创作链路'" />
+          <n-empty :description="workflows === null ? '工作流数据待确认，请稍后重试。' : '从左侧选择一个工作流，或新建一条顺序执行链路'" />
         </n-card>
       </n-col>
     </n-row>
 
-    <n-modal v-model:show="showEditor" preset="card" :title="editorMode === 'create' ? '新建工作流' : '编辑工作流'" style="width: 920px;" closable>
+    <n-modal v-model:show="showEditor" preset="card" :title="editorMode === 'create' ? '新建顺序工作流' : '编辑顺序工作流'" style="width: 920px;" closable>
       <n-form :model="editForm" label-placement="top">
         <n-row :gutter="16">
           <n-col :span="12">
@@ -191,14 +193,14 @@
         </n-row>
 
         <div class="steps-template-hint">
-          <span>从模板开始：</span>
+          <span>从固定模板开始：</span>
           <n-button size="tiny" secondary @click="applyTemplate('image-only')">仅生图</n-button>
           <n-button size="tiny" secondary @click="applyTemplate('image-to-video')">生图 → 视频</n-button>
           <n-button size="tiny" secondary @click="applyTemplate('full-pipeline')">生图 → 视频 → 字幕/配音</n-button>
         </div>
 
         <div class="beginner-tip">
-          直接按步骤填写即可，不需要编写任何配置代码。先写清楚每一步“要生成什么”，再补充模型和素材来源。
+          当前是轻量顺序执行器，直接按步骤填写即可，不需要编写配置代码。先写清楚每一步“要生成什么”，再补充模型和素材来源；暂不支持分支、并行、条件判断或审批节点。
         </div>
 
         <div v-if="editorStatusMessages.length > 0" class="editor-status-list">
@@ -451,6 +453,12 @@ const canOperateCurrentProject = computed(() => !!currentProject.value)
 const workflowListLabel = computed(() =>
   currentProject.value?.ownedByCurrentUser === false ? '当前协作项目工作流' : '当前项目工作流'
 )
+const workflowCapabilityNotice = computed(() => {
+  if (workflowMetaLoadState.value !== 'ready') {
+    return ''
+  }
+  return workflowMeta.value.message?.trim() || ''
+})
 const collaborationNotice = computed(() => {
   if (!currentProject.value || currentProject.value.ownedByCurrentUser) {
     return ''
@@ -458,8 +466,9 @@ const collaborationNotice = computed(() => {
   if (currentProject.value.accessPermission === 'view') {
     return '当前打开的是共享查看项目。根据后端真实权限，你仍可在这里新建、编辑、克隆、删除和执行工作流；这些改动会直接作用到当前项目，若缺少可用 Provider，请先联系具备管理权限的成员在模型配置页接入。'
   }
-  return `当前打开的是共享${formatProjectPermissionLabel(currentProject.value.accessPermission)}项目，这里的工作流编排、执行与运行历史都会直接作用到该项目。`
+  return `当前打开的是共享${formatProjectPermissionLabel(currentProject.value.accessPermission)}项目，这里的顺序工作流、执行与运行历史都会直接作用到该项目。`
 })
+const scopeNotices = computed(() => [workflowCapabilityNotice.value, collaborationNotice.value].filter(Boolean))
 
 const editForm = reactive({
   id: null as number | null,
@@ -537,6 +546,8 @@ const editorStatusMessages = computed<Array<{ key: string; text: string; tone: E
     messages.push({ key: 'workflow-meta-error', text: '工作流步骤模板待确认，请稍后重试。', tone: 'error' })
   } else if (workflowMetaLoadState.value === 'ready' && stepTypeOptions.value.length === 0) {
     messages.push({ key: 'workflow-meta-empty', text: '当前没有可用的步骤模板，请先检查后台配置。', tone: 'info' })
+  } else if (workflowCapabilityNotice.value) {
+    messages.push({ key: 'workflow-meta-scope', text: workflowCapabilityNotice.value, tone: 'info' })
   }
 
   if (generationMetaLoadState.value === 'error') {
@@ -686,6 +697,8 @@ function stepPromptPlaceholder(type: string) {
 
 function emptyWorkflowMeta(): WorkflowMetaVO {
   return {
+    scope: '',
+    message: '',
     stepTypes: [],
     imageSizes: [],
     videoDurations: [],
@@ -992,6 +1005,8 @@ function requireWorkflowMeta(value: unknown): WorkflowMetaVO {
     throw new Error(errorMessage)
   }
   return {
+    scope: typeof value.scope === 'string' ? value.scope.trim() : undefined,
+    message: typeof value.message === 'string' ? value.message.trim() : undefined,
     stepTypes: requireWorkflowMetaOptionList(value.stepTypes, errorMessage),
     imageSizes: requireWorkflowMetaOptionList(value.imageSizes, errorMessage),
     videoDurations: requireWorkflowMetaOptionList(value.videoDurations, errorMessage),
@@ -1553,8 +1568,15 @@ onMounted(async () => {
   margin: 0;
 }
 
+.scope-notices {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 8px;
+}
+
 .scope-notice {
-  margin: 8px 0 0;
+  margin: 0;
   padding: 10px 12px;
   border-radius: 10px;
   border: 1px solid rgba(59, 130, 246, 0.2);

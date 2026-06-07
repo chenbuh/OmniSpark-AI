@@ -2,6 +2,7 @@ package com.example.aihub.infrastructure.service;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
+import com.example.aihub.common.domain.PublicLibraryScope;
 import com.example.aihub.common.exception.BusinessException;
 import com.example.aihub.common.result.PageResult;
 import com.example.aihub.common.security.UploadAccessSignatureService;
@@ -23,17 +24,15 @@ import java.util.Set;
 @Service
 @RequiredArgsConstructor
 public class StyleCardService {
-    private static final long PUBLIC_LIBRARY_PROJECT_ID = 0L;
-
     private final StyleCardMapper cardMapper;
     private final UserMapper userMapper;
     private final PublicContentInteractionService interactionService;
     private final UploadAccessSignatureService uploadAccessSignatureService;
 
-    public PageResult<StyleCardVO> page(Long projectId, String type, String search, String sort,
+    public PageResult<StyleCardVO> page(String type, String search, String sort,
                                         Long currentUserId, long page, long size) {
         LambdaQueryWrapper<StyleCard> wrapper = new LambdaQueryWrapper<>();
-        wrapper.eq(StyleCard::getProjectId, PUBLIC_LIBRARY_PROJECT_ID);
+        wrapper.eq(StyleCard::getProjectId, PublicLibraryScope.storageProjectId());
         wrapper.eq(StyleCard::getStatus, 1);
         if (type != null && !type.isBlank()) {
             wrapper.eq(StyleCard::getType, type);
@@ -61,7 +60,7 @@ public class StyleCardService {
     public StyleCardVO get(Long id, Long currentUserId) {
         StyleCard card = cardMapper.selectById(id);
         if (card == null
-                || card.getProjectId() != PUBLIC_LIBRARY_PROJECT_ID
+                || !PublicLibraryScope.matches(card.getProjectId())
                 || card.getStatus() == null
                 || card.getStatus() != 1) {
             throw new BusinessException("卡片不存在");
@@ -78,7 +77,6 @@ public class StyleCardService {
         User currentUser = requireCurrentUser();
         StyleCard card = new StyleCard();
         applyDto(card, dto);
-        card.setProjectId(PUBLIC_LIBRARY_PROJECT_ID);
         card.setUserId(currentUser.getId());
         card.setUsername(currentUser.getUsername());
         card.setNickname(currentUser.getNickname());
@@ -93,12 +91,11 @@ public class StyleCardService {
     @Transactional(rollbackFor = Exception.class)
     public StyleCardVO update(Long id, StyleCardSaveDTO dto) {
         StyleCard card = cardMapper.selectById(id);
-        if (card == null || card.getProjectId() != PUBLIC_LIBRARY_PROJECT_ID) {
+        if (card == null || !PublicLibraryScope.matches(card.getProjectId())) {
             throw new BusinessException("卡片不存在");
         }
         assertOwner(card);
         applyDto(card, dto);
-        card.setProjectId(PUBLIC_LIBRARY_PROJECT_ID);
         cardMapper.updateById(card);
         return toVO(card, false);
     }
@@ -106,7 +103,7 @@ public class StyleCardService {
     @Transactional(rollbackFor = Exception.class)
     public void delete(Long id) {
         StyleCard card = cardMapper.selectById(id);
-        if (card == null || card.getProjectId() != PUBLIC_LIBRARY_PROJECT_ID) {
+        if (card == null || !PublicLibraryScope.matches(card.getProjectId())) {
             throw new BusinessException("卡片不存在");
         }
         assertOwner(card);
@@ -115,7 +112,7 @@ public class StyleCardService {
 
     public List<String> tags() {
         return cardMapper.selectList(new LambdaQueryWrapper<StyleCard>()
-                        .eq(StyleCard::getProjectId, PUBLIC_LIBRARY_PROJECT_ID)
+                        .eq(StyleCard::getProjectId, PublicLibraryScope.storageProjectId())
                         .eq(StyleCard::getStatus, 1))
                 .stream()
                 .map(StyleCard::getTag)
@@ -127,7 +124,7 @@ public class StyleCardService {
     }
 
     private void applyDto(StyleCard card, StyleCardSaveDTO dto) {
-        card.setProjectId(PUBLIC_LIBRARY_PROJECT_ID);
+        card.setProjectId(PublicLibraryScope.storageProjectId());
         card.setName(dto.getName());
         card.setType(dto.getType());
         card.setContent(dto.getContent());

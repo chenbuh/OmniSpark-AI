@@ -47,6 +47,8 @@ export interface StatsActivity {
 }
 
 export interface StatsDashboard {
+  scope?: string
+  message?: string
   overview: StatsOverview
   distribution: StatsDistribution
   trends: StatsTrendPoint[]

@@ -1,6 +1,7 @@
 package com.example.aihub.common.config;
 
 import cn.dev33.satoken.stp.StpUtil;
+import com.example.aihub.common.audit.AuditActionSupport;
 import com.example.aihub.common.security.ClientIpResolver;
 import com.example.aihub.infrastructure.service.AuditLogService;
 import jakarta.servlet.http.HttpServletRequest;
@@ -42,13 +43,8 @@ public class AuditAspect {
             Method method = signature.getMethod();
             String className = method.getDeclaringClass().getSimpleName();
             String methodName = method.getName();
-
-            // 构建操作名：Controller名_方法名
-            String action = className.replace("Controller", "") + "_" + methodName;
-
-            // 跳过查询类操作
-            if (methodName.startsWith("get") || methodName.startsWith("list")
-                    || methodName.startsWith("page") || methodName.startsWith("me")) {
+            String action = AuditActionSupport.resolveAction(method.getDeclaringClass(), method);
+            if (action == null) {
                 return;
             }
 

@@ -2,15 +2,17 @@
   <div class="admin-files">
     <div class="page-header">
       <h2>文件管理器 (File Manager)</h2>
-      <p class="subtitle">浏览、预览和管理上传的生成文件。</p>
+      <p class="subtitle">浏览、预览和管理已落盘的上传文件；目录未初始化时会明确提示当前状态。</p>
     </div>
 
     <!-- 统计栏 -->
     <n-card class="glass-card stats-bar" :bordered="false">
       <div v-if="statsLoadState === 'error'" class="status-note">文件统计待确认，请稍后重试。</div>
+      <div v-else-if="statsLoadState === 'ready' && stats?.available === false" class="status-note">{{ stats.message }}</div>
       <n-space>
         <span class="stat-item">📁 文件总数: <strong>{{ fileCountDisplay }}</strong></span>
         <span class="stat-item">💾 总大小: <strong>{{ totalSizeDisplay }}</strong></span>
+        <span class="stat-item">🗂 上传目录: <code>{{ uploadDirDisplay }}</code></span>
         <span class="stat-item">📂 当前目录: <code>{{ currentPath || '/' }}</code></span>
       </n-space>
     </n-card>
@@ -45,6 +47,12 @@
         <n-spin size="small" />
       </div>
       <div v-else-if="fileListLoadState === 'error'" class="status-note">目录内容待确认，请稍后重试。</div>
+      <div v-else-if="fileListLoadState === 'ready' && fileListStatus?.available === false" class="unavailable-box">
+        <div class="unavailable-title">当前目录暂不可浏览</div>
+        <div class="unavailable-message">{{ fileListStatus.message }}</div>
+        <div class="unavailable-meta">请求目录: <code>{{ fileListStatus.currentPath || '/' }}</code></div>
+        <div class="unavailable-meta">上传目录: <code>{{ fileListStatus.uploadDir || uploadDirDisplay }}</code></div>
+      </div>
 
       <!-- 网格视图 -->
       <div v-else-if="viewMode === 'grid'" class="grid-view">
@@ -123,6 +131,10 @@ interface FileListItem {
 }
 
 interface FileListPayload {
+  available: boolean
+  message: string
+  requestedPath: string
+  uploadDir: string
   items: FileListItem[]
   currentPath: string
   parentPath: string
@@ -130,9 +142,12 @@ interface FileListPayload {
 }
 
 interface FileStats {
+  available: boolean
+  message: string
   totalSize: number
   fileCount: number
   uploadDir: string
+  uploadDirExists: boolean
   totalSizeReadable: string
 }
 
@@ -142,6 +157,7 @@ const loadingItems = ref(true)
 const items = ref<FileListItem[] | null>(null)
 const currentPath = ref('')
 const stats = ref<FileStats | null>(null)
+const fileListStatus = ref<FileListPayload | null>(null)
 const statsLoadState = ref<'loading' | 'ready' | 'error'>('loading')
 const fileListLoadState = ref<'loading' | 'ready' | 'error'>('loading')
 const viewMode = ref<'list' | 'grid'>('list')
@@ -153,14 +169,21 @@ const fileCountDisplay = computed(() => {
   if (statsLoadState.value === 'error') {
     return '待确认'
   }
+  if (stats.value?.available === false) {
+    return '未初始化'
+  }
   return stats.value?.fileCount ?? '-'
 })
 const totalSizeDisplay = computed(() => {
   if (statsLoadState.value === 'error') {
     return '待确认'
   }
+  if (stats.value?.available === false) {
+    return '未初始化'
+  }
   return stats.value?.totalSizeReadable ?? '-'
 })
+const uploadDirDisplay = computed(() => stats.value?.uploadDir || fileListStatus.value?.uploadDir || '-')
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === 'object' && !Array.isArray(value)
@@ -209,6 +232,12 @@ function requireFileList(value: unknown): FileListPayload {
   if (!isPlainObject(value)) {
     throw new Error('目录内容待确认')
   }
+  if (typeof value.available !== 'boolean') {
+    throw new Error('目录内容待确认')
+  }
+  const message = typeof value.message === 'string' ? value.message.trim() : ''
+  const requestedPath = normalizeOptionalText(value.requestedPath)
+  const uploadDir = normalizeOptionalText(value.uploadDir)
   if (!Array.isArray(value.items)) {
     throw new Error('目录内容待确认')
   }
@@ -230,6 +259,10 @@ function requireFileList(value: unknown): FileListPayload {
     throw new Error('目录内容待确认')
   }
   return {
+    available: value.available,
+    message,
+    requestedPath,
+    uploadDir,
     items: itemsValue,
     currentPath: currentPathValue,
     parentPath: parentPathValue,
@@ -241,17 +274,25 @@ function requireFileStats(value: unknown): FileStats {
   if (!isPlainObject(value)) {
     throw new Error('文件统计待确认')
   }
+  if (typeof value.available !== 'boolean') {
+    throw new Error('文件统计待确认')
+  }
+  const message = typeof value.message === 'string' ? value.message.trim() : ''
   const totalSize = Number(value.totalSize)
   const fileCount = Number(value.fileCount)
   const uploadDir = normalizeOptionalText(value.uploadDir)
+  const uploadDirExists = typeof value.uploadDirExists === 'boolean' ? value.uploadDirExists : false
   const totalSizeReadable = normalizeOptionalText(value.totalSizeReadable)
   if (!Number.isFinite(totalSize) || totalSize < 0 || !Number.isFinite(fileCount) || fileCount < 0 || !uploadDir || !totalSizeReadable) {
     throw new Error('文件统计待确认')
   }
   return {
+    available: value.available,
+    message,
     totalSize,
     fileCount,
     uploadDir,
+    uploadDirExists,
     totalSizeReadable
   }
 }
@@ -265,10 +306,12 @@ async function loadFiles(path?: string) {
   try {
     const response = await request.get<unknown>('/api/admin/files', { params: { path: currentPath.value } })
     const data = requireFileList(getResponseData(response, '目录内容待确认'))
+    fileListStatus.value = data
     items.value = data.items
     currentPath.value = data.currentPath
     fileListLoadState.value = 'ready'
   } catch {
+    fileListStatus.value = null
     items.value = null
     fileListLoadState.value = 'error'
   } finally {
@@ -310,6 +353,9 @@ async function handleDelete(item: FileListItem) {
     const previousTotalSize = typeof stats.value?.totalSize === 'number' ? stats.value.totalSize : null
     await request.delete('/api/admin/files', { params: { path: item.relativePath } })
     await Promise.all([loadFiles(currentPath.value), loadStats()])
+    if (fileListStatus.value?.available === false) {
+      throw new Error(fileListStatus.value.message || '文件删除结果待确认')
+    }
     if (items.value?.some(entry => entry.relativePath === item.relativePath)) {
       throw new Error('文件删除结果待确认')
     }
@@ -377,6 +423,10 @@ function formatSize(bytes: number) {
 .crumb { color: #3b82f6; cursor: pointer; }
 .crumb:hover { text-decoration: underline; }
 .crumb-sep { color: #4b5563; }
+.unavailable-box { margin-top: 12px; padding: 16px; border-radius: 12px; background: rgba(245, 158, 11, 0.08); border: 1px solid rgba(245, 158, 11, 0.24); }
+.unavailable-title { font-size: 14px; font-weight: 600; color: #fcd34d; }
+.unavailable-message { margin-top: 6px; font-size: 13px; color: #f3f4f6; }
+.unavailable-meta { margin-top: 6px; font-size: 12px; color: #d1d5db; word-break: break-all; }
 
 .grid-view { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 12px; }
 .grid-item { background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.04); border-radius: 10px; overflow: hidden; cursor: pointer; transition: transform .2s; text-align: center; }

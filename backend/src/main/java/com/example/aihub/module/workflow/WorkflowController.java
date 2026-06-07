@@ -6,6 +6,7 @@ import com.example.aihub.common.result.PageResult;
 import com.example.aihub.common.util.PagingUtil;
 import com.example.aihub.infrastructure.dto.WorkflowSaveDTO;
 import com.example.aihub.infrastructure.service.WorkflowService;
+import com.example.aihub.infrastructure.vo.WorkflowMetaVO;
 import com.example.aihub.infrastructure.vo.WorkflowRunVO;
 import com.example.aihub.infrastructure.vo.WorkflowVO;
 import jakarta.validation.Valid;
@@ -22,7 +23,7 @@ public class WorkflowController {
     private final WorkflowService workflowService;
 
     @GetMapping("/meta")
-    public ApiResult<java.util.Map<String, Object>> meta() {
+    public ApiResult<WorkflowMetaVO> meta() {
         return ApiResult.ok(workflowService.meta());
     }
 

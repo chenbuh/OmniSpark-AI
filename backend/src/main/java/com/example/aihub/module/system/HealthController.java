@@ -39,6 +39,9 @@ public class HealthController {
         Map<String, Object> info = new LinkedHashMap<>();
         info.put("status", "UP");
         info.put("timestamp", LocalDateTime.now().toString());
+        info.put("scope", "basic-runtime-check");
+        info.put("message", "当前仅检测数据库、Redis、版本信息与 JVM 运行时状态，不包含外部 API、对象存储、Webhook 回调或业务链路巡检");
+        info.put("checkedComponents", java.util.List.of("database", "redis", "build", "jvm"));
 
         RuntimeMXBean runtimeMXBean = ManagementFactory.getRuntimeMXBean();
         long uptimeMillis = runtimeMXBean.getUptime();

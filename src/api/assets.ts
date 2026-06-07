@@ -20,6 +20,9 @@ export interface AssetPageParams {
 }
 
 export interface AssetStats {
+  scope?: string
+  message?: string
+  projectCount?: number
   total: number
   imageCount: number
   videoCount: number

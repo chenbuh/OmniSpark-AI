@@ -2,7 +2,7 @@
   <div class="admin-cleanup">
     <div class="page-header">
       <h2>数据清理 (Data Cleanup)</h2>
-      <p class="subtitle">清理过期的任务、资产和日志记录，释放数据库空间。</p>
+      <p class="subtitle">按保留天数清理旧任务、旧资产与日志，并同步删除关联资产文件；不是全库归档或一键瘦身工具。</p>
     </div>
 
     <!-- 清理参数 -->
@@ -14,6 +14,7 @@
         <n-button type="primary" secondary @click="handlePreview" :loading="previewing">预览可清理量</n-button>
       </div>
       <div class="status-note status-note--hint">真实清理下限为 7 天，避免误删近期任务、资产与日志。</div>
+      <div class="status-note status-note--hint">当前范围仅覆盖任务、资产、审计日志、登录日志及其关联文件，不处理用户、项目、系统配置或外部存储。</div>
       <div v-if="previewLoadState === 'error'" class="status-note">清理预览待确认，请稍后重试。</div>
       <div v-if="resultLoadState === 'error'" class="status-note">清理结果待确认，请稍后重试。</div>
     </n-card>
@@ -21,6 +22,7 @@
     <!-- 预览结果 -->
     <n-card v-if="preview" class="glass-card" :bordered="false" style="margin-top:16px;">
       <template #header><span style="font-weight:600;color:#e5e7eb;">可清理数据（{{ preview.daysOld }} 天前）</span></template>
+      <div class="status-note status-note--hint" v-if="preview.message">{{ preview.message }}</div>
       <n-row :gutter="16">
         <n-col :span="6" v-for="item in cleanupItems" :key="item.key">
           <n-card class="stats-card" :bordered="false">
@@ -61,6 +63,8 @@ type CleanupMetricKey = 'oldTasks' | 'oldAssets' | 'oldAuditLogs' | 'oldLoginLog
 type CleanupResultMetricKey = 'deletedTasks' | 'deletedAssets' | 'deletedAuditLogs' | 'deletedLoginLogs'
 
 interface CleanupPreviewPayload {
+  scope: string
+  message: string
   daysOld: number
   oldTasks: number
   oldAssets: number
@@ -69,6 +73,8 @@ interface CleanupPreviewPayload {
 }
 
 interface CleanupResultPayload {
+  scope: string
+  message: string
   deletedTasks: number
   deletedAssets: number
   deletedAuditLogs: number
@@ -120,6 +126,8 @@ function normalizeCleanupPreview(payload: unknown): CleanupPreviewPayload {
   if (!isPlainObject(payload)) {
     throw new Error('清理预览待确认')
   }
+  const scope = typeof payload.scope === 'string' ? payload.scope.trim() : ''
+  const message = typeof payload.message === 'string' ? payload.message.trim() : ''
   const daysOldValue = toOptionalNumber(payload.daysOld)
   const metrics = cleanupItems.reduce<Record<CleanupMetricKey, number>>((acc, item) => {
     const normalized = toOptionalNumber(payload[item.key])
@@ -133,6 +141,8 @@ function normalizeCleanupPreview(payload: unknown): CleanupPreviewPayload {
     throw new Error('清理预览待确认')
   }
   return {
+    scope,
+    message,
     daysOld: daysOldValue,
     ...metrics
   }
@@ -142,6 +152,8 @@ function normalizeCleanupResult(payload: unknown): CleanupResultPayload {
   if (!isPlainObject(payload)) {
     throw new Error('清理结果待确认')
   }
+  const scope = typeof payload.scope === 'string' ? payload.scope.trim() : ''
+  const message = typeof payload.message === 'string' ? payload.message.trim() : ''
   const keys: CleanupResultMetricKey[] = cleanupItems.map(item => cleanupResultKey(item.key))
   return keys.reduce<CleanupResultPayload>((acc, key) => {
     const normalized = toOptionalNumber(payload[key])
@@ -151,6 +163,8 @@ function normalizeCleanupResult(payload: unknown): CleanupResultPayload {
     acc[key] = normalized
     return acc
   }, {
+    scope,
+    message,
     deletedTasks: 0,
     deletedAssets: 0,
     deletedAuditLogs: 0,

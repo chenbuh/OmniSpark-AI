@@ -2,10 +2,11 @@
   <div class="admin-assets">
     <div class="page-header">
       <h2>全局资产监管 (Asset Supervision)</h2>
-      <p class="subtitle">查看和管理所有用户的生成资产，点击缩略图可预览完整文件。</p>
+      <p class="subtitle">查看、预览和删除所有用户的生成资产；当前页面聚焦全局浏览监管，不提供完整存储分析或生命周期报表。</p>
     </div>
 
     <n-card class="glass-card" :bordered="false">
+      <div class="status-note status-note--hint">当前页提供按类型、文件名筛选的全局资产列表与删除能力；若需要按体积、收藏、时间趋势做统计，请以用户侧资产库或后续专门报表为准。</div>
       <div class="toolbar">
         <n-space align="center">
           <n-select v-model:value="typeFilter" :options="typeOptions" placeholder="资产类型" style="width:140px" clearable @update:value="reload" />
@@ -451,6 +452,7 @@ function downloadAsset() {
 .glass-card { background: rgba(15,23,42,0.4) !important; backdrop-filter: blur(16px); border: 1px solid var(--border-color) !important; border-radius: 16px !important; }
 .toolbar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; flex-wrap: wrap; gap: 8px; }
 .status-note { margin-bottom: 12px; font-size: 12px; color: #f59e0b; }
+.status-note--hint { color: #9ca3af; }
 .loading-box { display: flex; justify-content: center; padding: 24px 0; }
 .count { font-size: 12px; color: var(--text-muted); }
 .pager { display: flex; justify-content: flex-end; margin-top: 16px; }

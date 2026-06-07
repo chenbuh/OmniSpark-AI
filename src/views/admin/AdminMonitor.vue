@@ -2,7 +2,7 @@
   <div class="admin-monitor">
     <div class="page-header">
       <h2>性能监控 (System Monitor)</h2>
-      <p class="subtitle">实时查看系统 CPU、内存、磁盘和 JVM 使用状态。</p>
+      <p class="subtitle">按 5 秒轮询查看当前 JVM 进程与宿主机资源快照，不包含历史趋势与外部探针。</p>
       <n-button size="small" secondary @click="loadData" :loading="loading">刷新数据</n-button>
     </div>
 
@@ -10,6 +10,7 @@
     <div v-else-if="loading && monitorLoadState === 'loading'" class="loading-box">
       <n-spin size="small" />
     </div>
+    <div v-else class="status-hint">当前页展示的是管理端轮询快照，适合快速排查，不等同于完整可观测平台。</div>
 
     <template v-if="monitorLoadState === 'ready'">
     <n-row :gutter="16">
@@ -413,6 +414,7 @@ function normalizeUnavailablePercent(value: unknown): number | null {
 .subtitle { font-size: 13px; color: #9ca3af; margin: 0; }
 .loading-box { display: flex; justify-content: center; padding: 32px 0; }
 .status-note { margin-bottom: 16px; font-size: 12px; color: #fca5a5; }
+.status-hint { margin-bottom: 16px; font-size: 12px; color: #9ca3af; }
 .glass-card { background: rgba(15,23,42,0.4) !important; backdrop-filter: blur(16px); border: 1px solid rgba(255,255,255,0.08) !important; border-radius: 16px !important; }
 .card-title { font-size: 14px; font-weight: 600; color: var(--text-primary); }
 .monitor-card { min-height: 280px; }

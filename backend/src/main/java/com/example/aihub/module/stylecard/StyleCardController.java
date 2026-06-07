@@ -26,14 +26,12 @@ public class StyleCardController {
     private final PublicContentInteractionService interactionService;
 
     @GetMapping
-    public ApiResult<PageResult<StyleCardVO>> list(@RequestParam(required = false) Long projectId,
-                                                   @RequestParam(required = false) String type,
+    public ApiResult<PageResult<StyleCardVO>> list(@RequestParam(required = false) String type,
                                                    @RequestParam(required = false) String search,
                                                    @RequestParam(required = false, defaultValue = "newest") String sort,
                                                    @RequestParam(defaultValue = "1") long page,
                                                    @RequestParam(defaultValue = "12") long pageSize) {
         return ApiResult.ok(styleCardService.page(
-                projectId,
                 type,
                 search,
                 sort,

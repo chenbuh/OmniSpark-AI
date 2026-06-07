@@ -25,6 +25,13 @@
         <n-spin size="small" />
       </div>
 
+      <div v-else-if="logStatus && !logStatus.available" class="status-note log-status">
+        <div>{{ logStatus.message || '日志源当前不可用。' }}</div>
+        <div v-if="logStatus.requestedFile">请求文件：<code>{{ logStatus.requestedFile }}</code></div>
+        <div v-if="logStatus.logDir">日志目录：<code>{{ logStatus.logDir }}</code></div>
+        <div v-if="logStatus.resolvedFile">解析结果：<code>{{ logStatus.resolvedFile }}</code></div>
+      </div>
+
       <div v-else class="log-container" ref="logContainer">
         <div class="log-line" v-for="(line, i) in logs || []" :key="i">
           <span class="line-num">{{ i + 1 }}</span>
@@ -46,6 +53,7 @@ import request from '@/api/request'
 const message = useMessage()
 const loadingLogs = ref(true)
 const logs = ref<string[] | null>(null)
+const logStatus = ref<LogViewerStatus | null>(null)
 const search = ref('')
 const lineCount = ref(100)
 const autoRefresh = ref(false)
@@ -54,6 +62,16 @@ let timer: ReturnType<typeof setInterval> | null = null
 let inFlight = false
 let errorNotified = false
 const POLL_INTERVAL_MS = 5000
+
+interface LogViewerStatus {
+  available: boolean
+  message: string
+  requestedFile: string
+  resolvedFile: string
+  logDir: string
+  lines: string[]
+  total: number
+}
 
 const lineOptions = [
   { label: '50 行', value: 50 },
@@ -73,20 +91,40 @@ function getResponseData(response: unknown, errorMessage: string): unknown {
   return response.data
 }
 
-function requireLogLinesResult(value: unknown): string[] {
+function requireLogViewerStatus(value: unknown): LogViewerStatus {
   if (!isPlainObject(value)) {
     throw new Error('日志数据待确认')
   }
+  if (typeof value.available !== 'boolean') {
+    throw new Error('日志数据待确认')
+  }
+  const message = typeof value.message === 'string' ? value.message : ''
+  const requestedFile = typeof value.requestedFile === 'string' ? value.requestedFile.trim() : ''
+  const resolvedFile = typeof value.resolvedFile === 'string' ? value.resolvedFile.trim() : ''
+  const logDir = typeof value.logDir === 'string' ? value.logDir.trim() : ''
   const lines = value.lines
   if (!Array.isArray(lines)) {
     throw new Error('日志数据待确认')
   }
-  return lines.map((line: unknown) => {
+  const normalizedLines = lines.map((line: unknown) => {
     if (typeof line !== 'string') {
       throw new Error('日志数据待确认')
     }
     return line
   })
+  const total = Number(value.total)
+  if (!Number.isFinite(total) || total < 0 || total < normalizedLines.length) {
+    throw new Error('日志数据待确认')
+  }
+  return {
+    available: value.available,
+    message,
+    requestedFile,
+    resolvedFile,
+    logDir,
+    lines: normalizedLines,
+    total
+  }
 }
 
 const logLevelClass = (line: string) => {
@@ -104,15 +142,18 @@ async function loadLogs() {
     const params: Record<string, number | string> = { lines: lineCount.value }
     if (search.value) params.search = search.value
     const res = await request.get<unknown>('/api/admin/logs', { params })
-    logs.value = requireLogLinesResult(getResponseData(res, '日志数据待确认'))
+    const status = requireLogViewerStatus(getResponseData(res, '日志数据待确认'))
+    logStatus.value = status
+    logs.value = status.available ? status.lines : []
     errorNotified = false
     // 滚动到底部
     setTimeout(() => {
-      if (logContainer.value) {
+      if (status.available && logContainer.value) {
         logContainer.value.scrollTop = logContainer.value.scrollHeight
       }
     }, 50)
   } catch (err: unknown) {
+    logStatus.value = null
     logs.value = null
     if (!errorNotified) {
       message.error(err instanceof Error && err.message ? err.message : '日志加载失败')
@@ -148,6 +189,8 @@ watch(() => autoRefresh.value, (val) => {
 .toolbar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
 .s-icon { width: 16px; height: 16px; color: #9ca3af; }
 .loading-box { display: flex; justify-content: center; padding: 24px 0; }
+.status-note { padding: 16px; border: 1px solid rgba(252, 165, 165, 0.24); border-radius: 10px; background: rgba(127, 29, 29, 0.18); color: #fecaca; font-size: 12px; line-height: 1.7; }
+.log-status code { color: #fde68a; }
 
 .log-container {
   height: 500px;

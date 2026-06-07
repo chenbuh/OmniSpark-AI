@@ -34,14 +34,12 @@ public class PromptTemplateController {
     private final PublicContentInteractionService interactionService;
 
     @GetMapping
-    public ApiResult<PageResult<PromptTemplateVO>> list(@RequestParam(name = "projectId", required = false) Long projectId,
-                                                        @RequestParam(name = "tag", required = false) String tag,
+    public ApiResult<PageResult<PromptTemplateVO>> list(@RequestParam(name = "tag", required = false) String tag,
                                                         @RequestParam(name = "search", required = false) String search,
                                                         @RequestParam(name = "sort", required = false, defaultValue = "newest") String sort,
                                                         @RequestParam(defaultValue = "1") long page,
                                                         @RequestParam(defaultValue = "12") long pageSize) {
         return ApiResult.ok(templateService.page(
-                projectId,
                 tag,
                 search,
                 sort,

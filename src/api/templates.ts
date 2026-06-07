@@ -8,7 +8,6 @@ export interface PageResult<T> {
 
 export interface PromptTemplate {
   id: number
-  projectId: number
   userId?: number
   username?: string
   nickname?: string
@@ -26,7 +25,6 @@ export interface PromptTemplate {
 }
 
 export interface PromptTemplatePayload {
-  projectId: number
   name: string
   content: string
   negativePrompt?: string
@@ -38,7 +36,6 @@ export interface PromptTemplatePayload {
 export const templateApi = {
   // 获取提示词模板列表
   async getTemplates(params?: {
-    projectId?: number
     tag?: string
     search?: string
     sort?: string
@@ -47,7 +44,6 @@ export const templateApi = {
   }) {
     return request.get<PageResult<PromptTemplate>>('/api/prompt-templates', {
       params: {
-        projectId: params?.projectId,
         tag: params?.tag,
         search: params?.search,
         sort: params?.sort || 'newest',

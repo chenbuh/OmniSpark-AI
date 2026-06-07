@@ -3,7 +3,7 @@
     <div class="page-header">
       <div>
         <h2>资产库 (Media Library)</h2>
-        <p class="subtitle">统一管理当前项目、所有可访问项目以及共享给我的生成图、视频成果与参考素材，支持上传、检索、收藏与一键复用。</p>
+        <p class="subtitle">统一浏览和操作当前项目、所有可访问项目以及共享给我的生成图、视频成果与参考素材；当前统计区展示的是数量快照，不是完整存储分析。</p>
       </div>
       <n-space>
         <n-tabs v-model:value="assetTab" type="segment" size="small">
@@ -32,6 +32,9 @@
         <strong class="summary-value">{{ item.value }}</strong>
         <span class="summary-hint">{{ item.hint }}</span>
       </n-card>
+    </div>
+    <div v-if="assetStatsLoadState === 'ready' && assetStats.message" class="scope-notice scope-notice--neutral">
+      {{ assetStats.message }}
     </div>
 
     <n-card class="glass-card filter-card" :bordered="false">
@@ -361,6 +364,9 @@ import {
 
 type SortKey = 'latest' | 'oldest' | 'size' | 'name' | 'favorite'
 type AssetStatsState = {
+  scope: string
+  message: string
+  projectCount: number | null
   total: number | null
   imageCount: number | null
   videoCount: number | null
@@ -392,6 +398,9 @@ let latestLoadToken = 0
 let latestSelectedAssetTaskToken = 0
 
 const assetStats = ref<AssetStatsState>({
+  scope: '',
+  message: '',
+  projectCount: null,
   total: null,
   imageCount: null,
   videoCount: null,
@@ -474,7 +483,9 @@ const summaryCards = computed(() => {
     {
       label: '总资产数',
       value: formatSummaryValue(assetStats.value.total),
-      hint: assetStats.value.total === null ? '资产汇总待确认' : `${currentScopeHint.value}的全部素材沉淀`
+      hint: assetStats.value.total === null
+        ? '资产汇总待确认'
+        : `${currentScopeHint.value}的全部素材沉淀${assetStats.value.projectCount != null ? `（覆盖 ${formatSummaryValue(assetStats.value.projectCount)} 个项目范围）` : ''}`
     },
     {
       label: `${assetTypeLabel('image')}成果`,
@@ -777,13 +788,18 @@ function requireAssetStats(value: unknown) {
   if (!isPlainObject(value)) {
     throw new Error('资产汇总待确认')
   }
+  const scope = typeof value.scope === 'string' ? value.scope.trim() : ''
+  const message = typeof value.message === 'string' ? value.message.trim() : ''
+  const projectCount = value.projectCount == null ? null : Number(value.projectCount)
   const total = Number(value.total)
   const imageCount = Number(value.imageCount)
   const videoCount = Number(value.videoCount)
   const referenceCount = Number(value.referenceCount)
   const favoriteCount = Number(value.favoriteCount)
   if (
-    !Number.isFinite(total) || total < 0
+    (projectCount != null && (!Number.isFinite(projectCount) || projectCount < 0))
+    || !scope
+    || !Number.isFinite(total) || total < 0
     || !Number.isFinite(imageCount) || imageCount < 0
     || !Number.isFinite(videoCount) || videoCount < 0
     || !Number.isFinite(referenceCount) || referenceCount < 0
@@ -794,6 +810,9 @@ function requireAssetStats(value: unknown) {
     throw new Error('资产汇总待确认')
   }
   return {
+    scope,
+    message,
+    projectCount,
     total,
     imageCount,
     videoCount,
@@ -862,6 +881,9 @@ async function loadAssets() {
       assetStatsLoadState.value = 'ready'
     } else {
       assetStats.value = {
+        scope: '',
+        message: '',
+        projectCount: null,
         total: null,
         imageCount: null,
         videoCount: null,
@@ -875,6 +897,9 @@ async function loadAssets() {
     assetRecords.value = null
     filteredTotal.value = null
     assetStats.value = {
+      scope: '',
+      message: '',
+      projectCount: null,
       total: null,
       imageCount: null,
       videoCount: null,
@@ -1457,6 +1482,11 @@ onUnmounted(() => {
   color: var(--text-secondary);
   font-size: 12px;
   line-height: 1.65;
+}
+
+.scope-notice--neutral {
+  border-color: rgba(148, 163, 184, 0.2);
+  background: linear-gradient(135deg, rgba(148, 163, 184, 0.12), rgba(15, 23, 42, 0.08));
 }
 
 .glass-card {

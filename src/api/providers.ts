@@ -1,4 +1,5 @@
 import request from './request'
+import { collectAllPageRecords } from './pagination'
 import type { ModelProvider } from '@/store/provider'
 
 export interface ProviderMetaOption {
@@ -31,6 +32,13 @@ export const providerApi = {
   // 获取模型提供商列表
   async getProviders(projectId?: number) {
     return request.get('/api/model-providers', { params: { projectId } })
+  },
+
+  async getAllProviders(projectId?: number) {
+    return collectAllPageRecords<ModelProvider>({
+      loadPage: (page, pageSize) => providerApi.getProvidersPage({ projectId, page, pageSize }),
+      errorMessage: '模型提供商数据待确认'
+    })
   },
 
   async getProvidersPage(params: { projectId?: number; page: number; pageSize: number }) {

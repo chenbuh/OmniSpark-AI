@@ -250,7 +250,6 @@ const announcementLoadFailed = ref(false)
 const recommendedTemplates = ref<PromptTemplate[] | null>(null)
 const metricsLoadState = ref<'loading' | 'ready' | 'error'>('loading')
 const NO_CACHE_HEADERS = { 'X-No-Cache': '1' }
-const PUBLIC_TEMPLATE_LIBRARY_PROJECT_ID = 0
 let dashboardContext: gsap.Context | null = null
 let dashboardMatchMedia: gsap.MatchMedia | null = null
 
@@ -390,15 +389,13 @@ function normalizePromptTemplateRecord(value: unknown) {
   }
   const record = value as Record<string, unknown>
   const id = requireNonNegativeNumber(record.id, '热门提示词待确认')
-  const projectId = requireNonNegativeNumber(record.projectId, '热门提示词待确认')
   const name = normalizeOptionalText(record.name)
   const content = normalizeOptionalText(record.content)
-  if (id <= 0 || projectId !== PUBLIC_TEMPLATE_LIBRARY_PROJECT_ID || !name || !content) {
+  if (id <= 0 || !name || !content) {
     throw new Error('公共热门提示词待确认')
   }
   return {
     id,
-    projectId,
     userId: Number.isFinite(Number(record.userId)) ? Number(record.userId) : undefined,
     username: normalizeOptionalText(record.username) || undefined,
     nickname: normalizeOptionalText(record.nickname) || undefined,

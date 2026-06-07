@@ -31,6 +31,9 @@
             </n-descriptions-item>
             <n-descriptions-item label="默认分支">{{ version.defaultBranch || '-' }}</n-descriptions-item>
           </n-descriptions>
+          <div v-if="version && !version.updateConfigured" class="status-note" style="margin-top: 12px;">
+            {{ version.updateUnavailableReason || '未配置 GitHub 更新源，当前仅展示本地构建信息。' }}
+          </div>
           <n-empty v-else description="当前版本信息待确认，请稍后重试。" style="padding: 16px 0;" />
         </n-card>
       </n-col>
@@ -50,6 +53,10 @@
             <n-button type="primary" @click="checkUpdate" :loading="checking">
               <template #icon><RefreshCw /></template>检查更新
             </n-button>
+          </div>
+
+          <div v-else-if="!updateCheck.updateConfigured" class="check-placeholder">
+            <p>{{ updateCheck.updateUnavailableReason || '未配置 GitHub 更新源，当前无法执行更新检查。' }}</p>
           </div>
 
           <div v-else class="update-result">
@@ -113,7 +120,7 @@
     <n-row :gutter="20" style="margin-top: 20px;">
       <n-col :span="24">
         <n-card title="最近更新动态" class="glass-card" :bordered="false">
-          <template #header-extra>
+          <template #header-extra v-if="updateHistory?.updateConfigured !== false">
             <n-button size="small" tertiary type="primary" @click="loadUpdateHistory(true)" :loading="historyChecking">
               <template #icon><RefreshCw /></template>刷新动态
             </n-button>
@@ -128,6 +135,10 @@
 
           <div v-else-if="historyLoadState === 'loading'" class="check-placeholder">
             <p>正在读取最近更新动态...</p>
+          </div>
+
+          <div v-else-if="updateHistory && !updateHistory.updateConfigured" class="check-placeholder">
+            <p>{{ updateHistory.updateUnavailableReason || '未配置 GitHub 更新源，当前无法读取更新动态。' }}</p>
           </div>
 
           <div v-else-if="updateHistory?.items.length" class="history-wrap">
@@ -197,6 +208,8 @@ interface VersionInfo {
   updateSource: string
   defaultBranch: string
   repositoryUrl: string
+  updateConfigured: boolean
+  updateUnavailableReason: string
 }
 
 interface UpdateCheckInfo {
@@ -219,6 +232,8 @@ interface UpdateCheckInfo {
   releaseNotes: string
   downloadUrl: string
   error: string
+  updateConfigured: boolean
+  updateUnavailableReason: string
 }
 
 interface UpdateHistoryItem {
@@ -249,6 +264,8 @@ interface UpdateHistoryInfo {
   total: number
   items: UpdateHistoryItem[]
   error: string
+  updateConfigured: boolean
+  updateUnavailableReason: string
 }
 
 const message = useMessage()
@@ -407,7 +424,9 @@ function normalizeVersionInfo(payload: unknown): VersionInfo {
     osArch,
     updateSource,
     defaultBranch: normalizeOptionalText(payload.defaultBranch),
-    repositoryUrl: normalizeOptionalText(payload.repositoryUrl)
+    repositoryUrl: normalizeOptionalText(payload.repositoryUrl),
+    updateConfigured: payload.updateConfigured !== false,
+    updateUnavailableReason: normalizeOptionalText(payload.updateUnavailableReason)
   }
 }
 
@@ -442,7 +461,9 @@ function normalizeUpdateCheckInfo(payload: unknown): UpdateCheckInfo {
     repositoryUrl: normalizeOptionalText(payload.repositoryUrl),
     releaseNotes: normalizeOptionalText(payload.releaseNotes),
     downloadUrl: normalizeOptionalText(payload.downloadUrl),
-    error: normalizeOptionalText(payload.error)
+    error: normalizeOptionalText(payload.error),
+    updateConfigured: payload.updateConfigured !== false,
+    updateUnavailableReason: normalizeOptionalText(payload.updateUnavailableReason)
   }
 }
 
@@ -469,7 +490,9 @@ function normalizeUpdateHistoryInfo(payload: unknown): UpdateHistoryInfo {
     repositoryUrl: normalizeOptionalText(payload.repositoryUrl),
     total: typeof payload.total === 'number' && payload.total >= 0 ? payload.total : items.length,
     items,
-    error: normalizeOptionalText(payload.error)
+    error: normalizeOptionalText(payload.error),
+    updateConfigured: payload.updateConfigured !== false,
+    updateUnavailableReason: normalizeOptionalText(payload.updateUnavailableReason)
   }
 }
 

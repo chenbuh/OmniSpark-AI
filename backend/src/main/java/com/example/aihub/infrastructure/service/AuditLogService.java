@@ -1,7 +1,7 @@
 package com.example.aihub.infrastructure.service;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
-import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
+import com.example.aihub.common.audit.AuditActionCatalog;
 import com.example.aihub.common.security.ClientIpResolver;
 import com.example.aihub.common.util.PagingUtil;
 import com.example.aihub.common.util.VoMapper;
@@ -20,6 +20,7 @@ import java.util.List;
 public class AuditLogService {
     private final AuditLogMapper auditLogMapper;
     private final ClientIpResolver clientIpResolver;
+    private final AuditActionCatalog auditActionCatalog;
 
     public void log(Long userId, String username, String action,
                     String resourceType, Long resourceId, String detail, String ip) {
@@ -60,18 +61,9 @@ public class AuditLogService {
         return new com.example.aihub.common.result.PageResult<>(p.getTotal(), p.getPages(), records);
     }
 
-    public List<String> actions(Long userId) {
-        QueryWrapper<AuditLog> wrapper = new QueryWrapper<AuditLog>()
-                .select("DISTINCT action")
-                .isNotNull("action");
-        if (userId != null) {
-            wrapper.eq("user_id", userId);
-        }
-        return auditLogMapper.selectObjs(wrapper).stream()
-                .map(String::valueOf)
-                .filter(value -> !value.isBlank())
-                .sorted(String::compareToIgnoreCase)
-                .toList();
+    public List<String> actions() {
+        // 审计动作筛选项按当前代码可记录的动作规则生成，不再依赖历史日志内容反推。
+        return auditActionCatalog.listActions();
     }
 
     public long countOlderThan(int daysOld) {

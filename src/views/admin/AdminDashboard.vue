@@ -2,10 +2,11 @@
   <div class="admin-dashboard">
     <div class="page-header">
       <h2>管理控制台 (Admin Dashboard)</h2>
-      <p class="subtitle">系统全局概览与统计。</p>
+      <p class="subtitle">当前库内概览、最近 7 天趋势与最近注册用户快照；不是完整报表中心。</p>
       <n-button size="small" secondary style="margin-top:8px;" @click="handleExportCsv">
-        <template #icon><Download /></template>导出 CSV 报表
+        <template #icon><Download /></template>导出当前快照 CSV
       </n-button>
+      <div class="status-hint">CSV 仅包含当前概览指标、最近 7 天趋势和导出时刻的用户列表，不包含历史归档、分项目明细或自定义筛选报表。</div>
     </div>
 
     <!-- 统计卡片 -->
@@ -280,6 +281,12 @@ const areaPath = computed(() => {
 
 function requireStatsExportCsv(value: string) {
   const normalized = value.replace(/^\uFEFF/, '').replace(/\r\n/g, '\n')
+  if (!normalized.includes('# scope,admin-dashboard-snapshot')) {
+    throw new Error('报表导出结果待确认')
+  }
+  if (!normalized.includes('# notice,')) {
+    throw new Error('报表导出结果待确认')
+  }
   if (!normalized.includes('# canary,')) {
     throw new Error('报表导出结果待确认')
   }
@@ -560,6 +567,7 @@ function requireNonNegativeNumber(value: unknown, errorMessage: string) {
 .page-header { margin-bottom: 24px; }
 .page-header h2 { font-size: 24px; font-weight: 700; margin: 0 0 6px 0; color: #fff; }
 .subtitle { font-size: 13px; color: #9ca3af; margin: 0; }
+.status-hint { margin-top: 8px; font-size: 12px; color: #9ca3af; }
 .glass-card { background: rgba(15,23,42,0.4) !important; backdrop-filter: blur(16px); border: 1px solid rgba(255,255,255,0.08) !important; border-radius: 16px !important; }
 .stat-card { text-align: center; padding: 10px; }
 .stat-inner { display: flex; flex-direction: column; gap: 4px; }

@@ -8,6 +8,9 @@ import lombok.NoArgsConstructor;
 @NoArgsConstructor
 @AllArgsConstructor
 public class AssetStatsVO {
+    private String scope;
+    private String message;
+    private long projectCount;
     private long total;
     private long imageCount;
     private long videoCount;

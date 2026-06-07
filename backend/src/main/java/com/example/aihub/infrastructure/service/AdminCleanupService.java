@@ -20,9 +20,9 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
+import java.util.List;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
-import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
@@ -30,6 +30,8 @@ import java.util.Set;
 @RequiredArgsConstructor
 public class AdminCleanupService {
     private static final int MIN_DAYS_OLD = 7;
+    private static final String CLEANUP_SCOPE = "task-asset-log-cleanup";
+    private static final String CLEANUP_MESSAGE = "当前仅清理旧任务、旧资产、审计日志、登录日志，并同步删除关联资产文件；不处理用户、项目、系统配置或外部存储数据";
 
     private final GenerationTaskMapper taskMapper;
     private final AssetMapper assetMapper;
@@ -45,6 +47,9 @@ public class AdminCleanupService {
         LocalDateTime cutoff = LocalDateTime.now().minusDays(safeDaysOld);
 
         Map<String, Object> result = new LinkedHashMap<>();
+        result.put("scope", CLEANUP_SCOPE);
+        result.put("message", CLEANUP_MESSAGE);
+        result.put("cleanupTargets", List.of("generation_task", "asset", "audit_log", "login_log", "asset-files"));
         result.put("daysOld", safeDaysOld);
         result.put("cutoffDate", cutoff.toString());
         result.put("oldTasks", countTasksBefore(cutoff));
@@ -106,6 +111,9 @@ public class AdminCleanupService {
                 .lt(LoginLog::getCreatedAt, cutoff));
 
         Map<String, Object> result = new LinkedHashMap<>();
+        result.put("scope", CLEANUP_SCOPE);
+        result.put("message", CLEANUP_MESSAGE);
+        result.put("cleanupTargets", List.of("generation_task", "asset", "audit_log", "login_log", "asset-files"));
         result.put("daysOld", safeDaysOld);
         result.put("cutoffDate", cutoff.toString());
         result.put("deletedTasks", oldTaskIds.size());

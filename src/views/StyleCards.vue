@@ -295,8 +295,6 @@ const styleCardTags = ref<string[]>([])
 const assetLibraryLoadState = ref<'loading' | 'ready' | 'error'>('loading')
 const tagLoadState = ref<'loading' | 'ready' | 'error'>('loading')
 let searchTimer: ReturnType<typeof setTimeout> | null = null
-const PUBLIC_STYLE_CARD_LIBRARY_PROJECT_ID = 0
-
 const imageAssets = computed(() => {
   return assetStore
     .getAssetsByProject(projectStore.activeProjectId)
@@ -416,7 +414,6 @@ function requireStyleCardDetail(value: unknown, action: 'create' | 'update') {
   const liked = normalizeInteractionLiked(record.liked, action)
   return {
     ...base,
-    projectId: normalizeRequiredPositiveNumber(record.projectId, action),
     userId: normalizeOptionalPositiveNumber(record.userId),
     username: normalizeOptionalText(record.username),
     nickname: normalizeOptionalText(record.nickname),
@@ -458,14 +455,6 @@ function normalizeOptionalNumber(value: unknown) {
   }
   const parsed = Number(value)
   return Number.isFinite(parsed) ? parsed : null
-}
-
-function normalizeRequiredPositiveNumber(value: unknown, action: 'create' | 'update') {
-  const parsed = Number(value)
-  if (!Number.isFinite(parsed) || parsed !== PUBLIC_STYLE_CARD_LIBRARY_PROJECT_ID) {
-    throw new Error(action === 'create' ? '卡片创建结果待确认' : '卡片更新结果待确认')
-  }
-  return parsed
 }
 
 function normalizeInteractionCount(value: unknown, action: 'create' | 'update') {
@@ -847,7 +836,6 @@ async function handleSave() {
     return
   }
   const payload = {
-    projectId: PUBLIC_STYLE_CARD_LIBRARY_PROJECT_ID,
     name: form.name,
     type: form.type,
     content: form.content,

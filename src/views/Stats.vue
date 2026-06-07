@@ -3,7 +3,7 @@
     <div class="page-header">
       <div>
         <h2>用量统计分析 (Usage Stats)</h2>
-        <p class="subtitle">观察任务趋势、额度消耗、项目活跃度和最近操作，帮助判断当前创作负载。</p>
+        <p class="subtitle">观察当前访问范围内的任务趋势、额度消耗、项目活跃度和最近操作；当前页面展示的是用户侧用量快照，不是完整审计或计费报表。</p>
       </div>
       <n-space>
         <n-select v-model:value="scopeMode" :options="scopeOptions" style="width: 170px;" />
@@ -14,6 +14,7 @@
       </n-space>
     </div>
     <div v-if="statsLoadState === 'error'" class="status-note">统计数据待确认，请稍后重试。</div>
+    <div v-else-if="statsLoadState === 'ready' && dashboard.message" class="status-hint">{{ dashboard.message }}</div>
 
     <div class="stats-summary-grid">
       <n-card v-for="card in summaryCards" :key="card.key" class="glass-card summary-card" :bordered="false">
@@ -469,6 +470,8 @@ const statusCards = computed(() => {
 
 function createEmptyDashboard(): StatsDashboard {
   return {
+    scope: '',
+    message: '',
     overview: {
       projectCount: 0,
       taskCount: null,
@@ -698,6 +701,8 @@ function normalizeDashboard(data: unknown): StatsDashboard {
   }
   const overviewValue = normalizeOverview(data.overview)
   return {
+    scope: normalizeOptionalText(data.scope),
+    message: normalizeOptionalText(data.message),
     overview: overviewValue,
     distribution: normalizeDistribution(data.distribution, overviewValue),
     trends: normalizeTrends(data.trends),
@@ -821,6 +826,12 @@ onUnmounted(() => {
   margin-bottom: 16px;
   font-size: 12px;
   color: #fca5a5;
+}
+
+.status-hint {
+  margin-bottom: 16px;
+  font-size: 12px;
+  color: #94a3b8;
 }
 
 .glass-card {

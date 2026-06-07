@@ -59,6 +59,7 @@ public class BootstrapDataInitializer implements CommandLineRunner {
         upsertAdminUser();
         ensureSystemConfig("platform.name", "OmniSpark AI", "system", "平台名称");
         ensureAssetCategoryDict();
+        ensureCommunityCategoryDict();
         seedScheduledTasks();
     }
 
@@ -152,6 +153,41 @@ public class BootstrapDataInitializer implements CommandLineRunner {
     }
 
     private void ensureAssetCategoryItem(Long dictId, String code, String name, int sortOrder) {
+        DataDictItem item = dataDictItemMapper.selectOne(new LambdaQueryWrapper<DataDictItem>()
+                .eq(DataDictItem::getDictId, dictId)
+                .eq(DataDictItem::getItemCode, code));
+        if (item != null) {
+            return;
+        }
+        item = new DataDictItem();
+        item.setDictId(dictId);
+        item.setItemCode(code);
+        item.setItemName(name);
+        item.setSortOrder(sortOrder);
+        item.setStatus(1);
+        dataDictItemMapper.insert(item);
+    }
+
+    private void ensureCommunityCategoryDict() {
+        DataDict dict = dataDictMapper.selectOne(new LambdaQueryWrapper<DataDict>()
+                .eq(DataDict::getDictCode, "community_category"));
+        if (dict == null) {
+            dict = new DataDict();
+            dict.setDictCode("community_category");
+            dict.setDictName("社区分类");
+            dict.setDescription("社区帖子发布与筛选使用的稳定分类配置");
+            dict.setStatus(1);
+            dataDictMapper.insert(dict);
+        }
+
+        ensureDictItem(dict.getId(), "illustration", "插画", 10);
+        ensureDictItem(dict.getId(), "photography", "摄影", 20);
+        ensureDictItem(dict.getId(), "poster", "海报", 30);
+        ensureDictItem(dict.getId(), "character", "角色", 40);
+        ensureDictItem(dict.getId(), "scene", "场景", 50);
+    }
+
+    private void ensureDictItem(Long dictId, String code, String name, int sortOrder) {
         DataDictItem item = dataDictItemMapper.selectOne(new LambdaQueryWrapper<DataDictItem>()
                 .eq(DataDictItem::getDictId, dictId)
                 .eq(DataDictItem::getItemCode, code));

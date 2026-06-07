@@ -38,7 +38,7 @@
   - 相比之前 `18084` 上“命中后下一跳才封”的表现，这一版已经是“当前触发请求立即返回 `429`”
 - 再补充：`2026-06-04` 收尾阶段又继续给一批历史上默认全量返回的小列表接口补了后端硬上限，当前源码已完成 `compile + package`：
   - 已收口：`/api/tasks`、`/api/workflows`、`/api/workflows/{id}/runs`、`/api/quota/records`
-  - 已继续收口：`/api/projects`、`/api/teams`、`/api/teams/{id}/members`、`/api/model-providers`、`/api/project-shares/{projectId}`、`/api/video/subtitles/{assetId}`、`/api/api-keys`、`/api/admin/api-keys`、`/api/admin/webhooks`、`/api/community/posts/{id}/comments`、`/api/prompt-templates/{id}/comments`、`/api/style-cards/{id}/comments`、`/api/announcements/active`、`/api/admin/announcements`、`/api/notifications/unread`、`/api/dict/{dictCode}`、`/api/admin/dict`、`/api/admin/dict/{dictId}/items`、`/api/admin/config`、`/api/admin/scheduled-tasks`
+  - 已继续收口：`/api/projects`、`/api/teams`、`/api/teams/{id}/members`、`/api/model-providers`、`/api/project-shares/{projectId}`、`/api/video/subtitles/{assetId}`、`/api/api-keys`、`/api/admin/api-keys`、`/api/admin/webhooks`、`/api/community/posts/{id}/comments`、`/api/prompt-templates/{id}/comments`、`/api/style-cards/{id}/comments`、`/api/announcements/active`、`/api/admin/announcements`、`/api/notifications/unread`、`/api/dict/{dictCode}/items`、`/api/admin/dict`、`/api/admin/dict/{dictId}/items`、`/api/admin/config`、`/api/admin/scheduled-tasks`
   - 这一步主要是在现有行为风控之外，继续降低“单次请求直接扫走一批元数据”的收益
 - 再补充：`2026-06-04` 这一轮也继续给 `/export` 类路径补了“当前请求即判定”的导出轨迹风控，当前源码已完成 `compile + package`：
   - 同一主体短窗口内连续导出过多次时，当前请求直接返回统一风险 `429`

@@ -107,12 +107,6 @@ public class DataDictService {
         return item;
     }
 
-    public List<DataDictItem> getItemsByCode(String dictCode, int limit) {
-        DataDict dict = dictMapper.selectOne(new LambdaQueryWrapper<DataDict>().eq(DataDict::getDictCode, dictCode));
-        if (dict == null) return List.of();
-        return listItems(dict.getId(), limit);
-    }
-
     public List<DataDictItem> getEnabledItemsByCode(String dictCode, int limit) {
         DataDict dict = dictMapper.selectOne(new LambdaQueryWrapper<DataDict>()
                 .eq(DataDict::getDictCode, dictCode)

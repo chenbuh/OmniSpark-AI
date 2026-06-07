@@ -14,7 +14,7 @@
         </n-space>
         <span class="count">共 {{ totalDisplay }} 条</span>
       </div>
-      <div v-if="taskMetaLoadState === 'error'" class="status-note">任务状态与类型选项待确认，请稍后重试。</div>
+      <div v-if="taskMetaLoadState === 'error'" class="status-note">任务筛选项加载失败，当前使用内置固定选项。</div>
 
       <div v-if="loadingTasks && tasks === null" class="loading-box">
         <n-spin size="small" />
@@ -127,13 +127,13 @@ const detail = ref<AdminTaskRecord | null>(null)
 const page = ref(1)
 const pageSize = 10
 const total = ref<number | null>(null)
-const taskStatuses = ref<TaskStatus[]>([])
-const taskTypes = ref<TaskType[]>([])
-const taskMetaLoadState = ref<'loading' | 'ready' | 'error'>('loading')
 const totalDisplay = computed(() => total.value == null ? '-' : total.value)
 const NO_CACHE_HEADERS = { 'X-No-Cache': '1' }
 const TASK_STATUSES: TaskStatus[] = ['pending', 'running', 'success', 'failed']
 const TASK_TYPES: TaskType[] = ['image', 'video']
+const taskStatuses = ref<TaskStatus[]>([...TASK_STATUSES])
+const taskTypes = ref<TaskType[]>([...TASK_TYPES])
+const taskMetaLoadState = ref<'loading' | 'ready' | 'error'>('loading')
 
 const statusOptions = computed(() => taskStatuses.value.map(value => ({
   label: statusLabel(value),
@@ -240,6 +240,10 @@ function normalizeTaskType(value: unknown): TaskType {
   return normalized as TaskType
 }
 
+function hasExactTaskValues<T extends string>(values: T[], expected: readonly T[]) {
+  return values.length === expected.length && expected.every((item, index) => values[index] === item)
+}
+
 function normalizeTaskRecord(value: unknown): AdminTaskRecord {
   if (!isPlainObject(value)) {
     throw new Error('任务数据待确认')
@@ -285,6 +289,9 @@ function requireTaskMeta(value: unknown) {
   }
   const normalizedStatuses = Array.from(new Set(statuses.map((item: unknown) => normalizeTaskStatus(item))))
   const normalizedTaskTypes = Array.from(new Set(taskTypesValue.map((item: unknown) => normalizeTaskType(item))))
+  if (!hasExactTaskValues(normalizedStatuses, TASK_STATUSES) || !hasExactTaskValues(normalizedTaskTypes, TASK_TYPES)) {
+    throw new Error('任务元数据待确认')
+  }
   return {
     statuses: normalizedStatuses,
     taskTypes: normalizedTaskTypes
@@ -326,8 +333,8 @@ async function loadTaskMeta() {
     taskTypes.value = data.taskTypes
     taskMetaLoadState.value = 'ready'
   } catch {
-    taskStatuses.value = []
-    taskTypes.value = []
+    taskStatuses.value = [...TASK_STATUSES]
+    taskTypes.value = [...TASK_TYPES]
     taskMetaLoadState.value = 'error'
   }
 }
@@ -352,7 +359,6 @@ async function loadTasks(noCache = false) {
     const data = requireTaskPage(getResponseData(response))
     tasks.value = data.records
     total.value = data.total
-    mergeTaskMetaFromRecords(data.records)
   } catch (err: unknown) {
     tasks.value = null
     total.value = null
@@ -360,31 +366,6 @@ async function loadTasks(noCache = false) {
   } finally {
     loadingTasks.value = false
   }
-}
-
-function mergeTaskMetaFromRecords(records: AdminTaskRecord[]) {
-  const statusSet = new Set(taskStatuses.value)
-  const typeSet = new Set(taskTypes.value)
-  records.forEach(record => {
-    statusSet.add(record.status)
-    typeSet.add(record.taskType)
-  })
-  taskStatuses.value = Array.from(statusSet).sort((left, right) => taskStatusOrder(left) - taskStatusOrder(right) || left.localeCompare(right))
-  taskTypes.value = Array.from(typeSet).sort((left, right) => taskTypeOrder(left) - taskTypeOrder(right) || left.localeCompare(right))
-}
-
-function taskStatusOrder(status: TaskStatus) {
-  if (status === 'pending') return 0
-  if (status === 'running') return 1
-  if (status === 'success') return 2
-  if (status === 'failed') return 3
-  return 99
-}
-
-function taskTypeOrder(taskType: TaskType) {
-  if (taskType === 'image') return 0
-  if (taskType === 'video') return 1
-  return 99
 }
 
 async function handleDelete(id: number) {

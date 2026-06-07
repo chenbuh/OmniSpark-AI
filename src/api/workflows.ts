@@ -50,6 +50,8 @@ export interface WorkflowMetaOption {
 }
 
 export interface WorkflowMetaVO {
+  scope?: string
+  message?: string
   stepTypes: WorkflowMetaOption[]
   imageSizes: WorkflowMetaOption[]
   videoDurations: WorkflowMetaOption[]
