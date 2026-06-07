@@ -103,10 +103,53 @@
                   :autosize="{ minRows: 3, maxRows: 6 }"
                   placeholder="描述您想让视频呈现的动态镜头、动作或变换 (例如: 太空飞船正在越过恒星，镜头平缓推近，耀眼光斑)"
                 />
+                <template #extra>
+                  <div class="prompt-extra-row">
+                    <n-button size="tiny" quaternary @click="showPromptTips = !showPromptTips">
+                      <Lightbulb class="inline-icon" style="margin-right:2px;" /> 灵感推荐
+                    </n-button>
+                    <span class="prompt-count">{{ form.prompt.length }}/500</span>
+                  </div>
+                  <n-collapse-transition :show="showPromptTips">
+                    <div class="prompt-suggestions">
+                      <div
+                        v-for="(s, i) in promptSuggestions"
+                        :key="i"
+                        class="suggestion-chip"
+                        @click="form.prompt = s"
+                      >{{ s }}</div>
+                    </div>
+                  </n-collapse-transition>
+                </template>
+              </n-form-item>
+
+              <!-- 反向提示词 -->
+              <n-form-item label="反向提示词 (Negative Prompt)">
+                <n-input
+                  v-model:value="form.negativePrompt"
+                  type="textarea"
+                  :autosize="{ minRows: 2, maxRows: 4 }"
+                  placeholder="描述您不想在视频中看到的内容，如: 模糊、扭曲、变形、多余肢体..."
+                />
+              </n-form-item>
+
+              <!-- 画面比例 -->
+              <n-form-item label="画面比例">
+                <div class="ratio-group">
+                  <div
+                    v-for="item in aspectRatioOptions"
+                    :key="item.value"
+                    class="ratio-card"
+                    :class="{ 'active': form.aspectRatio === item.value }"
+                    @click="form.aspectRatio = item.value"
+                  >
+                    {{ item.label }}
+                  </div>
+                </div>
               </n-form-item>
 
               <!-- 视频时间 -->
-              <n-form-item label="视频生成时间">
+              <n-form-item label="视频时长">
                 <div class="duration-group">
                   <div
                     v-for="item in durations"
@@ -121,15 +164,23 @@
                 </div>
               </n-form-item>
 
-              <!-- 高级镜头控制 -->
+              <!-- 高级选项折叠 -->
               <n-collapse style="margin-top: 15px;">
-                <n-collapse-item title="镜头运动控制与选项" name="1">
+                <n-collapse-item title="镜头运动与高级控制" name="1">
                   <n-form-item label="镜头运动方向">
                     <n-select v-model:value="form.cameraMotion" :options="cameraMotionOptions" />
                   </n-form-item>
                   <n-form-item label="运动强度 (Motion Speed)">
                     <n-slider v-model:value="form.motionSpeed" :min="1" :max="10" :step="1" />
                     <div class="slider-val">强度: {{ form.motionSpeed }}</div>
+                  </n-form-item>
+                  <n-form-item label="随机种子 (Seed)">
+                    <n-input-number v-model:value="form.seed" :min="0" :max="9999999999" placeholder="留空则随机生成" clearable style="width: 100%;" />
+                    <div class="slider-val">
+                      <n-button size="tiny" quaternary @click="form.seed = Math.floor(Math.random() * 9999999999)" style="padding:0;">
+                        <Dice1 class="inline-icon" /> 随机种子
+                      </n-button>
+                    </div>
                   </n-form-item>
                 </n-collapse-item>
               </n-collapse>
@@ -331,7 +382,10 @@ import {
   Image,
   Video,
   Tv,
-  ArrowRight
+  ArrowRight,
+  Dice1,
+  Lightbulb,
+  ChevronDown
 } from 'lucide-vue-next'
 
 const route = useRoute()
@@ -363,10 +417,34 @@ const form = reactive({
   providerId: null as number | null,
   modelName: '',
   prompt: '',
+  negativePrompt: '',
   duration: '',
   cameraMotion: '',
-  motionSpeed: 5
+  motionSpeed: 5,
+  aspectRatio: '16:9',
+  seed: null as number | null as number | null
 })
+
+const aspectRatioOptions = [
+  { label: '横屏 16:9', value: '16:9' },
+  { label: '竖屏 9:16', value: '9:16' },
+  { label: '方形 1:1', value: '1:1' },
+  { label: '宽屏 21:9', value: '21:9' },
+  { label: '3:4', value: '3:4' },
+  { label: '4:3', value: '4:3' }
+]
+
+const promptSuggestions = [
+  '电影级特写镜头，主角面对镜头微笑，背景虚化，柔光',
+  '无人机航拍俯瞰城市天际线，日落晚霞，延时摄影',
+  '镜头跟随一只蝴蝶穿过花丛，慢动作，色彩鲜艳',
+  '推近镜头：一杯热气腾腾的咖啡放在木桌上，蒸汽袅袅升起',
+  '360度环绕拍摄一辆跑车在赛道上疾驰，动感',
+  '镜头从水下缓缓升起，穿越水面进入阳光明媚的世界'
+]
+
+const showAdvanced = ref(false)
+const showPromptTips = ref(false)
 
 const durations = computed(() => {
   const options = generationMeta.value.video?.durationOptions || []
@@ -1075,10 +1153,13 @@ const getTaskThumbUrl = (task: { id: number; resultAssetId?: number }) => {
 // 清除表单
 const clearForm = () => {
   form.prompt = ''
+  form.negativePrompt = ''
   form.modelName = ''
   form.duration = defaultVideoDuration.value
   form.cameraMotion = defaultCameraMotion.value
   form.motionSpeed = 5
+  form.aspectRatio = '16:9'
+  form.seed = null
   selectedImageAsset.value = null
   selectedEndAsset.value = null
   message.info('表单已重置')
@@ -1155,14 +1236,20 @@ const handleStartGenerate = async () => {
       projectId: projectStore.activeProjectId,
       providerId: form.providerId,
       prompt: form.prompt,
+      negativePrompt: form.negativePrompt,
       modelName: form.modelName,
       sourceAssetId: selectedImageAsset.value?.id,
       endAssetId: selectedEndAsset.value?.id,
       duration: form.duration,
+      aspectRatio: form.aspectRatio,
+      seed: form.seed,
       options: {
         modelName: form.modelName,
         cameraMotion: form.cameraMotion,
-        motionSpeed: form.motionSpeed
+        motionSpeed: form.motionSpeed,
+        aspectRatio: form.aspectRatio,
+        negativePrompt: form.negativePrompt,
+        seed: form.seed
       }
     }
     const res = await generationApi.generateVideo({
@@ -2053,5 +2140,79 @@ onBeforeUnmount(() => {
 
 .history-thumb-box:hover .thumb-remove {
   opacity: 1;
+}
+
+/* 新控件样式 — 即梦 SD2.0 风格 */
+
+/* 画面比例选择 */
+.ratio-group {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  width: 100%;
+}
+.ratio-card {
+  padding: 6px 14px;
+  border: 1px solid var(--border-color);
+  background: rgba(128, 128, 128, 0.02);
+  border-radius: 8px;
+  font-size: 12px;
+  color: #cbd5e1;
+  cursor: pointer;
+  transition: all 0.25s;
+  user-select: none;
+}
+.ratio-card:hover {
+  border-color: rgba(255, 255, 255, 0.25);
+  background: rgba(255, 255, 255, 0.04);
+}
+.ratio-card.active {
+  border-color: #f59e0b;
+  background: rgba(245, 158, 11, 0.08);
+  color: #f59e0b;
+  font-weight: 600;
+}
+
+/* 提示词灵感推荐 */
+.prompt-extra-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: 4px;
+}
+.prompt-count {
+  font-size: 11px;
+  color: #6b7280;
+}
+.prompt-suggestions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+.suggestion-chip {
+  padding: 5px 10px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 16px;
+  font-size: 11px;
+  color: #9ca3af;
+  background: rgba(255, 255, 255, 0.02);
+  cursor: pointer;
+  transition: all 0.2s;
+  white-space: nowrap;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.suggestion-chip:hover {
+  border-color: rgba(245, 158, 11, 0.3);
+  background: rgba(245, 158, 11, 0.06);
+  color: #f59e0b;
+}
+
+.inline-icon {
+  width: 14px;
+  height: 14px;
+  vertical-align: middle;
 }
 </style>
