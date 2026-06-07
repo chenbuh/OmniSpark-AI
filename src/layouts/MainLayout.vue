@@ -1218,7 +1218,7 @@ let notificationPollTimer: ReturnType<typeof setInterval> | null = null
 const NOTIFICATION_HEADERS = { 'X-No-Cache': '1' }
 let notificationErrorNotified = false
 
-const unreadBadgeValue = computed(() => unreadCount.value == null ? false : unreadCount.value)
+const unreadBadgeValue = computed(() => unreadCount.value == null ? 0 : unreadCount.value)
 const unreadCountLabel = computed(() => unreadCount.value == null ? '未读待确认' : `${unreadCount.value} 未读`)
 const hasUnreadNotifications = computed(() => (unreadCount.value ?? 0) > 0)
 

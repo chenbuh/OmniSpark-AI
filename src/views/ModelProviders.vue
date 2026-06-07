@@ -10,7 +10,7 @@
     <n-card class="glass-card table-card" :bordered="false">
       <div class="actions-bar">
         <span class="count-lbl">当前项目已配置: {{ currentProviders.length }} 个</span>
-        <n-button type="primary" size="medium" :disabled="providerMetaLoadState === 'loading' || !canCreateCurrentProject" @click="handleOpenAddModal">
+        <n-button type="primary" size="medium" :disabled="!canCreateCurrentProject" @click="handleOpenAddModal">
           <template #icon><Plus /></template>添加提供商
         </n-button>
       </div>
