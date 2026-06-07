@@ -19,6 +19,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import java.nio.file.Files;
+import java.nio.file.LinkOption;
 import java.nio.file.Path;
 import java.util.Comparator;
 import java.util.*;
@@ -41,21 +42,46 @@ public class FileManagerController {
 
     @GetMapping
     public ApiResult<Map<String, Object>> list(@RequestParam(defaultValue = "") String path) {
+        String requestedPath = normalizeRequestedPath(path);
         Map<String, Object> result = new LinkedHashMap<>();
         List<Map<String, Object>> files = new ArrayList<>();
         List<Map<String, Object>> dirs = new ArrayList<>();
+        result.put("available", false);
+        result.put("message", "");
+        result.put("requestedPath", requestedPath);
+        result.put("currentPath", requestedPath);
+        result.put("parentPath", getParentPath(requestedPath));
+        result.put("uploadDir", "");
+        result.put("items", List.of());
+        result.put("total", 0);
 
         try {
             Path baseDir = uploadStorageResolver.getUploadRoot();
-            Path targetDir = baseDir.resolve(path).normalize();
+            result.put("uploadDir", baseDir.toString());
+            if (!Files.exists(baseDir)) {
+                result.put("message", "上传目录尚未初始化，当前没有可浏览文件");
+                return ApiResult.ok(result);
+            }
+            if (!Files.isDirectory(baseDir)) {
+                result.put("message", "上传目录配置无效，目标不是目录");
+                return ApiResult.ok(result);
+            }
+
+            Path targetDir = baseDir.resolve(requestedPath).normalize();
 
             // 安全检查：禁止超出 uploads 目录
             if (!targetDir.startsWith(baseDir)) {
-                return ApiResult.fail("路径不合法");
+                result.put("message", "路径不合法");
+                return ApiResult.ok(result);
             }
 
-            if (!Files.exists(targetDir)) {
-                return ApiResult.fail("目录不存在");
+            if (!Files.exists(targetDir) || !Files.isDirectory(targetDir)) {
+                result.put("message", "目录不存在");
+                return ApiResult.ok(result);
+            }
+            if (!isRealPathWithinBase(targetDir, baseDir)) {
+                result.put("message", "目录超出允许访问范围");
+                return ApiResult.ok(result);
             }
 
             try (var stream = Files.list(targetDir)) {
@@ -96,12 +122,13 @@ public class FileManagerController {
             all.addAll(files);
 
             result.put("items", all);
-            result.put("currentPath", path);
-            result.put("parentPath", getParentPath(path));
+            result.put("available", true);
+            result.put("currentPath", requestedPath);
+            result.put("parentPath", getParentPath(requestedPath));
             result.put("total", all.size());
 
         } catch (Exception e) {
-            return ApiResult.fail("读取文件列表失败: " + e.getMessage());
+            result.put("message", "读取文件列表失败: " + e.getMessage());
         }
 
         return ApiResult.ok(result);
@@ -118,6 +145,9 @@ public class FileManagerController {
             if (!Files.exists(target)) {
                 return ApiResult.fail("文件或目录不存在");
             }
+            if (!isRealPathWithinBase(target, baseDir)) {
+                return ApiResult.fail("目标超出允许访问范围");
+            }
             clearDatabaseReferences(target, baseDir);
             deleteRecursively(target);
             cachedStats = null;
@@ -133,7 +163,7 @@ public class FileManagerController {
         try {
             Path baseDir = uploadStorageResolver.getUploadRoot();
             Path target = baseDir.resolve(path).normalize();
-            if (!target.startsWith(baseDir) || !Files.exists(target)) {
+            if (!target.startsWith(baseDir) || !Files.exists(target) || !isRealPathWithinBase(target, baseDir)) {
                 return ResponseEntity.notFound().build();
             }
             String mime = Files.probeContentType(target);
@@ -155,32 +185,56 @@ public class FileManagerController {
         }
 
         Map<String, Object> stats = new LinkedHashMap<>();
+        stats.put("available", false);
+        stats.put("message", "");
+        stats.put("uploadDir", "");
+        stats.put("uploadDirExists", false);
+        stats.put("totalSize", 0L);
+        stats.put("fileCount", 0L);
+        stats.put("totalSizeReadable", formatSize(0L));
         try {
             Path baseDir = uploadStorageResolver.getUploadRoot();
+            stats.put("uploadDir", baseDir.toString());
+            if (!Files.exists(baseDir)) {
+                stats.put("message", "上传目录尚未初始化，当前没有可统计文件");
+                cachedStats = stats;
+                cachedStatsAt = now;
+                return ApiResult.ok(stats);
+            }
+            if (!Files.isDirectory(baseDir)) {
+                stats.put("message", "上传目录配置无效，目标不是目录");
+                cachedStats = stats;
+                cachedStatsAt = now;
+                return ApiResult.ok(stats);
+            }
+
             long totalSize = 0L;
             long fileCount = 0L;
-            if (Files.exists(baseDir)) {
-                try (var stream = Files.walk(baseDir)) {
-                    var iterator = stream.iterator();
-                    while (iterator.hasNext()) {
-                        Path current = iterator.next();
-                        if (Files.isRegularFile(current)) {
-                            totalSize += Files.size(current);
-                            fileCount++;
-                        }
+            stats.put("uploadDirExists", true);
+            try (var stream = Files.walk(baseDir)) {
+                var iterator = stream.iterator();
+                while (iterator.hasNext()) {
+                    Path current = iterator.next();
+                    if (Files.isRegularFile(current)) {
+                        totalSize += Files.size(current);
+                        fileCount++;
                     }
                 }
             }
+            stats.put("available", true);
             stats.put("totalSize", totalSize);
             stats.put("fileCount", fileCount);
-            stats.put("uploadDir", baseDir.toString());
             stats.put("totalSizeReadable", formatSize(totalSize));
         } catch (Exception e) {
-            return ApiResult.fail("读取文件统计失败: " + e.getMessage());
+            stats.put("message", "读取文件统计失败: " + e.getMessage());
         }
         cachedStats = stats;
         cachedStatsAt = now;
         return ApiResult.ok(stats);
+    }
+
+    private String normalizeRequestedPath(String path) {
+        return path == null ? "" : path.trim();
     }
 
     private String getParentPath(String path) {
@@ -225,7 +279,7 @@ public class FileManagerController {
     }
 
     private void deleteRecursively(Path target) throws Exception {
-        if (Files.isDirectory(target)) {
+        if (Files.isDirectory(target, LinkOption.NOFOLLOW_LINKS)) {
             try (var stream = Files.walk(target)) {
                 stream.sorted(Comparator.reverseOrder()).forEach(path -> {
                     try {
@@ -252,5 +306,15 @@ public class FileManagerController {
             return "";
         }
         return "/uploads/" + normalized;
+    }
+
+    private boolean isRealPathWithinBase(Path target, Path baseDir) {
+        try {
+            Path realBaseDir = baseDir.toRealPath();
+            Path realTarget = target.toRealPath();
+            return realTarget.startsWith(realBaseDir);
+        } catch (Exception ex) {
+            return false;
+        }
     }
 }

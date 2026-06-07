@@ -4,6 +4,7 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.example.aihub.common.exception.BusinessException;
 import com.example.aihub.common.result.PageResult;
+import com.example.aihub.common.security.SensitiveValueMasker;
 import com.example.aihub.common.util.PagingUtil;
 import com.example.aihub.common.util.VoMapper;
 import com.example.aihub.infrastructure.dto.ModelProviderSaveDTO;
@@ -58,6 +59,7 @@ public class ModelProviderService {
             .connectTimeout(Duration.ofSeconds(20))
             .build();
 
+    /** 静态系统配置：返回前端表单所需的固定选项，不读取业务表。 */
     public Map<String, Object> meta() {
         return Map.of(
                 "providerTypes", PROVIDER_TYPE_OPTIONS,
@@ -117,25 +119,18 @@ public class ModelProviderService {
     }
 
     static String maskApiKey(String apiKey) {
-        if (apiKey == null || apiKey.isBlank()) {
-            return apiKey;
-        }
-        String trimmed = apiKey.trim();
-        if (trimmed.length() <= 8) {
-            return "****";
-        }
-        return trimmed.substring(0, 4) + "****" + trimmed.substring(trimmed.length() - 4);
+        return SensitiveValueMasker.maskKeepingEdges(apiKey, 4, 4);
     }
 
     /** 判断前端回传的值是否为掩码占位（未修改原始密钥）。 */
     static boolean isMaskedValue(String value) {
-        return value != null && value.contains("****");
+        return SensitiveValueMasker.looksMasked(value);
     }
 
     @Transactional(rollbackFor = Exception.class)
     public ModelProviderVO create(ModelProviderSaveDTO dto) {
         ModelProvider provider = toEntity(dto);
-        projectAccessGuard.assertAccess(provider.getProjectId());
+        projectAccessGuard.assertEditAccess(provider.getProjectId());
         validateProviderBeforeSave(provider);
         providerMapper.insert(provider);
         applyDefaultRule(provider);
@@ -148,9 +143,9 @@ public class ModelProviderService {
         if (provider == null) {
             throw new BusinessException("模型提供商不存在");
         }
-        projectAccessGuard.assertAccess(provider.getProjectId());
+        projectAccessGuard.assertEditAccess(provider.getProjectId());
         if (dto.getProjectId() != null) {
-            projectAccessGuard.assertAccess(dto.getProjectId());
+            projectAccessGuard.assertEditAccess(dto.getProjectId());
             provider.setProjectId(dto.getProjectId());
         }
         if (dto.getName() != null) {
@@ -189,7 +184,7 @@ public class ModelProviderService {
         if (provider == null) {
             throw new BusinessException("模型提供商不存在");
         }
-        projectAccessGuard.assertAccess(provider.getProjectId());
+        projectAccessGuard.assertEditAccess(provider.getProjectId());
         providerMapper.deleteById(id);
     }
 
@@ -198,7 +193,7 @@ public class ModelProviderService {
         if (provider == null) {
             throw new BusinessException("模型提供商不存在");
         }
-        projectAccessGuard.assertAccess(provider.getProjectId());
+        projectAccessGuard.assertEditAccess(provider.getProjectId());
         if (isBlank(provider.getBaseUrl()) || isBlank(provider.getApiKey())) {
             throw new BusinessException("API Key 或 Base URL 不能为空");
         }

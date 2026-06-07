@@ -120,6 +120,7 @@ public class GenerationService {
             .connectTimeout(Duration.ofSeconds(60))
             .build();
 
+    /** 静态系统配置：返回生成面板固定枚举，不代表实时业务数据。 */
     public Map<String, Object> meta() {
         return Map.of(
                 "image", Map.of(
@@ -174,7 +175,7 @@ public class GenerationService {
         if (dto.getReferenceAssetIds() == null || dto.getReferenceAssetIds().isEmpty()) {
             throw new BusinessException("局部重绘需要提供原始参考图");
         }
-        projectAccessGuard.assertAccess(dto.getProjectId());
+        projectAccessGuard.assertEditAccess(dto.getProjectId());
         dto.setOptions(normalizeImageOptions(dto.getOptions()));
         ModelProvider provider = requireProvider(dto.getProviderId(), dto.getProjectId(), "image");
         Long userId = SecurityUtil.loginUserId();
@@ -186,7 +187,7 @@ public class GenerationService {
     }
 
     public GenerationTaskVO generateImage(ImageGenerateDTO dto) {
-        projectAccessGuard.assertAccess(dto.getProjectId());
+        projectAccessGuard.assertEditAccess(dto.getProjectId());
         dto.setOptions(normalizeImageOptions(dto.getOptions()));
         ModelProvider provider = requireProvider(dto.getProviderId(), dto.getProjectId(), "image");
         Long userId = SecurityUtil.loginUserId();
@@ -198,7 +199,7 @@ public class GenerationService {
     }
 
     public GenerationTaskVO generateVideo(VideoGenerateDTO dto) {
-        projectAccessGuard.assertAccess(dto.getProjectId());
+        projectAccessGuard.assertEditAccess(dto.getProjectId());
         dto.setDuration(normalizeVideoDuration(dto.getDuration()));
         dto.setOptions(normalizeVideoOptions(dto.getOptions()));
         ModelProvider provider = requireProvider(dto.getProviderId(), dto.getProjectId(), "video");
@@ -217,7 +218,7 @@ public class GenerationService {
     }
 
     public Map<String, Object> optimizeImagePrompt(PromptOptimizeDTO dto) {
-        projectAccessGuard.assertAccess(dto.getProjectId());
+        projectAccessGuard.assertEditAccess(dto.getProjectId());
         ModelProvider provider = resolvePromptOptimizerProvider(dto.getProjectId(), dto.getProviderId());
         String modelName = resolvePromptOptimizerModel(provider, dto.getModelName());
         if (modelName == null || modelName.isBlank()) {
@@ -242,7 +243,7 @@ public class GenerationService {
         if (oldTask == null) {
             throw new BusinessException("任务不存在");
         }
-        projectAccessGuard.assertAccess(oldTask.getProjectId());
+        projectAccessGuard.assertEditAccess(oldTask.getProjectId());
         try {
             Map<String, Object> request = objectMapper.readValue(oldTask.getRequestJson(), Map.class);
             if ("image".equals(oldTask.getTaskType())) {
@@ -264,7 +265,7 @@ public class GenerationService {
         if (task == null) {
             throw new BusinessException("任务不存在");
         }
-        projectAccessGuard.assertAccess(task.getProjectId());
+        projectAccessGuard.assertEditAccess(task.getProjectId());
         deleteTaskInternal(id);
     }
 

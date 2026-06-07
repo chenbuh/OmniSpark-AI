@@ -13,6 +13,7 @@ import com.example.aihub.common.util.PagingUtil;
 import com.example.aihub.infrastructure.entity.GenerationTask;
 import com.example.aihub.infrastructure.entity.User;
 import com.example.aihub.infrastructure.mapper.*;
+import com.example.aihub.infrastructure.vo.UserVO;
 import lombok.RequiredArgsConstructor;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
@@ -24,6 +25,7 @@ import org.springframework.web.bind.annotation.RestController;
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
 import java.util.*;
+import java.util.stream.Collectors;
 
 @RestController
 @RequiredArgsConstructor
@@ -31,6 +33,9 @@ import java.util.*;
 @SaCheckLogin
 @SaCheckRole("admin")
 public class AdminStatsController {
+    private static final String EXPORT_SCOPE = "admin-dashboard-snapshot";
+    private static final String EXPORT_NOTICE = "当前导出仅包含管理仪表盘概览、最近 7 天趋势快照与导出时刻的用户列表，不是完整 BI 报表或历史归档";
+
     private final UserMapper userMapper;
     private final ProjectMapper projectMapper;
     private final GenerationTaskMapper taskMapper;
@@ -64,15 +69,16 @@ public class AdminStatsController {
     }
 
     @GetMapping("/users")
-    public ApiResult<PageResult<User>> users(@RequestParam(defaultValue = "1") long page,
-                                             @RequestParam(defaultValue = "10") long pageSize) {
+    public ApiResult<PageResult<UserVO>> users(@RequestParam(defaultValue = "1") long page,
+                                               @RequestParam(defaultValue = "10") long pageSize) {
         long safePage = PagingUtil.normalizePage(page);
         long safePageSize = PagingUtil.clampPageSize(pageSize, 10);
         var result = userMapper.selectPage(
                 new Page<>(safePage, safePageSize),
                 new LambdaQueryWrapper<User>()
                         .orderByDesc(User::getId));
-        return ApiResult.ok(new PageResult<>(result.getTotal(), result.getPages(), result.getRecords()));
+        return ApiResult.ok(new PageResult<>(result.getTotal(), result.getPages(),
+                result.getRecords().stream().map(this::toUserVO).collect(Collectors.toList())));
     }
 
     @GetMapping("/trends")
@@ -138,6 +144,18 @@ public class AdminStatsController {
         return item;
     }
 
+    private UserVO toUserVO(User user) {
+        UserVO vo = new UserVO();
+        vo.setId(user.getId());
+        vo.setUsername(user.getUsername());
+        vo.setNickname(user.getNickname());
+        vo.setAvatar(user.getAvatar());
+        vo.setRole(user.getRole());
+        vo.setStatus(user.getStatus());
+        vo.setCreatedAt(user.getCreatedAt());
+        return vo;
+    }
+
     @GetMapping("/export/csv")
     @RateLimit(count = 10, seconds = 3600, dimension = RateLimit.Dimension.IP, message = "统计导出过于频繁，请稍后再试")
     @RateLimit(count = 5, seconds = 3600, dimension = RateLimit.Dimension.USER_API, message = "统计导出过于频繁，请稍后再试")
@@ -146,6 +164,8 @@ public class AdminStatsController {
         response.setHeader("Content-Disposition", "attachment;filename=stats_" + LocalDate.now() + ".csv");
 
         StringBuilder csv = new StringBuilder();
+        csv.append("# scope,").append(com.example.aihub.common.util.CsvUtil.escape(EXPORT_SCOPE)).append("\n");
+        csv.append("# notice,").append(com.example.aihub.common.util.CsvUtil.escape(EXPORT_NOTICE)).append("\n");
         csv.append("# canary,").append(com.example.aihub.common.util.CsvUtil.escape(
                 canaryTokenService.create("admin_stats_csv", "stats", request))).append("\n");
         csv.append("指标,数值\n");

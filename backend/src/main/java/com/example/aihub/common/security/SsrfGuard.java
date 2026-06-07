@@ -1,6 +1,8 @@
 package com.example.aihub.common.security;
 
 import com.example.aihub.common.exception.BusinessException;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.stereotype.Component;
 
 import java.net.InetAddress;
 import java.net.URI;
@@ -8,13 +10,17 @@ import java.net.UnknownHostException;
 
 /**
  * SSRF 防护：在服务端对用户可控的 URL 发起请求前，校验目标主机不指向内网 / 保留网段 / 云元数据地址。
- *
- * 设计取舍：本应用以本地运行为主，用户可能合法地把模型提供商指向本机的 OpenAI 兼容代理
- * （如 Ollama / LM Studio），因此默认放行回环地址(localhost)，但拦截私有网段、链路本地
- * （含 169.254.169.254 云元数据）、任意地址与组播地址，以阻断内网横向与元数据窃取。
  */
+@Component
 public final class SsrfGuard {
-    private SsrfGuard() {
+    private static volatile boolean allowLoopbackTargets;
+
+    @Value("${app.security.allow-loopback-targets:false}")
+    void setAllowLoopbackTargets(boolean allowLoopbackTargets) {
+        SsrfGuard.allowLoopbackTargets = allowLoopbackTargets;
+    }
+
+    public SsrfGuard() {
     }
 
     /** 校验 URL 的协议与目标主机是否安全，不安全则抛出业务异常。 */
@@ -52,12 +58,12 @@ public final class SsrfGuard {
 
     private static boolean isBlocked(InetAddress addr) {
         if (addr.isAnyLocalAddress()      // 0.0.0.0 / ::
+                || (!allowLoopbackTargets && addr.isLoopbackAddress()) // localhost / 127.0.0.1 / ::1
                 || addr.isLinkLocalAddress()   // 169.254.0.0/16（含云元数据 169.254.169.254）/ fe80::/10
                 || addr.isSiteLocalAddress()   // 10/8, 172.16/12, 192.168/16
                 || addr.isMulticastAddress()) {
             return true;
         }
-        // 回环地址（localhost / 127.0.0.0/8 / ::1）在本地运行场景下放行
         return false;
     }
 }

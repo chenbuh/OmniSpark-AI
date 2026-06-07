@@ -7,6 +7,7 @@
 
     <n-card class="glass-card" :bordered="false">
       <div v-if="configsLoadState === 'error'" class="status-note">系统配置待确认，请稍后重试。</div>
+      <div v-else-if="configsLoadState === 'ready'" class="status-hint">包含密钥、令牌、密码等关键字的配置项会按 `configKey` 规则脱敏显示；编辑敏感项时需输入新值覆盖。</div>
       <div v-if="loadingConfigs && configs === null" class="loading-box">
         <n-spin size="small" />
       </div>
@@ -25,8 +26,16 @@
             <td><code>#{{ cfg.id }}</code></td>
             <td><code>{{ cfg.configKey }}</code></td>
             <td>
-              <n-input v-if="editingId === cfg.id" v-model:value="editValue" size="small" />
-              <span v-else class="cfg-val">{{ cfg.configValue }}</span>
+              <n-input
+                v-if="editingId === cfg.id"
+                v-model:value="editValue"
+                size="small"
+                :placeholder="cfg.sensitive ? '输入新的敏感配置值' : ''"
+              />
+              <span v-else class="cfg-val">
+                {{ cfg.configValue }}
+                <n-tag v-if="cfg.sensitive" size="tiny" type="warning" style="margin-left:8px;">已脱敏</n-tag>
+              </span>
             </td>
             <td><n-tag size="small">{{ cfg.configGroup }}</n-tag></td>
             <td>
@@ -47,6 +56,7 @@
     <!-- 系统状态 -->
     <n-card class="glass-card" :bordered="false" style="margin-top:20px;">
       <template #header><span style="font-weight:600;color:#e5e7eb;">系统状态</span></template>
+      <div v-if="healthLoadState === 'ready' && health" class="status-hint">{{ health.message }}</div>
       <div v-if="healthLoadState === 'error'" class="status-note">系统健康状态待确认，请稍后重试。</div>
       <div v-else-if="healthLoadState === 'loading'" class="loading-box">
         <n-spin size="small" />
@@ -81,6 +91,7 @@ interface SystemConfigItem {
   configKey: string
   configValue: string
   configGroup: string
+  sensitive: boolean
 }
 
 interface SystemHealth {
@@ -88,6 +99,8 @@ interface SystemHealth {
   database: ServiceHealthStatus
   redis: ServiceHealthStatus
   version: string
+  scope: string
+  message: string
   uptimeReadable: string
   startedAt: string
 }
@@ -144,14 +157,16 @@ function normalizeConfigItem(item: unknown): SystemConfigItem {
   const configKey = typeof item.configKey === 'string' ? item.configKey.trim() : ''
   const configValue = typeof item.configValue === 'string' ? item.configValue : ''
   const configGroup = typeof item.configGroup === 'string' ? item.configGroup.trim() : ''
-  if (!Number.isFinite(id) || id <= 0 || !configKey || !configGroup) {
+  const sensitive = typeof item.sensitive === 'boolean' ? item.sensitive : null
+  if (!Number.isFinite(id) || id <= 0 || !configKey || !configGroup || sensitive === null) {
     throw new Error('系统配置待确认')
   }
   return {
     id,
     configKey,
     configValue,
-    configGroup
+    configGroup,
+    sensitive
   }
 }
 
@@ -185,6 +200,8 @@ function requireHealthStatus(value: unknown): SystemHealth {
     database: normalizeServiceHealthStatus(value.database),
     redis: normalizeServiceHealthStatus(value.redis),
     version,
+    scope: typeof value.scope === 'string' ? value.scope.trim() : '',
+    message: typeof value.message === 'string' ? value.message.trim() : '',
     uptimeReadable: typeof value.uptimeReadable === 'string' ? value.uptimeReadable.trim() : '',
     startedAt: typeof value.startedAt === 'string' ? value.startedAt.trim() : ''
   }
@@ -233,21 +250,26 @@ onMounted(() => { loadConfigs(); loadHealth() })
 
 function startEdit(cfg: SystemConfigItem) {
   editingId.value = cfg.id
-  editValue.value = cfg.configValue
+  editValue.value = cfg.sensitive ? '' : cfg.configValue
 }
 
 async function handleSave(id: number) {
   try {
     const previousCount = configs.value?.length
     const currentConfig = configs.value?.find(item => item.id === id)
+    if (currentConfig?.sensitive && !editValue.value.trim()) {
+      throw new Error('请输入新的敏感配置值')
+    }
     const nextValue = editValue.value
     await request.put(`/api/admin/config/${id}?value=${encodeURIComponent(editValue.value)}`)
     await loadConfigs()
     const confirmed = configs.value?.find(item => item.id === id)
     if (
       !confirmed
-      || confirmed.configValue !== nextValue
       || (currentConfig && (confirmed.configKey !== currentConfig.configKey || confirmed.configGroup !== currentConfig.configGroup))
+      || (currentConfig && confirmed.sensitive !== currentConfig.sensitive)
+      || (!currentConfig?.sensitive && confirmed.configValue !== nextValue)
+      || (currentConfig?.sensitive && nextValue.trim() !== '' && confirmed.configValue === '')
       || (typeof previousCount === 'number' && configs.value?.length !== previousCount)
     ) {
       throw new Error('配置更新结果待确认')
@@ -271,6 +293,7 @@ async function handleSave(id: number) {
 .glass-card { background: rgba(15,23,42,0.4) !important; backdrop-filter: blur(16px); border: 1px solid rgba(255,255,255,0.08) !important; border-radius: 16px !important; }
 .loading-box { display: flex; justify-content: center; padding: 24px 0; }
 .status-note { margin-bottom: 12px; font-size: 12px; color: #fca5a5; }
+.status-hint { margin-bottom: 12px; font-size: 12px; color: #9ca3af; }
 .config-table { background: transparent !important; }
 .config-table th { background: rgba(255,255,255,0.02) !important; color: #9ca3af !important; border-bottom: 1px solid rgba(255,255,255,0.06) !important; font-size: 12px; }
 .config-table td { border-bottom: 1px solid rgba(255,255,255,0.04) !important; color: #e5e7eb; padding: 10px 8px; font-size: 13px; }

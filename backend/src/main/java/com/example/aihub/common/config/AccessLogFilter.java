@@ -53,7 +53,7 @@ public class AccessLogFilter implements Filter {
     private void record(HttpServletRequest request, int status, long durationMs, String clientIp) {
         try {
             AccessLog log = new AccessLog();
-            log.setUserId(currentUserId());
+            log.setUserId(currentUserId(request));
             log.setApiKeyId(asLong(request.getAttribute(SecurityRequestAttributes.API_KEY_ID)));
             log.setClientIp(clientIp);
             log.setUserAgent(truncate(request.getHeader("User-Agent"), 500));
@@ -75,7 +75,11 @@ public class AccessLogFilter implements Filter {
         return path != null && (path.startsWith("/api/") || path.startsWith("/uploads/"));
     }
 
-    private Long currentUserId() {
+    private Long currentUserId(HttpServletRequest request) {
+        Long apiKeyUserId = asLong(request.getAttribute(SecurityRequestAttributes.API_KEY_USER_ID));
+        if (apiKeyUserId != null) {
+            return apiKeyUserId;
+        }
         try {
             if (StpUtil.isLogin()) {
                 return Long.valueOf(StpUtil.getLoginIdAsString());

@@ -17,6 +17,7 @@ import com.example.aihub.infrastructure.mapper.WorkflowMapper;
 import com.example.aihub.infrastructure.mapper.WorkflowRunMapper;
 import com.example.aihub.infrastructure.vo.GenerationTaskVO;
 import com.example.aihub.infrastructure.vo.SubtitleVO;
+import com.example.aihub.infrastructure.vo.WorkflowMetaVO;
 import com.example.aihub.infrastructure.vo.WorkflowRunVO;
 import com.example.aihub.infrastructure.vo.WorkflowVO;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -67,18 +68,21 @@ public class WorkflowService {
     private final com.example.aihub.common.security.ProjectAccessGuard projectAccessGuard;
     private final UploadAccessSignatureService uploadAccessSignatureService;
 
-    public Map<String, Object> meta() {
-        return Map.of(
-                "stepTypes", STEP_TYPE_OPTIONS,
-                "imageSizes", IMAGE_SIZE_OPTIONS,
-                "videoDurations", VIDEO_DURATION_OPTIONS,
-                "subtitleLanguages", SUBTITLE_LANGUAGE_OPTIONS,
-                "defaults", Map.of(
-                        "imageSize", DEFAULT_IMAGE_SIZE,
-                        "videoDuration", DEFAULT_VIDEO_DURATION,
-                        "subtitleLanguage", DEFAULT_SUBTITLE_LANGUAGE
-                )
-        );
+    /** 静态系统配置：用于轻量顺序工作流表单，不依赖数据库动态扩展。 */
+    public WorkflowMetaVO meta() {
+        WorkflowMetaVO meta = new WorkflowMetaVO();
+        meta.setScope("sequential-step-runner");
+        meta.setMessage("当前只支持固定 3 类步骤（生图 / 生视频 / 字幕）的顺序执行；可复用上一步产物，但不支持分支、并行、条件判断、人工审批或外部节点扩展。");
+        meta.setStepTypes(STEP_TYPE_OPTIONS);
+        meta.setImageSizes(IMAGE_SIZE_OPTIONS);
+        meta.setVideoDurations(VIDEO_DURATION_OPTIONS);
+        meta.setSubtitleLanguages(SUBTITLE_LANGUAGE_OPTIONS);
+        WorkflowMetaVO.Defaults defaults = new WorkflowMetaVO.Defaults();
+        defaults.setImageSize(DEFAULT_IMAGE_SIZE);
+        defaults.setVideoDuration(DEFAULT_VIDEO_DURATION);
+        defaults.setSubtitleLanguage(DEFAULT_SUBTITLE_LANGUAGE);
+        meta.setDefaults(defaults);
+        return meta;
     }
 
     public PageResult<WorkflowVO> page(Long projectId, String keyword, long page, long pageSize) {
@@ -135,7 +139,7 @@ public class WorkflowService {
 
     @Transactional(rollbackFor = Exception.class)
     public WorkflowVO create(WorkflowSaveDTO dto) {
-        projectAccessGuard.assertAccess(dto.getProjectId());
+        projectAccessGuard.assertEditAccess(dto.getProjectId());
         Workflow workflow = new Workflow();
         workflow.setProjectId(dto.getProjectId());
         workflow.setName(dto.getName());
@@ -152,8 +156,8 @@ public class WorkflowService {
         if (workflow == null) {
             throw new BusinessException("工作流不存在");
         }
-        projectAccessGuard.assertAccess(workflow.getProjectId());
-        projectAccessGuard.assertAccess(dto.getProjectId());
+        projectAccessGuard.assertEditAccess(workflow.getProjectId());
+        projectAccessGuard.assertEditAccess(dto.getProjectId());
         workflow.setProjectId(dto.getProjectId());
         workflow.setName(dto.getName());
         workflow.setDescription(dto.getDescription());
@@ -168,7 +172,7 @@ public class WorkflowService {
         if (workflow == null) {
             throw new BusinessException("工作流不存在");
         }
-        projectAccessGuard.assertAccess(workflow.getProjectId());
+        projectAccessGuard.assertEditAccess(workflow.getProjectId());
         workflowMapper.deleteById(id);
         runMapper.delete(new LambdaQueryWrapper<WorkflowRun>().eq(WorkflowRun::getWorkflowId, id));
     }
@@ -178,7 +182,7 @@ public class WorkflowService {
         if (workflow == null) {
             throw new BusinessException("工作流不存在");
         }
-        projectAccessGuard.assertAccess(workflow.getProjectId());
+        projectAccessGuard.assertEditAccess(workflow.getProjectId());
         return runMapper.selectList(new LambdaQueryWrapper<WorkflowRun>()
                         .eq(WorkflowRun::getWorkflowId, workflowId)
                         .orderByDesc(WorkflowRun::getId)
@@ -218,7 +222,7 @@ public class WorkflowService {
         if (workflow == null) {
             throw new BusinessException("工作流不存在");
         }
-        projectAccessGuard.assertAccess(workflow.getProjectId());
+        projectAccessGuard.assertEditAccess(workflow.getProjectId());
 
         ArrayNode steps = parseStepsArray(workflow.getStepsJson());
         if (steps.isEmpty()) {

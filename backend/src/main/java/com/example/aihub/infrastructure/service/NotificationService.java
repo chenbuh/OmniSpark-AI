@@ -40,7 +40,7 @@ public class NotificationService {
         NotificationVO vo = toVO(notif);
         // 通过 WebSocket 实时推送给用户
         try {
-            messagingTemplate.convertAndSend("/topic/notifications/" + userId, vo);
+            messagingTemplate.convertAndSendToUser(String.valueOf(userId), "/topic/notifications", vo);
         } catch (Exception ignored) {}
         return vo;
     }

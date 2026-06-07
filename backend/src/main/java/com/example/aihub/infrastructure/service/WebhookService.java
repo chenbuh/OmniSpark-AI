@@ -3,6 +3,7 @@ package com.example.aihub.infrastructure.service;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.example.aihub.common.exception.BusinessException;
+import com.example.aihub.common.security.SsrfGuard;
 import com.example.aihub.common.result.PageResult;
 import com.example.aihub.common.util.PagingUtil;
 import com.example.aihub.infrastructure.entity.Webhook;
@@ -84,6 +85,7 @@ public class WebhookService {
         webhookMapper.deleteById(id);
     }
 
+    /** 固定事件集：当前不是动态订阅中心，事件列表由代码内枚举维护。 */
     public List<Map<String, String>> supportedEvents() {
         List<Map<String, String>> result = new ArrayList<>();
         for (String event : SUPPORTED_EVENTS.stream()
@@ -114,8 +116,9 @@ public class WebhookService {
                 payload.put("prompt", prompt);
                 payload.put("timestamp", System.currentTimeMillis());
 
+                String callbackUrl = normalizeUrl(wh.getUrl());
                 String body = objectMapper.writeValueAsString(payload);
-                HttpRequest.Builder builder = HttpRequest.newBuilder(URI.create(wh.getUrl()))
+                HttpRequest.Builder builder = HttpRequest.newBuilder(URI.create(callbackUrl))
                         .timeout(Duration.ofSeconds(15))
                         .header("Content-Type", "application/json");
                 if (wh.getSecret() != null && !wh.getSecret().isBlank()) {
@@ -157,6 +160,7 @@ public class WebhookService {
             if (uri.getHost() == null || uri.getHost().isBlank()) {
                 throw new BusinessException("Webhook 回调地址缺少主机名");
             }
+            SsrfGuard.validate(normalized);
             return normalized;
         } catch (IllegalArgumentException ex) {
             throw new BusinessException("Webhook 回调地址格式无效");

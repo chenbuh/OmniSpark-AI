@@ -8,7 +8,6 @@ import com.example.aihub.common.util.PagingUtil;
 import com.example.aihub.common.util.SecurityUtil;
 import com.example.aihub.common.util.VoMapper;
 import com.example.aihub.infrastructure.dto.ProjectSaveDTO;
-import com.example.aihub.infrastructure.dto.StyleCardSaveDTO;
 import com.example.aihub.infrastructure.entity.*;
 import com.example.aihub.infrastructure.mapper.*;
 import com.example.aihub.infrastructure.vo.*;
@@ -224,7 +223,7 @@ public class ProjectService {
     // ===== 导出/导入 =====
 
     public ProjectExportVO exportProject(Long projectId) {
-        projectAccessGuard.assertAccess(projectId);
+        projectAccessGuard.assertEditAccess(projectId);
         Project project = projectMapper.selectById(projectId);
         if (project == null) throw new BusinessException("项目不存在");
 
@@ -234,14 +233,12 @@ public class ProjectService {
         vo.setSourceBuildTime(buildMetadataService.buildTimeOrBlank());
         vo.setSourceBranch(buildMetadataService.currentBranch());
         vo.setSourceCommitSha(buildMetadataService.currentCommitSha());
-        vo.setAssetTransferMode("metadata-only");
-        vo.setAssetExportNotice("导出文件中的 assets 仅包含资产元数据，不包含可自动恢复的二进制文件；公共提示词模板与公共风格卡属于全局内容，不跟随项目导出。导入后请手动重新上传相关素材。");
+        vo.setExportScope("project-structure-and-asset-metadata");
+        vo.setExportNotice("当前导出仅包含项目本身、模型配置、工作流以及资产元数据；不包含资产二进制文件。出于安全考虑，模型提供商的 API Key 不会随导出文件带出，导入后请手动重新填写。公共提示词模板与公共风格卡属于全局内容，不跟随项目导出，导入后请手动重新上传相关素材。");
         vo.setProject(VoMapper.copy(project, ProjectVO.class));
         vo.setProviders(providerMapper.selectList(
                 new LambdaQueryWrapper<ModelProvider>().eq(ModelProvider::getProjectId, projectId))
-                .stream().map(p -> VoMapper.copy(p, ModelProviderVO.class)).toList());
-        vo.setPromptTemplates(List.of());
-        vo.setStyleCards(List.of());
+                .stream().map(this::toExportedProviderVO).toList());
         vo.setWorkflows(workflowMapper.selectList(
                 new LambdaQueryWrapper<Workflow>().eq(Workflow::getProjectId, projectId))
                 .stream().map(w -> {
@@ -268,7 +265,7 @@ public class ProjectService {
                     return m;
                 }).toList();
         vo.setAssets(exportedAssets);
-        vo.setExportedAssetCount(exportedAssets.size());
+        vo.setExportedAssetMetadataCount(exportedAssets.size());
         return vo;
     }
 
@@ -276,6 +273,13 @@ public class ProjectService {
     public ProjectImportResult importProject(ProjectExportVO data) {
         if (data.getProject() == null) throw new BusinessException("导入数据缺少项目信息");
         if (normalizeOptionalText(data.getVersion()).isBlank()) throw new BusinessException("导入数据缺少导出版本信息");
+        String exportScope = normalizeOptionalText(data.getExportScope());
+        if (exportScope.isBlank()) {
+            throw new BusinessException("仅支持新版项目结构导入文件，请先重新导出项目");
+        }
+        if (!"project-structure-and-asset-metadata".equals(exportScope)) {
+            throw new BusinessException("导入数据格式不受支持");
+        }
         String importedProjectName = normalizeOptionalText(data.getProject().getName());
         if (importedProjectName.isBlank()) throw new BusinessException("导入项目名称不能为空");
 
@@ -296,7 +300,7 @@ public class ProjectService {
                 entity.setName(p.getName());
                 entity.setType(p.getType());
                 entity.setBaseUrl(p.getBaseUrl());
-                entity.setApiKey(p.getApiKey());
+                entity.setApiKey(normalizeOptionalText(p.getApiKey()));
                 entity.setModelName(p.getModelName());
                 entity.setEnabled(normalizeStatusFlag(p.getEnabled(), 1));
                 entity.setIsDefault(normalizeStatusFlag(p.getIsDefault(), 0));
@@ -319,31 +323,30 @@ public class ProjectService {
             }
         }
 
-        int skippedAssetCount = data.getAssets() == null ? 0 : data.getAssets().size();
-        boolean hasLegacyPromptTemplates = data.getPromptTemplates() != null && !data.getPromptTemplates().isEmpty();
-        boolean hasLegacyStyleCards = data.getStyleCards() != null && !data.getStyleCards().isEmpty();
-        String importNotice = buildProjectImportNotice(skippedAssetCount, hasLegacyPromptTemplates, hasLegacyStyleCards);
+        int skippedAssetMetadataCount = data.getAssets() == null ? 0 : data.getAssets().size();
+        String importNotice = buildProjectImportNotice(skippedAssetMetadataCount);
         return new ProjectImportResult(
                 newId,
                 data.getProviders() == null ? 0 : data.getProviders().size(),
-                0,
-                0,
                 data.getWorkflows() == null ? 0 : data.getWorkflows().size(),
-                0,
-                skippedAssetCount,
+                skippedAssetMetadataCount,
                 importNotice
         );
     }
 
-    private String buildProjectImportNotice(int skippedAssetCount, boolean hasLegacyPromptTemplates, boolean hasLegacyStyleCards) {
+    private String buildProjectImportNotice(int skippedAssetMetadataCount) {
         List<String> notices = new ArrayList<>();
-        if (skippedAssetCount > 0) {
-            notices.add("导入文件中的资产仅包含元数据，当前不会自动恢复二进制文件，请手动重新上传。");
-        }
-        if (hasLegacyPromptTemplates || hasLegacyStyleCards) {
-            notices.add("导入文件中的提示词模板和风格卡属于旧版项目内数据；当前版本已改为公共库内容，本次不会恢复到项目空间。");
+        notices.add("模型提供商的 API Key 出于安全原因不会随导出文件带出，导入后请在模型配置中心手动补全。");
+        if (skippedAssetMetadataCount > 0) {
+            notices.add("导入文件中的资产仅包含元数据，当前不会自动恢复资产记录或二进制文件，请手动重新上传。");
         }
         return String.join(" ", notices);
+    }
+
+    private ModelProviderVO toExportedProviderVO(ModelProvider provider) {
+        ModelProviderVO vo = VoMapper.copy(provider, ModelProviderVO.class);
+        vo.setApiKey("");
+        return vo;
     }
 
     private ImportedWorkflowRecord requireImportedWorkflowRecord(Map<String, Object> workflowData) {
@@ -401,12 +404,9 @@ public class ProjectService {
 
     public record ProjectImportResult(
             Long projectId,
-            int importedProviderCount,
-            int importedPromptTemplateCount,
-            int importedStyleCardCount,
-            int importedWorkflowCount,
-            int importedAssetCount,
-            int skippedAssetCount,
-            String assetImportNotice
+            int restoredProviderCount,
+            int restoredWorkflowCount,
+            int skippedAssetMetadataCount,
+            String importNotice
     ) {}
 }

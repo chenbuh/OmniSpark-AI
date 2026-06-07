@@ -2,7 +2,7 @@
   <div class="admin-webhooks">
     <div class="page-header">
       <h2>Webhook 管理 (Webhooks)</h2>
-      <p class="subtitle">配置 Webhook，任务完成或失败时自动通知外部系统。</p>
+      <p class="subtitle">配置 Webhook，在任务开始、完成或失败时通知外部系统；当前事件集为代码内固定三项。</p>
     </div>
 
     <n-card class="glass-card" :bordered="false">
@@ -13,6 +13,7 @@
         </n-button>
       </div>
       <div v-if="eventOptionsLoadState === 'error'" class="status-note">Webhook 事件选项待确认，请稍后重试。</div>
+      <div v-else-if="eventOptionsLoadState === 'ready'" class="status-hint">当前页使用固定事件集，不是动态订阅中心；若后端未扩展事件代码，列表不会随数据库变化。</div>
 
       <div v-if="loadingList && list === null" class="loading-box">
         <n-spin size="small" />
@@ -65,7 +66,11 @@
         </n-form-item>
         <div v-if="eventOptionsLoadState === 'error'" class="status-note modal-status">当前无法确认可用事件类型，请稍后重试。</div>
         <n-form-item label="密钥 (Secret)">
-          <n-input v-model:value="form.secret" placeholder="可选，用于验证请求来源" />
+          <n-input
+            v-model:value="form.secret"
+            :placeholder="editingId && form.secretConfigured ? '留空表示保持现有密钥不变' : '可选，用于验证请求来源'"
+          />
+          <div v-if="editingId && form.secretConfigured" class="status-hint modal-status">当前已配置密钥；仅在这里输入新值时才会覆盖。</div>
         </n-form-item>
       </n-form>
       <template #footer>
@@ -87,7 +92,7 @@ interface WebhookRecord {
   url: string
   events: string[]
   status: boolean
-  secret: string
+  secretConfigured: boolean
 }
 
 interface WebhookEventOption {
@@ -106,7 +111,7 @@ const listLoadState = ref<'loading' | 'ready' | 'error'>('loading')
 const page = ref(1)
 const pageSize = 10
 const total = ref<number | null>(null)
-const form = reactive({ name: '', url: '', events: [] as string[], secret: '' })
+const form = reactive({ name: '', url: '', events: [] as string[], secret: '', secretConfigured: false })
 const eventLabelMap = computed(() => Object.fromEntries(eventOptions.value.map(item => [item.value, item.label])))
 const listCountDisplay = computed(() => total.value == null ? '-' : total.value)
 const NO_CACHE_HEADERS = { 'X-No-Cache': '1' }
@@ -131,7 +136,8 @@ function requireWebhook(value: unknown, action: 'create' | 'update'): WebhookRec
   const url = typeof value.url === 'string' ? value.url.trim() : ''
   const events = normalizeEvents(value.events)
   const status = normalizeBinaryStatus(value.status)
-  if (!Number.isFinite(id) || id <= 0 || !name || !url || events.length === 0 || status === null) {
+  const secretConfigured = normalizeBoolean(value.secretConfigured)
+  if (!Number.isFinite(id) || id <= 0 || !name || !url || events.length === 0 || status === null || secretConfigured === null) {
     throw new Error(action === 'create' ? 'Webhook 创建结果待确认' : 'Webhook 更新结果待确认')
   }
   return {
@@ -140,7 +146,7 @@ function requireWebhook(value: unknown, action: 'create' | 'update'): WebhookRec
     url,
     events,
     status,
-    secret: typeof value.secret === 'string' ? value.secret : ''
+    secretConfigured
   }
 }
 
@@ -224,7 +230,7 @@ function defaultEvents() {
   return eventOptions.value[0]?.value ? [eventOptions.value[0].value] : []
 }
 
-function resetForm() { Object.assign(form, { name: '', url: '', events: defaultEvents(), secret: '' }) }
+function resetForm() { Object.assign(form, { name: '', url: '', events: defaultEvents(), secret: '', secretConfigured: false }) }
 
 function openCreateEditor() {
   editingId.value = null
@@ -272,7 +278,8 @@ function editWebhook(w: WebhookRecord) {
   form.name = w.name
   form.url = w.url
   form.events = normalizeEvents(w.events)
-  form.secret = w.secret || ''
+  form.secret = ''
+  form.secretConfigured = w.secretConfigured
   showEditor.value = true
 }
 
@@ -283,10 +290,17 @@ async function handleSave() {
   const eventsValue = form.events.join(',')
   try {
     const previousTotal = total.value
-    const params = `name=${encodeURIComponent(form.name)}&url=${encodeURIComponent(form.url)}&events=${encodeURIComponent(eventsValue)}&secret=${encodeURIComponent(form.secret)}`
     if (editingId.value) {
       const currentEditingId = editingId.value
-      const res = await request.put<unknown>(`/api/admin/webhooks/${currentEditingId}?${params}`)
+      const params = new URLSearchParams({
+        name: form.name,
+        url: form.url,
+        events: eventsValue
+      })
+      if (form.secret.trim()) {
+        params.set('secret', form.secret)
+      }
+      const res = await request.put<unknown>(`/api/admin/webhooks/${currentEditingId}?${params.toString()}`)
       requireWebhook(getResponseData(res, 'Webhook 更新结果待确认'), 'update')
       await load()
       const refreshed = list.value?.find(item => Number(item.id) === currentEditingId)
@@ -295,13 +309,20 @@ async function handleSave() {
         || refreshed.name !== form.name
         || refreshed.url !== form.url
         || normalizeEvents(refreshed.events).join(',') !== eventsValue
+        || (form.secret.trim() !== '' && !refreshed.secretConfigured)
         || (typeof previousTotal === 'number' && total.value !== previousTotal)
       ) {
         throw new Error('Webhook 更新结果待确认')
       }
       message.success('已更新')
     } else {
-      const res = await request.post<unknown>(`/api/admin/webhooks?${params}`)
+      const params = new URLSearchParams({
+        name: form.name,
+        url: form.url,
+        events: eventsValue,
+        secret: form.secret
+      })
+      const res = await request.post<unknown>(`/api/admin/webhooks?${params.toString()}`)
       const created = requireWebhook(getResponseData(res, 'Webhook 创建结果待确认'), 'create')
       page.value = 1
       await load()
@@ -327,8 +348,13 @@ async function toggleStatus(w: WebhookRecord) {
   const current = normalizeBinaryStatus(w.status)
   if (current === null) { message.error('Webhook 状态尚未明确，暂时无法切换'); return }
   try {
-    const eventsValue = encodeURIComponent(normalizeEvents(w.events).join(','))
-    const res = await request.put<unknown>(`/api/admin/webhooks/${w.id}?name=${encodeURIComponent(w.name)}&url=${encodeURIComponent(w.url)}&events=${eventsValue}&secret=${encodeURIComponent(w.secret || '')}&status=${current ? 0 : 1}`)
+    const params = new URLSearchParams({
+      name: w.name,
+      url: w.url,
+      events: normalizeEvents(w.events).join(','),
+      status: current ? '0' : '1'
+    })
+    const res = await request.put<unknown>(`/api/admin/webhooks/${w.id}?${params.toString()}`)
     requireWebhook(getResponseData(res, 'Webhook 状态待确认'), 'update')
     await load()
     const refreshed = list.value?.find(item => Number(item.id) === Number(w.id))
@@ -338,7 +364,7 @@ async function toggleStatus(w: WebhookRecord) {
       || normalizeEvents(refreshed.events).join(',') !== normalizeEvents(w.events).join(',')
       || refreshed.name !== w.name
       || refreshed.url !== w.url
-      || (refreshed.secret || '') !== (w.secret || '')
+      || refreshed.secretConfigured !== w.secretConfigured
     ) {
       throw new Error('Webhook 状态待确认')
     }
@@ -373,6 +399,12 @@ function normalizeBinaryStatus(value: unknown): boolean | null {
   if (value === 0 || value === '0' || value === false || value === 'false') return false
   return null
 }
+
+function normalizeBoolean(value: unknown): boolean | null {
+  if (value === true || value === 'true' || value === 1 || value === '1') return true
+  if (value === false || value === 'false' || value === 0 || value === '0') return false
+  return null
+}
 </script>
 
 <style scoped>
@@ -385,6 +417,7 @@ function normalizeBinaryStatus(value: unknown): boolean | null {
 .loading-box { display: flex; justify-content: center; padding: 24px 0; }
 .count { font-size: 12px; color: #9ca3af; }
 .status-note { margin-bottom: 12px; font-size: 12px; color: #f59e0b; }
+.status-hint { margin-bottom: 12px; font-size: 12px; color: #9ca3af; }
 .modal-status { margin-top: -4px; }
 .admin-table { background: transparent !important; }
 .admin-table th { background: rgba(255,255,255,0.02) !important; color: #9ca3af !important; border-bottom: 1px solid rgba(255,255,255,0.06) !important; font-size: 12px; }

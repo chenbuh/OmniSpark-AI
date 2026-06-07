@@ -56,6 +56,9 @@ app:
     # 可信来源白名单（逗号分隔），仅这些来源允许携带凭证跨域。生产环境部署后追加正式域名。
     allowed-origins: http://localhost:5173,http://127.0.0.1:5173,http://localhost:8080,http://127.0.0.1:8080
   security:
+    # 默认禁止服务端请求 localhost / 127.0.0.1 / ::1，避免共享部署时被利用探测本机服务。
+    # 仅在明确需要访问本机模型代理（如 Ollama / LM Studio）时再通过环境变量 APP_SECURITY_ALLOW_LOOPBACK_TARGETS=true 开启。
+    allow-loopback-targets: ${APP_SECURITY_ALLOW_LOOPBACK_TARGETS:false}
     # 只有 remoteAddr 命中这些可信代理时，后端才读取 X-Real-IP / X-Forwarded-For。
     # 生产环境请填写实际网关/Nginx/负载均衡 IP 或 CIDR，并在网关层强制覆写这些头。
     trusted-proxies: ${APP_TRUSTED_PROXIES:127.0.0.1,::1,0:0:0:0:0:0:0:1}

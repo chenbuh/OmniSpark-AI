@@ -80,6 +80,7 @@ public class SubtitleService {
     @Transactional(rollbackFor = Exception.class)
     public SubtitleVO generate(SubtitleGenerateDTO dto) {
         Asset asset = requireAccessibleAsset(dto.getAssetId());
+        projectAccessGuard.assertEditAccess(asset.getProjectId());
         if (!asset.getProjectId().equals(dto.getProjectId())) {
             throw new BusinessException("字幕所属项目与资产不一致");
         }
@@ -107,7 +108,7 @@ public class SubtitleService {
     public SubtitleVO update(SubtitleUpdateDTO dto) {
         Subtitle sub = subtitleMapper.selectById(dto.getId());
         if (sub == null) throw new BusinessException("字幕不存在");
-        projectAccessGuard.assertAccess(sub.getProjectId());
+        projectAccessGuard.assertEditAccess(sub.getProjectId());
         sub.setSrtContent(dto.getSrtContent());
         if (dto.getLanguage() != null) sub.setLanguage(dto.getLanguage());
         subtitleMapper.updateById(sub);
@@ -121,7 +122,7 @@ public class SubtitleService {
     public SubtitleVO generateVoice(Long subtitleId) {
         Subtitle sub = subtitleMapper.selectById(subtitleId);
         if (sub == null) throw new BusinessException("字幕不存在");
-        projectAccessGuard.assertAccess(sub.getProjectId());
+        projectAccessGuard.assertEditAccess(sub.getProjectId());
 
         // 从 SRT 中提取纯文本
         String plainText = extractPlainTextFromSrt(sub.getSrtContent());
@@ -164,7 +165,7 @@ public class SubtitleService {
         if (sub == null) {
             throw new BusinessException("字幕不存在");
         }
-        projectAccessGuard.assertAccess(sub.getProjectId());
+        projectAccessGuard.assertEditAccess(sub.getProjectId());
         deleteVoiceFile(sub.getVoiceUrl());
         subtitleMapper.deleteById(id);
     }

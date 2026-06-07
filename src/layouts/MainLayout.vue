@@ -90,6 +90,7 @@
                   全部已读
                 </n-button>
               </div>
+              <div class="notif-hint">通知优先通过 WebSocket 推送，并用 30 秒轮询补偿刷新；弹窗列表仅保留最近 20 条。</div>
               <div class="notif-list" v-if="notifications && notifications.length > 0">
                 <div
                   v-for="n in notifications.slice(0, 10)"
@@ -446,33 +447,24 @@ function requireProjectImportResult(value: unknown) {
     throw new Error('项目导入结果待确认')
   }
   const projectId = requireImportedProjectId(value.projectId)
-  const importedProviderCount = Number(value.importedProviderCount ?? 0)
-  const importedPromptTemplateCount = Number(value.importedPromptTemplateCount ?? 0)
-  const importedStyleCardCount = Number(value.importedStyleCardCount ?? 0)
-  const importedWorkflowCount = Number(value.importedWorkflowCount ?? 0)
-  const importedAssetCount = Number(value.importedAssetCount ?? 0)
-  const skippedAssetCount = Number(value.skippedAssetCount ?? 0)
-  const assetImportNotice = normalizeOptionalText(value.assetImportNotice)
+  const restoredProviderCount = Number(value.restoredProviderCount ?? 0)
+  const restoredWorkflowCount = Number(value.restoredWorkflowCount ?? 0)
+  const skippedAssetMetadataCount = Number(value.skippedAssetMetadataCount ?? 0)
+  const importNotice = normalizeOptionalText(value.importNotice)
   const numericValues = [
-    importedProviderCount,
-    importedPromptTemplateCount,
-    importedStyleCardCount,
-    importedWorkflowCount,
-    importedAssetCount,
-    skippedAssetCount
+    restoredProviderCount,
+    restoredWorkflowCount,
+    skippedAssetMetadataCount
   ]
   if (numericValues.some(item => !Number.isFinite(item) || item < 0)) {
     throw new Error('项目导入结果待确认')
   }
   return {
     projectId,
-    importedProviderCount,
-    importedPromptTemplateCount,
-    importedStyleCardCount,
-    importedWorkflowCount,
-    importedAssetCount,
-    skippedAssetCount,
-    assetImportNotice
+    restoredProviderCount,
+    restoredWorkflowCount,
+    skippedAssetMetadataCount,
+    importNotice
   }
 }
 
@@ -493,28 +485,26 @@ function requireExportPayload(value: unknown) {
     throw new Error('项目导出结果待确认')
   }
   const providers = requireObjectArray(value.providers, '项目导出结果待确认')
-  const promptTemplates = requireObjectArray(value.promptTemplates, '项目导出结果待确认')
-  const styleCards = requireObjectArray(value.styleCards, '项目导出结果待确认')
   const workflows = requireObjectArray(value.workflows, '项目导出结果待确认')
   const assets = requireObjectArray(value.assets, '项目导出结果待确认')
-  const assetTransferMode = normalizeOptionalText(value.assetTransferMode)
-  const exportedAssetCount = Number(value.exportedAssetCount ?? assets.length)
-  const assetExportNotice = normalizeOptionalText(value.assetExportNotice)
-  if (!Number.isFinite(exportedAssetCount) || exportedAssetCount < 0) {
+  const exportScope = normalizeOptionalText(value.exportScope)
+  const exportedAssetMetadataCount = Number(value.exportedAssetMetadataCount ?? assets.length)
+  const exportNotice = normalizeOptionalText(value.exportNotice)
+  if (!Number.isFinite(exportedAssetMetadataCount) || exportedAssetMetadataCount < 0) {
     throw new Error('项目导出结果待确认')
   }
-  if (assetTransferMode && assetTransferMode !== 'metadata-only') {
+  if (exportScope !== 'project-structure-and-asset-metadata') {
     throw new Error('项目导出结果待确认')
   }
-  if (assetTransferMode === 'metadata-only' && exportedAssetCount !== assets.length) {
+  if (exportedAssetMetadataCount !== assets.length) {
     throw new Error('项目导出结果待确认')
   }
   return {
     version,
     exportedAt,
-    assetTransferMode,
-    exportedAssetCount,
-    assetExportNotice,
+    exportScope,
+    exportedAssetMetadataCount,
+    exportNotice,
     canaryToken: typeof value.canaryToken === 'string' ? value.canaryToken : '',
     project: {
       id: projectId,
@@ -522,8 +512,6 @@ function requireExportPayload(value: unknown) {
       description: projectDescription
     },
     providers,
-    promptTemplates,
-    styleCards,
     workflows,
     assets
   }
@@ -1099,8 +1087,8 @@ const handleRemoveShare = async (shareId: number) => {
 // ===== 项目操作菜单 =====
 const projectActionOptions = computed(() => {
   const options = [
-    { label: '📤 导出项目数据', key: 'export' },
-    { label: '📥 导入项目数据', key: 'import' }
+    { label: '📤 导出项目结构', key: 'export' },
+    { label: '📥 导入项目结构', key: 'import' }
   ]
   if (canDeleteProject.value) {
     options.push({ label: '🗑 删除项目空间', key: 'delete' })
@@ -1135,26 +1123,21 @@ const handleProjectAction = async (key: string) => {
           const response = await request.post<unknown>('/api/projects/import', data)
           const responseData = getResponseData(response, '项目导入结果待确认')
           const importResult = requireProjectImportResult(responseData)
-          if (importResult.importedProviderCount !== data.providers.length
-            || importResult.importedPromptTemplateCount !== 0
-            || importResult.importedStyleCardCount !== 0
-            || importResult.importedWorkflowCount !== data.workflows.length) {
+          if (importResult.restoredProviderCount !== data.providers.length
+            || importResult.restoredWorkflowCount !== data.workflows.length) {
             throw new Error('项目导入结果待确认')
           }
-          if (importResult.importedAssetCount !== 0) {
-            throw new Error('项目导入结果待确认')
-          }
-          if (importResult.skippedAssetCount !== data.assets.length) {
+          if (importResult.skippedAssetMetadataCount !== data.assets.length) {
             throw new Error('项目导入结果待确认')
           }
           const importedProjectId = importResult.projectId
           const importedProject = await verifyImportedProjectData(importedProjectId, data)
           projectStore.setActiveProject(importedProject.id)
-          message.success(importResult.skippedAssetCount > 0
-            ? `项目导入完成，已恢复配置数据；${importResult.skippedAssetCount} 个资产需手动重新上传`
-            : '项目导入成功！')
-          if (importResult.assetImportNotice) {
-            message.warning(importResult.assetImportNotice)
+          message.success(importResult.skippedAssetMetadataCount > 0
+            ? `项目结构导入完成，已恢复模型配置与工作流；${importResult.skippedAssetMetadataCount} 个资产需手动重新上传`
+            : '项目结构导入成功！')
+          if (importResult.importNotice) {
+            message.warning(importResult.importNotice)
           }
       } catch (err: unknown) {
         message.error('导入失败: ' + getErrorMessage(err, '文件格式错误'))
@@ -1213,14 +1196,14 @@ const handleExportProject = async () => {
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
     a.href = url
-    a.download = `project_${projectStore.activeProjectId}_${Date.now()}.json`
+    a.download = `project_structure_${projectStore.activeProjectId}_${Date.now()}.json`
     a.click()
     URL.revokeObjectURL(url)
-    message.success(exportPayload.assetTransferMode === 'metadata-only' && exportPayload.exportedAssetCount > 0
-      ? `项目导出完成，已写入 ${exportPayload.exportedAssetCount} 个资产元数据`
-      : '项目导出成功！')
-    if (exportPayload.assetTransferMode === 'metadata-only' && exportPayload.assetExportNotice) {
-      message.warning(exportPayload.assetExportNotice)
+    message.success(exportPayload.exportedAssetMetadataCount > 0
+      ? `项目结构导出完成，已写入 ${exportPayload.exportedAssetMetadataCount} 个资产元数据`
+      : '项目结构导出成功！')
+    if (exportPayload.exportNotice) {
+      message.warning(exportPayload.exportNotice)
     }
   } catch (err: unknown) {
     message.error('导出失败: ' + getErrorMessage(err, '网络错误'))
@@ -1280,18 +1263,23 @@ function normalizeNotificationReadFlag(value: unknown): boolean | null {
 }
 
 const connectWebSocket = async () => {
-  const userId = userStore.userInfo?.id
-  if (!userId) return
+  const token = localStorage.getItem('satoken')
+  if (!token) return
   try {
     const SockJS = getThemeWindow().SockJS
     if (!SockJS) return
     const StompJs = await import('@stomp/stompjs')
-    const socket = new SockJS(new URL('/ws', API_BASE_URL).toString())
+    const socketUrl = new URL('/ws', API_BASE_URL)
+    socketUrl.searchParams.set('satoken', token)
+    const socket = new SockJS(socketUrl.toString())
     stompClient = new StompJs.Client({
       webSocketFactory: () => socket,
       reconnectDelay: 5000,
+      connectHeaders: {
+        satoken: token
+      },
       onConnect: () => {
-        stompClient?.subscribe(`/topic/notifications/${userId}`, (msg: IMessage) => {
+        stompClient?.subscribe('/user/topic/notifications', (msg: IMessage) => {
           try {
             const notif = normalizeNotificationItem(JSON.parse(msg.body))
             if (notifications.value === null) {
@@ -1674,6 +1662,7 @@ const handleUserDropdownSelect = async (key: string) => {
   margin-bottom: 8px;
 }
 .notif-title { font-size: 14px; font-weight: 600; color: var(--text-primary); }
+.notif-hint { margin-bottom: 10px; font-size: 11px; line-height: 1.5; color: var(--text-muted); }
 .notif-list { display: flex; flex-direction: column; gap: 4px; }
 .notif-item {
   display: flex; gap: 10px; padding: 10px; border-radius: 10px;

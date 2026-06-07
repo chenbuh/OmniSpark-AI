@@ -40,6 +40,8 @@ import java.util.stream.Collectors;
 @RequiredArgsConstructor
 public class AssetService {
     private static final long MAX_UPLOAD_SIZE = 50L * 1024 * 1024; // 50MB
+    private static final String ASSET_STATS_SCOPE = "asset-count-snapshot";
+    private static final String ASSET_STATS_MESSAGE = "当前仅返回访问范围内的资产数量快照（总数、图片、视频、参考素材、收藏数），不包含体积分布、存储占用、热度排行或历史趋势";
     private static final java.util.Set<String> ALLOWED_EXTENSIONS = java.util.Set.of(
             "jpg", "jpeg", "png", "gif", "webp", "bmp", "svg",
             "mp4", "webm", "mov", "m4v"
@@ -109,14 +111,14 @@ public class AssetService {
     public AssetStatsVO stats(String scope, Long projectId) {
         List<Long> projectIds = resolveProjectIds(scope, projectId);
         if (projectIds.isEmpty()) {
-            return new AssetStatsVO(0, 0, 0, 0, 0);
+            return new AssetStatsVO(ASSET_STATS_SCOPE, ASSET_STATS_MESSAGE, 0, 0, 0, 0, 0, 0);
         }
         long total = countAssets(projectIds, null, null);
         long imageCount = countAssets(projectIds, "image", null);
         long videoCount = countAssets(projectIds, "video", null);
         long referenceCount = countAssets(projectIds, "reference", null);
         long favoriteCount = countAssets(projectIds, null, true);
-        return new AssetStatsVO(total, imageCount, videoCount, referenceCount, favoriteCount);
+        return new AssetStatsVO(ASSET_STATS_SCOPE, ASSET_STATS_MESSAGE, projectIds.size(), total, imageCount, videoCount, referenceCount, favoriteCount);
     }
 
     public AssetVO get(Long id) {
@@ -156,7 +158,7 @@ public class AssetService {
         if (file == null || file.isEmpty()) {
             throw new BusinessException("文件不能为空");
         }
-        projectAccessGuard.assertAccess(projectId);
+        projectAccessGuard.assertEditAccess(projectId);
 
         if (file.getSize() > MAX_UPLOAD_SIZE) {
             throw new BusinessException("文件过大，最大允许 " + (MAX_UPLOAD_SIZE / 1024 / 1024) + "MB");
@@ -216,7 +218,7 @@ public class AssetService {
         if (asset == null) {
             throw new BusinessException("资产不存在");
         }
-        projectAccessGuard.assertAccess(asset.getProjectId());
+        projectAccessGuard.assertEditAccess(asset.getProjectId());
         detachAssetReferences(List.of(asset.getId()));
         subtitleService.deleteByAssetIds(List.of(asset.getId()));
         assetMapper.deleteById(id);
@@ -277,7 +279,7 @@ public class AssetService {
         if (asset == null) {
             throw new BusinessException("资产不存在");
         }
-        projectAccessGuard.assertAccess(asset.getProjectId());
+        projectAccessGuard.assertEditAccess(asset.getProjectId());
         asset.setFavorite(asset.getFavorite() != null && asset.getFavorite() == 1 ? 0 : 1);
         assetMapper.updateById(asset);
         return toVO(asset);

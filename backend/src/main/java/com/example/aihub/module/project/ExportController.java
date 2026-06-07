@@ -11,8 +11,6 @@ import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.*;
 
-import java.util.Map;
-
 @RestController
 @RequiredArgsConstructor
 @RequestMapping("/api/projects")
@@ -31,17 +29,8 @@ public class ExportController {
     }
 
     @PostMapping("/import")
-    public ApiResult<Map<String, Object>> importProject(@RequestBody ProjectExportVO data) {
+    public ApiResult<ProjectService.ProjectImportResult> importProject(@RequestBody ProjectExportVO data) {
         ProjectService.ProjectImportResult importResult = projectService.importProject(data);
-        return ApiResult.ok(Map.of(
-                "projectId", importResult.projectId(),
-                "importedProviderCount", importResult.importedProviderCount(),
-                "importedPromptTemplateCount", importResult.importedPromptTemplateCount(),
-                "importedStyleCardCount", importResult.importedStyleCardCount(),
-                "importedWorkflowCount", importResult.importedWorkflowCount(),
-                "importedAssetCount", importResult.importedAssetCount(),
-                "skippedAssetCount", importResult.skippedAssetCount(),
-                "assetImportNotice", importResult.assetImportNotice()
-        ));
+        return ApiResult.ok(importResult);
     }
 }

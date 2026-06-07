@@ -5,6 +5,7 @@ import com.example.aihub.common.security.ClientIpResolver;
 import com.example.aihub.common.security.SecurityRequestAttributes;
 import com.example.aihub.infrastructure.service.ApiKeyService;
 import jakarta.servlet.*;
+import jakarta.servlet.http.Cookie;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
@@ -12,6 +13,7 @@ import org.springframework.core.annotation.Order;
 import org.springframework.stereotype.Component;
 
 import java.io.IOException;
+import cn.dev33.satoken.stp.parameter.SaLoginParameter;
 
 @Component
 @Order(1)
@@ -24,6 +26,7 @@ public class ApiKeyFilter implements Filter {
     public void doFilter(ServletRequest request, ServletResponse response, FilterChain chain)
             throws IOException, ServletException {
         HttpServletRequest req = (HttpServletRequest) request;
+        HttpServletResponse resp = (HttpServletResponse) response;
         String path = req.getRequestURI();
 
         // 只处理 /api/ 请求
@@ -56,16 +59,41 @@ public class ApiKeyFilter implements Filter {
             }
             ApiKeyService.AuthenticatedApiKey principal = result.principal();
             if (principal != null) {
-                // 用 API Key 对应的用户身份登录,并保留 API Key 上下文供审计/限流/风控使用。
-                StpUtil.login(principal.userId());
+                // 仅在当前请求上下文临时挂载登录身份，避免把受 scope 限制的 API Key 升级成可复用的 satoken 会话。
+                SaLoginParameter loginParameter = SaLoginParameter.create()
+                        .setIsWriteHeader(false)
+                        .setDeviceType("api-key");
+                StpUtil.login(principal.userId(), loginParameter);
+                String ephemeralToken = StpUtil.getTokenValue();
                 req.setAttribute(SecurityRequestAttributes.API_KEY_AUTHENTICATED, Boolean.TRUE);
                 req.setAttribute(SecurityRequestAttributes.API_KEY_ID, principal.apiKeyId());
                 req.setAttribute(SecurityRequestAttributes.API_KEY_PREFIX, principal.keyPrefix());
                 req.setAttribute(SecurityRequestAttributes.API_KEY_SCOPE, principal.scope());
+                req.setAttribute(SecurityRequestAttributes.API_KEY_USER_ID, principal.userId());
+                try {
+                    chain.doFilter(request, response);
+                } finally {
+                    clearEphemeralToken(resp, ephemeralToken);
+                }
+                return;
             }
         }
 
         chain.doFilter(request, response);
+    }
+
+    private void clearEphemeralToken(HttpServletResponse response, String ephemeralToken) {
+        if (ephemeralToken != null && !ephemeralToken.isBlank()) {
+            try {
+                StpUtil.logoutByTokenValue(ephemeralToken);
+            } catch (Exception ignored) {
+            }
+        }
+        Cookie cleanupCookie = new Cookie(StpUtil.getTokenName(), "");
+        cleanupCookie.setPath("/");
+        cleanupCookie.setHttpOnly(true);
+        cleanupCookie.setMaxAge(0);
+        response.addCookie(cleanupCookie);
     }
 
     private void writeAuthError(HttpServletResponse response, int status, String message) throws IOException {

@@ -40,6 +40,11 @@ public class ProjectAccessGuard {
 
     /** 指定用户是否可访问该项目；不可访问返回 false。 */
     public boolean canUserAccess(Long userId, Long projectId) {
+        return canUserAccess(userId, projectId, "view");
+    }
+
+    /** 指定用户是否拥有项目所需权限；permission 取值 view / edit / admin。 */
+    public boolean canUserAccess(Long userId, Long projectId, String requiredPermission) {
         if (userId == null || projectId == null || projectId == 0L) {
             return false;
         }
@@ -53,13 +58,30 @@ public class ProjectAccessGuard {
         if (project.getUserId().equals(userId)) {
             return true;
         }
-        return hasTeamShare(projectId, userId);
+        return hasTeamShare(projectId, userId, requiredPermission);
     }
 
     /** 校验当前用户可访问该项目，否则抛出业务异常。 */
     public void assertAccess(Long projectId) {
         if (!canAccess(projectId)) {
             throw new BusinessException("无权访问该资源");
+        }
+    }
+
+    /** 校验当前用户拥有项目编辑权限，否则抛出业务异常。 */
+    public void assertEditAccess(Long projectId) {
+        assertPermission(projectId, "edit");
+    }
+
+    /** 校验当前用户拥有项目管理权限，否则抛出业务异常。 */
+    public void assertAdminAccess(Long projectId) {
+        assertPermission(projectId, "admin");
+    }
+
+    /** 校验当前用户拥有项目所需权限，否则抛出业务异常。 */
+    public void assertPermission(Long projectId, String requiredPermission) {
+        if (!canUserAccess(SecurityUtil.loginUserId(), projectId, requiredPermission)) {
+            throw new BusinessException("无权执行该操作");
         }
     }
 
@@ -88,7 +110,7 @@ public class ProjectAccessGuard {
         return new ArrayList<>(ids);
     }
 
-    private boolean hasTeamShare(Long projectId, Long userId) {
+    private boolean hasTeamShare(Long projectId, Long userId, String requiredPermission) {
         List<TeamMember> memberships = teamMemberMapper.selectList(
                 new LambdaQueryWrapper<TeamMember>()
                         .eq(TeamMember::getUserId, userId)
@@ -97,15 +119,36 @@ public class ProjectAccessGuard {
             return false;
         }
         Set<Long> teamIds = memberships.stream().map(TeamMember::getTeamId).collect(Collectors.toSet());
-        Long count = shareMapper.selectCount(
+        List<ProjectShare> shares = shareMapper.selectList(
                 new LambdaQueryWrapper<ProjectShare>()
                         .eq(ProjectShare::getProjectId, projectId)
                         .in(ProjectShare::getTeamId, teamIds));
-        return count != null && count > 0;
+        if (shares.isEmpty()) {
+            return false;
+        }
+        int requiredLevel = permissionLevel(requiredPermission);
+        for (ProjectShare share : shares) {
+            if (permissionLevel(share.getPermission()) >= requiredLevel) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private boolean isAdmin(Long userId) {
         User user = userMapper.selectById(userId);
         return user != null && "admin".equalsIgnoreCase(user.getRole());
+    }
+
+    private int permissionLevel(String permission) {
+        if (permission == null) {
+            return 0;
+        }
+        return switch (permission.trim().toLowerCase()) {
+            case "admin" -> 3;
+            case "edit" -> 2;
+            case "view" -> 1;
+            default -> 0;
+        };
     }
 }
