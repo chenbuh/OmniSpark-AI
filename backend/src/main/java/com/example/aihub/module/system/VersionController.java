@@ -101,7 +101,7 @@ public class VersionController {
     }
 
     @GetMapping("/check")
-    public ApiResult<Map<String, Object>> checkUpdate(@RequestParam(defaultValue = "false") boolean refresh) {
+    public synchronized ApiResult<Map<String, Object>> checkUpdate(@RequestParam(defaultValue = "false") boolean refresh) {
         long ttlMs = Math.max(cacheTtlMinutes, 1) * 60_000L;
         if (!refresh && cachedCheckResult != null && isCacheValid(cachedCheckAt, ttlMs)) {
             return ApiResult.ok(cachedCheckResult);
@@ -133,7 +133,7 @@ public class VersionController {
     }
 
     @GetMapping("/history")
-    public ApiResult<Map<String, Object>> history(@RequestParam(defaultValue = "false") boolean refresh,
+    public synchronized ApiResult<Map<String, Object>> history(@RequestParam(defaultValue = "false") boolean refresh,
                                                   @RequestParam(defaultValue = "6") int limit) {
         int safeLimit = Math.max(1, Math.min(limit, 20));
         long ttlMs = Math.max(cacheTtlMinutes, 1) * 60_000L;

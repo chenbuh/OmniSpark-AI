@@ -180,7 +180,7 @@ public class FileManagerController {
     }
 
     @GetMapping("/stats")
-    public ApiResult<Map<String, Object>> stats() {
+    public synchronized ApiResult<Map<String, Object>> stats() {
         long now = System.currentTimeMillis();
         if (cachedStats != null && now - cachedStatsAt < STATS_CACHE_TTL_MS) {
             return ApiResult.ok(cachedStats);

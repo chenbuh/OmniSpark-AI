@@ -28,7 +28,7 @@ public class MonitorController {
     private volatile long cachedAt;
 
     @GetMapping
-    public ApiResult<Map<String, Object>> monitor() {
+    public synchronized ApiResult<Map<String, Object>> monitor() {
         long now = System.currentTimeMillis();
         if (cachedMonitor != null && now - cachedAt < CACHE_TTL_MS) {
             return ApiResult.ok(cachedMonitor);

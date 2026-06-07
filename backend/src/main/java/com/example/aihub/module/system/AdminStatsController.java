@@ -82,7 +82,7 @@ public class AdminStatsController {
     }
 
     @GetMapping("/trends")
-    public ApiResult<Map<String, Object>> trends() {
+    public synchronized ApiResult<Map<String, Object>> trends() {
         LocalDate today = LocalDate.now();
         // 结果按当天缓存,同一天内重复请求直接复用,避免重复聚合
         if (cachedTrends != null && today.equals(cachedTrendsDate)) {
