@@ -66,14 +66,14 @@ public class GenerationService {
     private static final Duration MEDIA_DOWNLOAD_TIMEOUT = Duration.ofMinutes(5);
     private static final String DEFAULT_IMAGE_RESOLUTION = "1k";
     private static final String DEFAULT_IMAGE_QUALITY = "standard";
-    private static final String DEFAULT_VIDEO_DURATION = "5s";
+    private static final String DEFAULT_VIDEO_DURATION = "10s";
     private static final String DEFAULT_VIDEO_CAMERA_MOTION = "zoom_in";
     private static final Set<String> SUPPORTED_IMAGE_PROVIDER_TYPES = Set.of("image", "openai", "custom");
     private static final Set<String> SUPPORTED_VIDEO_PROVIDER_TYPES = Set.of("video", "openai", "custom");
     private static final Set<String> SUPPORTED_PROMPT_OPTIMIZER_PROVIDER_TYPES = Set.of("openai", "custom");
     private static final Set<String> SUPPORTED_IMAGE_RESOLUTIONS = Set.of("custom", "1k", "2k", "4k");
     private static final Set<String> SUPPORTED_IMAGE_QUALITIES = Set.of("standard", "high", "ultra");
-    private static final Set<String> SUPPORTED_VIDEO_DURATIONS = Set.of("5s", "10s");
+    private static final Set<String> SUPPORTED_VIDEO_DURATIONS = Set.of("5s", "10s", "15s", "20s", "30s");
     private static final Set<String> SUPPORTED_VIDEO_CAMERA_MOTIONS = Set.of("zoom_in", "zoom_out", "pan_right", "tilt_down", "rotate_cw");
     private static final List<Map<String, String>> IMAGE_RESOLUTION_OPTIONS = List.of(
             option("自定义尺寸", "custom"),
@@ -88,7 +88,10 @@ public class GenerationService {
     );
     private static final List<Map<String, String>> VIDEO_DURATION_OPTIONS = List.of(
             option("5秒 (标准版)", "5s"),
-            option("10秒 (高清长片)", "10s")
+            option("10秒 (高清长片)", "10s"),
+            option("15秒 (创作版)", "15s"),
+            option("20秒 (专业版)", "20s"),
+            option("30秒 (完整版)", "30s")
     );
     private static final List<Map<String, String>> VIDEO_CAMERA_MOTION_OPTIONS = List.of(
             option("镜头向前平推 (Zoom In)", "zoom_in"),

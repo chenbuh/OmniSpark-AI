@@ -451,7 +451,7 @@ const durations = computed(() => {
   return options.map(item => ({
     label: item.label,
     value: item.value,
-    tag: item.value === '10s' ? '深度计算' : '流畅生成'
+    tag: item.value === '30s' ? '完整叙事' : item.value === '20s' ? '专业质感' : item.value === '15s' ? '深度创作' : item.value === '10s' ? '高清长片' : '标准流畅'
   }))
 })
 
