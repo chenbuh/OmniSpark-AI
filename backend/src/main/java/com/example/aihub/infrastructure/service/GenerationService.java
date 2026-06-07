@@ -318,7 +318,7 @@ public class GenerationService {
         taskMapper.insert(task);
         try {
             webhookService.trigger("task.started", task.getId(), taskType, task.getStatus(), task.getPrompt());
-        } catch (Exception ignored) {}
+        } catch (Exception ex) { log.warn("Failed to trigger webhook for task.started, taskId={}", task.getId(), ex); }
         return task;
     }
 
@@ -531,7 +531,7 @@ public class GenerationService {
         // 触发 Webhook
         try {
             webhookService.trigger("task.completed", task.getId(), taskType, "success", task.getPrompt());
-        } catch (Exception ignored) {}
+        } catch (Exception ex) { log.warn("Failed to trigger webhook for task.completed, taskId={}", task.getId(), ex); }
 
         // 发送完成通知
         try {
@@ -543,7 +543,7 @@ public class GenerationService {
                     "success",
                     task.getId()
             );
-        } catch (Exception ignored) {}
+        } catch (Exception ex) { log.warn("Failed to send completion notification, userId={}, taskId={}", userId, task.getId(), ex); }
 
         unregisterRunningTask(task.getId(), userId);
         return toTaskVO(task);
@@ -601,7 +601,7 @@ public class GenerationService {
         // 触发 Webhook
         try {
             webhookService.trigger("task.failed", task.getId(), task.getTaskType(), "failed", task.getPrompt());
-        } catch (Exception ignored) {}
+        } catch (Exception ex) { log.warn("Failed to trigger webhook for task.failed, taskId={}", task.getId(), ex); }
 
         try {
             String typeLabel = "image".equals(task.getTaskType()) ? "生图" : "视频";
@@ -612,7 +612,7 @@ public class GenerationService {
                     "error",
                     task.getId()
             );
-        } catch (Exception ignored) {}
+        } catch (Exception ex) { log.warn("Failed to send failure notification, userId={}, taskId={}", userId, task.getId(), ex); }
 
         unregisterRunningTask(task.getId(), userId);
     }
@@ -907,8 +907,7 @@ public class GenerationService {
                     return message;
                 }
             }
-        } catch (Exception ignored) {
-        }
+        } catch (Exception ex) { log.warn("Failed to extract error message from response body", ex); }
         return body == null || body.isBlank() ? "远程生成接口返回错误" : body;
     }
 
@@ -1161,8 +1160,7 @@ public class GenerationService {
                     }
                 }
             }
-        } catch (Exception ignored) {
-        }
+        } catch (Exception ex) { log.warn("Failed to extract provider config text", ex); }
         return null;
     }
 

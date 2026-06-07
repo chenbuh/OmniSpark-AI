@@ -5,6 +5,7 @@ import cn.dev33.satoken.annotation.SaCheckRole;
 import com.example.aihub.common.annotation.RateLimit;
 import com.example.aihub.common.result.ApiResult;
 import com.example.aihub.common.result.PageResult;
+import com.example.aihub.common.util.PagingUtil;
 import com.example.aihub.infrastructure.entity.AccessLog;
 import com.example.aihub.infrastructure.service.AccessLogService;
 import lombok.RequiredArgsConstructor;
@@ -32,7 +33,7 @@ public class AccessLogController {
                                                  @RequestParam(required = false) Integer statusCode,
                                                  @RequestParam(defaultValue = "1") long page,
                                                  @RequestParam(defaultValue = "20") long pageSize) {
-        return ApiResult.ok(accessLogService.page(clientIp, userId, apiKeyId, path, statusCode, page, pageSize));
+        return ApiResult.ok(accessLogService.page(clientIp, userId, apiKeyId, path, statusCode, page, PagingUtil.clampPageSize(pageSize, 100)));
     }
 
     @GetMapping("/summary")

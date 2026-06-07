@@ -5,7 +5,9 @@
       <n-dialog-provider>
         <n-notification-provider>
           <n-layout :style="layoutStyle" :native-scrollbar="false">
-            <router-view />
+            <ErrorBoundary>
+              <router-view />
+            </ErrorBoundary>
           </n-layout>
           <SliderCaptcha
             :visible="riskCaptchaVisible"
@@ -29,6 +31,7 @@ import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useUserStore } from '@/store/user'
 import { usePlatformStore } from '@/store/platform'
+import ErrorBoundary from '@/components/ErrorBoundary.vue'
 import SliderCaptcha from '@/components/SliderCaptcha.vue'
 import { registerRiskCaptchaHandler, unregisterRiskCaptchaHandler } from '@/utils/riskCaptcha'
 import {

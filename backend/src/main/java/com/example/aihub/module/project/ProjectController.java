@@ -37,7 +37,7 @@ public class ProjectController {
     @GetMapping("/page")
     public ApiResult<PageResult<ProjectVO>> page(@RequestParam(defaultValue = "1") long page,
                                                  @RequestParam(defaultValue = "20") long pageSize) {
-        return ApiResult.ok(projectService.pageMine(page, pageSize));
+        return ApiResult.ok(projectService.pageMine(page, PagingUtil.clampPageSize(pageSize, 100)));
     }
 
     @PostMapping

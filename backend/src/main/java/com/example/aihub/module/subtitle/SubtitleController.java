@@ -31,7 +31,7 @@ public class SubtitleController {
     public ApiResult<PageResult<SubtitleVO>> page(@PathVariable Long assetId,
                                                   @RequestParam(defaultValue = "1") long page,
                                                   @RequestParam(defaultValue = "100") long pageSize) {
-        return ApiResult.ok(subtitleService.pageByAsset(assetId, page, pageSize));
+        return ApiResult.ok(subtitleService.pageByAsset(assetId, page, PagingUtil.clampPageSize(pageSize, 100)));
     }
 
     @PostMapping("/generate")

@@ -30,7 +30,7 @@ public class ProjectShareController {
     public ApiResult<PageResult<ProjectShareVO>> page(@PathVariable Long projectId,
                                                       @RequestParam(defaultValue = "1") long page,
                                                       @RequestParam(defaultValue = "20") long pageSize) {
-        return ApiResult.ok(shareService.pageShares(projectId, page, pageSize));
+        return ApiResult.ok(shareService.pageShares(projectId, page, PagingUtil.clampPageSize(pageSize, 100)));
     }
 
     @PostMapping

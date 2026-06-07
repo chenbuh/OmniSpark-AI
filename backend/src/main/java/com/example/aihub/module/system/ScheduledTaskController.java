@@ -5,6 +5,7 @@ import cn.dev33.satoken.annotation.SaCheckRole;
 import com.example.aihub.common.annotation.RateLimit;
 import com.example.aihub.common.result.ApiResult;
 import com.example.aihub.common.result.PageResult;
+import com.example.aihub.common.util.PagingUtil;
 import com.example.aihub.infrastructure.entity.ScheduledTask;
 import com.example.aihub.infrastructure.service.DynamicSchedulerService;
 import lombok.RequiredArgsConstructor;
@@ -21,7 +22,7 @@ public class ScheduledTaskController {
     @GetMapping
     public ApiResult<PageResult<ScheduledTask>> list(@RequestParam(defaultValue = "1") long page,
                                                      @RequestParam(defaultValue = "20") long pageSize) {
-        return ApiResult.ok(schedulerService.page(page, pageSize));
+        return ApiResult.ok(schedulerService.page(page, PagingUtil.clampPageSize(pageSize, 100)));
     }
 
     @PostMapping("/{id}/toggle")

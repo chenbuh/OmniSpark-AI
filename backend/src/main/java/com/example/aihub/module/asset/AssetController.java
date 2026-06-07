@@ -45,7 +45,7 @@ public class AssetController {
                                                @RequestParam(defaultValue = "latest") String sort,
                                                @RequestParam(defaultValue = "1") long page,
                                                @RequestParam(defaultValue = "24") long pageSize) {
-        return ApiResult.ok(assetService.page(scope, projectId, assetType, taskId, favorite, search, sort, page, pageSize));
+        return ApiResult.ok(assetService.page(scope, projectId, assetType, taskId, favorite, search, sort, page, PagingUtil.clampPageSize(pageSize, 100)));
     }
 
     @GetMapping("/stats")

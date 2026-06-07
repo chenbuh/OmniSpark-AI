@@ -5,6 +5,7 @@ import cn.dev33.satoken.annotation.SaCheckRole;
 import cn.dev33.satoken.stp.StpUtil;
 import com.example.aihub.common.result.ApiResult;
 import com.example.aihub.common.result.PageResult;
+import com.example.aihub.common.util.PagingUtil;
 import com.example.aihub.infrastructure.entity.Announcement;
 import com.example.aihub.infrastructure.service.AnnouncementService;
 import lombok.RequiredArgsConstructor;
@@ -21,7 +22,7 @@ public class AdminAnnouncementController {
     @GetMapping
     public ApiResult<PageResult<Announcement>> list(@RequestParam(defaultValue = "1") long page,
                                                     @RequestParam(defaultValue = "20") long pageSize) {
-        return ApiResult.ok(announcementService.page(false, page, pageSize));
+        return ApiResult.ok(announcementService.page(false, page, PagingUtil.clampPageSize(pageSize, 100)));
     }
 
     @GetMapping("/{id}")

@@ -4,6 +4,7 @@ import cn.dev33.satoken.annotation.SaCheckLogin;
 import cn.dev33.satoken.annotation.SaCheckRole;
 import com.example.aihub.common.result.ApiResult;
 import com.example.aihub.common.result.PageResult;
+import com.example.aihub.common.util.PagingUtil;
 import com.example.aihub.infrastructure.entity.DataDict;
 import com.example.aihub.infrastructure.entity.DataDictItem;
 import com.example.aihub.infrastructure.service.DataDictService;
@@ -21,7 +22,7 @@ public class DataDictController {
     @GetMapping
     public ApiResult<PageResult<DataDict>> listDicts(@RequestParam(defaultValue = "1") long page,
                                                      @RequestParam(defaultValue = "20") long pageSize) {
-        return ApiResult.ok(dataDictService.pageDicts(page, pageSize));
+        return ApiResult.ok(dataDictService.pageDicts(page, PagingUtil.clampPageSize(pageSize, 100)));
     }
 
     @PostMapping
@@ -48,7 +49,7 @@ public class DataDictController {
     public ApiResult<PageResult<DataDictItem>> listItems(@PathVariable Long dictId,
                                                          @RequestParam(defaultValue = "1") long page,
                                                          @RequestParam(defaultValue = "20") long pageSize) {
-        return ApiResult.ok(dataDictService.pageItems(dictId, page, pageSize));
+        return ApiResult.ok(dataDictService.pageItems(dictId, page, PagingUtil.clampPageSize(pageSize, 100)));
     }
 
     @GetMapping("/items/{id}")

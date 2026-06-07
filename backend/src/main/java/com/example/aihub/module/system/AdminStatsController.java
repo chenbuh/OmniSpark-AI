@@ -46,6 +46,10 @@ public class AdminStatsController {
     private volatile Map<String, Object> cachedTrends;
     private volatile LocalDate cachedTrendsDate;
 
+    /** overview 缓存（30秒 TTL），避免每次刷新都跑 7 条 COUNT。 */
+    private volatile Map<String, Object> cachedOverview;
+    private volatile long cachedOverviewAt;
+
     @GetMapping("/overview")
     public ApiResult<Map<String, Object>> overview() {
         Map<String, Object> stats = new LinkedHashMap<>();
@@ -65,6 +69,8 @@ public class AdminStatsController {
         stats.put("failedTasks", taskMapper.selectCount(
                 new LambdaQueryWrapper<GenerationTask>()
                         .eq(GenerationTask::getStatus, "failed")));
+        cachedOverview = stats;
+        cachedOverviewAt = now;
         return ApiResult.ok(stats);
     }
 
@@ -213,3 +219,4 @@ public class AdminStatsController {
         response.getWriter().write(csv.toString());
     }
 }
+

@@ -38,7 +38,7 @@ public class WorkflowController {
                                                   @RequestParam(name = "q", required = false) String keyword,
                                                   @RequestParam(defaultValue = "1") long page,
                                                   @RequestParam(defaultValue = "20") long pageSize) {
-        return ApiResult.ok(workflowService.page(projectId, keyword, page, pageSize));
+        return ApiResult.ok(workflowService.page(projectId, keyword, page, PagingUtil.clampPageSize(pageSize, 100)));
     }
 
     @GetMapping("/{id}")
@@ -79,7 +79,7 @@ public class WorkflowController {
     public ApiResult<PageResult<WorkflowRunVO>> pageRuns(@PathVariable Long id,
                                                          @RequestParam(defaultValue = "1") long page,
                                                          @RequestParam(defaultValue = "100") long pageSize) {
-        return ApiResult.ok(workflowService.pageRuns(id, page, pageSize));
+        return ApiResult.ok(workflowService.pageRuns(id, page, PagingUtil.clampPageSize(pageSize, 100)));
     }
 
     @GetMapping("/runs/{runId}")

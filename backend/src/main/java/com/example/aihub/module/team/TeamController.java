@@ -30,7 +30,7 @@ public class TeamController {
     @GetMapping("/page")
     public ApiResult<PageResult<TeamVO>> page(@RequestParam(defaultValue = "1") long page,
                                               @RequestParam(defaultValue = "20") long pageSize) {
-        return ApiResult.ok(teamService.pageMyTeams(page, pageSize));
+        return ApiResult.ok(teamService.pageMyTeams(page, PagingUtil.clampPageSize(pageSize, 100)));
     }
 
     @GetMapping("/{id}")
@@ -66,7 +66,7 @@ public class TeamController {
     public ApiResult<PageResult<TeamMemberVO>> pageMembers(@PathVariable Long id,
                                                            @RequestParam(defaultValue = "1") long page,
                                                            @RequestParam(defaultValue = "20") long pageSize) {
-        return ApiResult.ok(teamService.pageMembers(id, page, pageSize));
+        return ApiResult.ok(teamService.pageMembers(id, page, PagingUtil.clampPageSize(pageSize, 100)));
     }
 
     @GetMapping("/{teamId}/members/{userId}")

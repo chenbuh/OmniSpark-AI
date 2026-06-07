@@ -4,6 +4,7 @@ import cn.dev33.satoken.annotation.SaCheckLogin;
 import cn.dev33.satoken.annotation.SaCheckRole;
 import com.example.aihub.common.result.ApiResult;
 import com.example.aihub.common.result.PageResult;
+import com.example.aihub.common.util.PagingUtil;
 import com.example.aihub.infrastructure.service.WebhookService;
 import com.example.aihub.infrastructure.vo.WebhookVO;
 import lombok.RequiredArgsConstructor;
@@ -23,7 +24,7 @@ public class WebhookController {
     @GetMapping
     public ApiResult<PageResult<WebhookVO>> list(@RequestParam(defaultValue = "1") long page,
                                                  @RequestParam(defaultValue = "20") long pageSize) {
-        PageResult<com.example.aihub.infrastructure.entity.Webhook> result = webhookService.page(page, pageSize);
+        PageResult<com.example.aihub.infrastructure.entity.Webhook> result = webhookService.page(page, PagingUtil.clampPageSize(pageSize, 100));
         return ApiResult.ok(new PageResult<>(result.getTotal(), result.getPages(),
                 result.getRecords().stream().map(this::toVO).collect(Collectors.toList())));
     }

@@ -25,7 +25,9 @@ import org.springframework.transaction.annotation.Transactional;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.function.Function;
+import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
@@ -61,9 +63,14 @@ public class TeamService {
         for (int i = 0; i < teamIds.size(); i++) {
             orderMap.put(teamIds.get(i), i);
         }
+        // 批量加载负责人信息
+        Map<Long, User> ownerMap = batchLoadUsersByIds(
+                teamMap.values().stream().map(Team::getOwnerId).collect(Collectors.toSet()));
+        // 批量加载成员数
+        Map<Long, Long> memberCountMap = batchCountMembers(teamIds);
         List<TeamVO> records = teamMap.values().stream()
                 .sorted(Comparator.comparingInt(team -> orderMap.getOrDefault(team.getId(), Integer.MAX_VALUE)))
-                .map(this::toTeamVO)
+                .map(team -> toTeamVO(team, ownerMap.get(team.getOwnerId()), memberCountMap.getOrDefault(team.getId(), 0L)))
                 .toList();
         return new PageResult<>(memberPage.getTotal(), memberPage.getPages(), records);
     }
@@ -80,13 +87,21 @@ public class TeamService {
             return List.of();
         }
         List<Long> teamIds = members.stream().map(TeamMember::getTeamId).toList();
-        return teamMapper.selectList(new LambdaQueryWrapper<Team>()
+        List<Team> teams = teamMapper.selectList(new LambdaQueryWrapper<Team>()
                         .in(Team::getId, teamIds)
                         .eq(Team::getStatus, 1)
                         .orderByDesc(Team::getId)
-                        .last("LIMIT " + PagingUtil.clampLimit(limit, 100, 100)))
-                .stream()
-                .map(this::toTeamVO)
+                        .last("LIMIT " + PagingUtil.clampLimit(limit, 100, 100)));
+        if (teams.isEmpty()) {
+            return List.of();
+        }
+        // 批量加载负责人信息和成员数
+        Map<Long, User> ownerMap = batchLoadUsersByIds(
+                teams.stream().map(Team::getOwnerId).collect(Collectors.toSet()));
+        Map<Long, Long> memberCountMap = batchCountMembers(
+                teams.stream().map(Team::getId).toList());
+        return teams.stream()
+                .map(team -> toTeamVO(team, ownerMap.get(team.getOwnerId()), memberCountMap.getOrDefault(team.getId(), 0L)))
                 .toList();
     }
 
@@ -154,7 +169,11 @@ public class TeamService {
                         .eq(TeamMember::getStatus, 1)
                         .orderByDesc(TeamMember::getId)
         );
-        return new PageResult<>(result.getTotal(), result.getPages(), result.getRecords().stream().map(this::toTeamMemberVO).toList());
+        List<TeamMember> records = result.getRecords();
+        Map<Long, User> userMap = batchLoadUsersByIds(
+                records.stream().map(TeamMember::getUserId).collect(Collectors.toSet()));
+        return new PageResult<>(result.getTotal(), result.getPages(),
+                records.stream().map(m -> toTeamMemberVO(m, userMap.get(m.getUserId()))).toList());
     }
 
     public List<TeamMemberVO> listMembers(Long teamId, int limit) {
@@ -166,7 +185,9 @@ public class TeamService {
                         .eq(TeamMember::getStatus, 1)
                         .orderByDesc(TeamMember::getId)
                         .last("LIMIT " + PagingUtil.clampLimit(limit, 100, 100)));
-        return members.stream().map(this::toTeamMemberVO).toList();
+        Map<Long, User> userMap = batchLoadUsersByIds(
+                members.stream().map(TeamMember::getUserId).collect(Collectors.toSet()));
+        return members.stream().map(m -> toTeamMemberVO(m, userMap.get(m.getUserId()))).toList();
     }
 
     public TeamMemberVO getMember(Long teamId, Long userId) {
@@ -323,26 +344,77 @@ public class TeamService {
     }
 
     private TeamVO toTeamVO(Team team) {
+        return toTeamVO(team, null, 0L);
+    }
+
+    private TeamVO toTeamVO(Team team, User owner, long memberCount) {
         TeamVO vo = VoMapper.copy(team, TeamVO.class);
-        User owner = userMapper.selectById(team.getOwnerId());
         if (owner != null) {
             vo.setOwnerName(owner.getNickname() != null ? owner.getNickname() : owner.getUsername());
+        } else if (team.getOwnerId() != null) {
+            User fetched = userMapper.selectById(team.getOwnerId());
+            if (fetched != null) {
+                vo.setOwnerName(fetched.getNickname() != null ? fetched.getNickname() : fetched.getUsername());
+            }
         }
-        Long count = memberMapper.selectCount(new LambdaQueryWrapper<TeamMember>()
-                .eq(TeamMember::getTeamId, team.getId())
-                .eq(TeamMember::getStatus, 1));
-        vo.setMemberCount(count != null ? count.intValue() : 0);
+        if (memberCount > 0) {
+            vo.setMemberCount((int) memberCount);
+        } else {
+            Long count = memberMapper.selectCount(new LambdaQueryWrapper<TeamMember>()
+                    .eq(TeamMember::getTeamId, team.getId())
+                    .eq(TeamMember::getStatus, 1));
+            vo.setMemberCount(count != null ? count.intValue() : 0);
+        }
         return vo;
     }
 
     private TeamMemberVO toTeamMemberVO(TeamMember member) {
-        TeamMemberVO vo = VoMapper.copy(member, TeamMemberVO.class);
         User user = userMapper.selectById(member.getUserId());
+        return toTeamMemberVO(member, user);
+    }
+
+    private TeamMemberVO toTeamMemberVO(TeamMember member, User user) {
+        TeamMemberVO vo = VoMapper.copy(member, TeamMemberVO.class);
         if (user != null) {
             vo.setUsername(user.getUsername());
             vo.setNickname(user.getNickname());
             vo.setAvatar(user.getAvatar());
         }
         return vo;
+    }
+
+    // ===== 批量查询辅助 =====
+
+    /** 批量查询用户，返回 userId → User 的 Map。 */
+    private Map<Long, User> batchLoadUsersByIds(java.util.Set<Long> userIds) {
+        if (userIds == null || userIds.isEmpty()) {
+            return Map.of();
+        }
+        return userMapper.selectList(new LambdaQueryWrapper<User>()
+                        .in(User::getId, userIds))
+                .stream()
+                .collect(Collectors.toMap(User::getId, Function.identity()));
+    }
+
+    /** 批量统计团队活跃成员数，返回 teamId → count 的 Map。 */
+    private Map<Long, Long> batchCountMembers(List<Long> teamIds) {
+        if (teamIds == null || teamIds.isEmpty()) {
+            return Map.of();
+        }
+        List<Map<String, Object>> counts = memberMapper.selectMaps(
+                new com.baomidou.mybatisplus.core.conditions.query.QueryWrapper<TeamMember>()
+                        .select("team_id", "COUNT(*) AS cnt")
+                        .in("team_id", teamIds)
+                        .eq("status", 1)
+                        .groupBy("team_id"));
+        Map<Long, Long> result = new java.util.HashMap<>();
+        for (Map<String, Object> row : counts) {
+            Number teamId = (Number) row.get("team_id");
+            Number cnt = (Number) row.get("cnt");
+            if (teamId != null) {
+                result.put(teamId.longValue(), cnt != null ? cnt.longValue() : 0L);
+            }
+        }
+        return result;
     }
 }

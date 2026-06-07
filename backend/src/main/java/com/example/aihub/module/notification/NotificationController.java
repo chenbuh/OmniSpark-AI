@@ -27,7 +27,7 @@ public class NotificationController {
     @GetMapping
     public ApiResult<List<NotificationVO>> list(@RequestParam(defaultValue = "50") int limit) {
         Long userId = StpUtil.getLoginIdAsLong();
-        return ApiResult.ok(notificationService.listAll(userId, limit));
+        return ApiResult.ok(notificationService.listAll(userId, PagingUtil.clampLimit(limit, 50, 100)));
     }
 
     @GetMapping("/count")

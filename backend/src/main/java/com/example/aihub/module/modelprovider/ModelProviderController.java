@@ -45,7 +45,7 @@ public class ModelProviderController {
     public ApiResult<PageResult<ModelProviderVO>> page(@RequestParam(name = "projectId", required = false) Long projectId,
                                                        @RequestParam(defaultValue = "1") long page,
                                                        @RequestParam(defaultValue = "20") long pageSize) {
-        return ApiResult.ok(providerService.page(projectId, page, pageSize));
+        return ApiResult.ok(providerService.page(projectId, page, PagingUtil.clampPageSize(pageSize, 100)));
     }
 
     @PostMapping
@@ -55,7 +55,7 @@ public class ModelProviderController {
     }
 
     @PutMapping("/{id}")
-    public ApiResult<ModelProviderVO> update(@PathVariable Long id, @RequestBody ModelProviderUpdateDTO dto) {
+    public ApiResult<ModelProviderVO> update(@PathVariable Long id, @Valid @RequestBody ModelProviderUpdateDTO dto) {
         return ApiResult.ok(providerService.update(id, dto));
     }
 
