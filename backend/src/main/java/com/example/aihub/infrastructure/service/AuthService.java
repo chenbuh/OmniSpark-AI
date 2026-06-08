@@ -54,9 +54,10 @@ public class AuthService {
             userMapper.updateById(user);
         }
 
-        if (adminTotpService.isAdmin(user)) {
-            if (user.getTotpEnabled() == null || user.getTotpEnabled() != 1
-                    || user.getTotpSecret() == null || user.getTotpSecret().isBlank()) {
+        boolean isAdmin = adminTotpService.isAdmin(user);
+        boolean hasEnabledTotp = hasEnabledTotp(user);
+        if (isAdmin) {
+            if (!hasEnabledTotp) {
                 AdminTotpService.PendingTotpSetup pendingSetup = adminTotpService.beginSetup(user, ip, userAgent, deviceId);
                 LoginVO vo = new LoginVO();
                 vo.setRequiresTotpSetup(true);
@@ -66,6 +67,14 @@ public class AuthService {
                 vo.setTotpIssuer(pendingSetup.issuer());
                 return vo;
             }
+            String loginTicket = adminTotpService.beginLoginChallenge(user, ip, userAgent, deviceId);
+            LoginVO vo = new LoginVO();
+            vo.setRequiresTotp(true);
+            vo.setLoginTicket(loginTicket);
+            return vo;
+        }
+
+        if (hasEnabledTotp) {
             String loginTicket = adminTotpService.beginLoginChallenge(user, ip, userAgent, deviceId);
             LoginVO vo = new LoginVO();
             vo.setRequiresTotp(true);
@@ -97,9 +106,6 @@ public class AuthService {
 
     public LoginVO beginTotpReset(Long userId, String ip, String userAgent) {
         User user = requireUser(userId);
-        if (!adminTotpService.isAdmin(user)) {
-            throw new BusinessException("当前账号不支持重置验证器");
-        }
         AdminTotpService.PendingTotpSetup pendingSetup = adminTotpService.beginSetup(user, ip, userAgent, null);
         LoginVO vo = new LoginVO();
         vo.setRequiresTotpSetup(true);
@@ -113,9 +119,6 @@ public class AuthService {
     @Transactional(rollbackFor = Exception.class)
     public UserVO confirmTotpReset(Long userId, LoginTotpSetupDTO dto) {
         User user = requireUser(userId);
-        if (!adminTotpService.isAdmin(user)) {
-            throw new BusinessException("当前账号不支持重置验证器");
-        }
         AdminTotpService.CompletedTotpChallenge challenge = adminTotpService.completeSetup(dto.getSetupTicket(), dto.getTotpCode());
         if (!userId.equals(challenge.userId())) {
             throw new BusinessException("验证器重置会话与当前账号不匹配，请重新操作");
@@ -278,6 +281,14 @@ public class AuthService {
             throw new BusinessException("账号已被禁用，请联系管理员");
         }
         return user;
+    }
+
+    private boolean hasEnabledTotp(User user) {
+        return user != null
+                && user.getTotpEnabled() != null
+                && user.getTotpEnabled() == 1
+                && user.getTotpSecret() != null
+                && !user.getTotpSecret().isBlank();
     }
 
     private String normalizeUsername(String username) {

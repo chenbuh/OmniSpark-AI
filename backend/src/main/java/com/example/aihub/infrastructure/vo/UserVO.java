@@ -12,6 +12,7 @@ public class UserVO {
     private String avatar;
     private String role;
     private Integer status;
+    private Integer totpEnabled;
     private LocalDateTime createdAt;
     private Integer quotaLimit;
     private Integer quotaUsed;

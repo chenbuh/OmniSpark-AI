@@ -6,6 +6,7 @@ export interface UserInfo {
   nickname: string
   avatar: string
   role: string // 'admin' | 'user'
+  totpEnabled: boolean
 }
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
@@ -38,7 +39,8 @@ function parseStoredUserInfo(value: string | null): UserInfo | null {
       username,
       nickname,
       avatar,
-      role
+      role,
+      totpEnabled: parsed.totpEnabled === true || parsed.totpEnabled === 1 || parsed.totpEnabled === '1'
     }
   } catch {
     return null

@@ -16,13 +16,13 @@
         <p class="subtitle">{{ isLoginMode ? '一体化高保真生图与视频创作平台' : '加入多维 AI 创意空间' }}</p>
       </div>
 
-      <!-- 1. 管理员二次验证 -->
+      <!-- 1. 验证器二次验证 -->
       <n-form
         v-if="isLoginMode && totpState.stage !== 'none'"
         class="login-form"
       >
         <div class="totp-panel">
-          <h3>{{ totpState.stage === 'setup' ? '管理员首次登录验证' : '管理员动态验证码' }}</h3>
+          <h3>{{ totpState.stage === 'setup' ? '验证器绑定' : '动态验证码' }}</h3>
           <p class="subtitle">
             {{ totpState.stage === 'setup'
               ? '请使用验证器 App 扫码绑定；如果 App 不支持扫码，也可以复制密钥或绑定链接完成令牌激活。'
@@ -573,7 +573,7 @@ const activateTotpFlow = (result: Awaited<ReturnType<typeof authApi.login>>) => 
     totpState.otpauthUrl = ''
     totpState.issuer = ''
     totpState.code = ''
-    message.warning('检测到管理员账号，请输入动态验证码继续登录')
+    message.warning('当前账号已开启动态验证码，请继续完成验证')
     return
   }
   if (result.type === 'totp-setup') {
@@ -584,7 +584,7 @@ const activateTotpFlow = (result: Awaited<ReturnType<typeof authApi.login>>) => 
     totpState.otpauthUrl = result.totpOtpauthUrl
     totpState.issuer = result.totpIssuer
     totpState.code = ''
-    message.warning('管理员账号首次登录，请先完成验证器绑定')
+    message.warning('请先完成验证器绑定')
   }
 }
 

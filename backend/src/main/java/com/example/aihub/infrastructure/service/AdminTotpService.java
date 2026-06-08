@@ -55,9 +55,9 @@ public class AdminTotpService {
     }
 
     public CompletedTotpChallenge completeSetup(String setupTicket, String totpCode) {
-        PendingLoginState state = readState(SETUP_TICKET_PREFIX + setupTicket, "管理员动态验证初始化状态已失效，请重新登录");
+        PendingLoginState state = readState(SETUP_TICKET_PREFIX + setupTicket, "验证器绑定状态已失效，请重新开始");
         if (!"setup".equals(state.stage) || state.pendingSecret == null || state.pendingSecret.isBlank()) {
-            throw new BusinessException("管理员动态验证初始化状态已失效，请重新登录");
+            throw new BusinessException("验证器绑定状态已失效，请重新开始");
         }
         assertCodeValid(state.pendingSecret, totpCode, "动态验证码无效，请重新输入");
         redisTemplate.delete(SETUP_TICKET_PREFIX + setupTicket);
@@ -65,9 +65,9 @@ public class AdminTotpService {
     }
 
     public PendingLoginState peekLoginState(String loginTicket) {
-        PendingLoginState state = readState(LOGIN_TICKET_PREFIX + loginTicket, "管理员动态验证状态已失效，请重新登录");
+        PendingLoginState state = readState(LOGIN_TICKET_PREFIX + loginTicket, "动态验证码状态已失效，请重新登录");
         if (!"login".equals(state.stage)) {
-            throw new BusinessException("管理员动态验证状态已失效，请重新登录");
+            throw new BusinessException("动态验证码状态已失效，请重新登录");
         }
         return state;
     }
@@ -75,11 +75,11 @@ public class AdminTotpService {
     public CompletedTotpChallenge completeLogin(String loginTicket, String totpCode, String persistedSecret) {
         PendingLoginState state = peekLoginState(loginTicket);
         if (!"login".equals(state.stage)) {
-            throw new BusinessException("管理员动态验证状态已失效，请重新登录");
+            throw new BusinessException("动态验证码状态已失效，请重新登录");
         }
         redisTemplate.delete(LOGIN_TICKET_PREFIX + loginTicket);
         if (persistedSecret == null || persistedSecret.isBlank()) {
-            throw new BusinessException("管理员动态验证尚未初始化");
+            throw new BusinessException("当前账号尚未完成验证器绑定");
         }
         assertCodeValid(persistedSecret, totpCode, "动态验证码无效，请重新输入");
         return new CompletedTotpChallenge(state.userId, state.username, state.ip, state.userAgent, state.deviceId, null);
@@ -143,7 +143,7 @@ public class AdminTotpService {
             int otp = binary % 1_000_000;
             return String.format(Locale.ROOT, "%06d", otp);
         } catch (Exception e) {
-            throw new BusinessException("管理员动态验证处理失败，请稍后重试");
+            throw new BusinessException("动态验证码处理失败，请稍后重试");
         }
     }
 
@@ -175,7 +175,7 @@ public class AdminTotpService {
         try {
             redisTemplate.opsForValue().set(key, objectMapper.writeValueAsString(state), ttl);
         } catch (Exception e) {
-            throw new BusinessException("管理员动态验证状态初始化失败，请稍后重试");
+            throw new BusinessException("验证器状态初始化失败，请稍后重试");
         }
     }
 

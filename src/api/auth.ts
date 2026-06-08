@@ -12,6 +12,7 @@ interface AuthUserInfo {
   nickname: string
   avatar: string
   role: string
+  totpEnabled: boolean
 }
 
 interface LoginSuccessResult {
@@ -84,7 +85,8 @@ function normalizeUserInfo(payload: unknown): AuthUserInfo {
     username: payload.username,
     nickname: payload.nickname,
     avatar: typeof payload.avatar === 'string' ? payload.avatar : '',
-    role: payload.role
+    role: payload.role,
+    totpEnabled: payload.totpEnabled === true || payload.totpEnabled === 1 || payload.totpEnabled === '1'
   }
 }
 
@@ -144,6 +146,7 @@ function assertConfirmedLogin(result: LoginSuccessResult, confirmedUser: AuthUse
     || confirmedUser.username !== result.userInfo.username
     || confirmedUser.nickname !== result.userInfo.nickname
     || confirmedUser.role !== result.userInfo.role
+    || confirmedUser.totpEnabled !== result.userInfo.totpEnabled
   ) {
     throw new Error('登录结果待确认')
   }
