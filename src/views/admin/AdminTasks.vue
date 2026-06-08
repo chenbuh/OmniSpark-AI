@@ -1,7 +1,7 @@
 <template>
   <div class="admin-tasks">
     <div class="page-header">
-      <h2>全局任务监管 (Task Supervision)</h2>
+      <h2>全局任务监管</h2>
       <p class="subtitle">查看和管理所有用户的任务。</p>
     </div>
 
