@@ -47,7 +47,7 @@
               <th style="width:90px">角色</th>
               <th style="width:65px">状态</th>
               <th style="width:140px">创建时间</th>
-              <th style="width:210px">操作</th>
+              <th style="width:300px">操作</th>
             </tr>
           </thead>
           <tbody>
@@ -115,6 +115,7 @@
               </td>
               <td>
                 <n-space :size="4">
+                  <n-button size="tiny" tertiary @click="openUserProfile(u)">画像</n-button>
                   <n-button size="tiny" tertiary @click="handleResetPassword(u)">重置密码</n-button>
                   <n-button size="tiny" type="error" tertiary @click="handleDeleteUser(u)">删除</n-button>
                 </n-space>
@@ -167,6 +168,169 @@
         <n-button type="primary" @click="handleCreate" :loading="creating">创建</n-button>
       </template>
     </n-modal>
+
+    <n-drawer v-model:show="profileVisible" :width="760" placement="right">
+      <n-drawer-content :title="selectedProfile ? `${selectedProfile.username} 的用户画像` : '用户画像'" closable>
+        <template v-if="profileLoading">
+          <n-skeleton text :repeat="10" style="margin: 8px 0;" />
+        </template>
+        <template v-else-if="selectedProfile">
+          <div class="profile-panel">
+            <div class="profile-header-card">
+              <div class="profile-header-main">
+                <n-avatar
+                  v-if="selectedProfile.avatar"
+                  :src="selectedProfile.avatar"
+                  :size="54"
+                  round
+                />
+                <div v-else class="profile-avatar-fallback">{{ (selectedProfile.nickname || selectedProfile.username)?.[0] }}</div>
+                <div class="profile-title-block">
+                  <div class="profile-title-row">
+                    <strong>{{ selectedProfile.nickname || selectedProfile.username }}</strong>
+                    <n-tag size="small" :type="selectedProfile.status === 1 ? 'success' : 'warning'">
+                      {{ selectedProfile.status === 1 ? '启用中' : '已禁用' }}
+                    </n-tag>
+                    <n-tag size="small" type="info">{{ selectedProfile.role || '-' }}</n-tag>
+                    <n-tag size="small" :type="selectedProfile.totpEnabled === 1 ? 'success' : 'default'">
+                      {{ selectedProfile.totpEnabled === 1 ? '已绑定动态验证码' : '未绑定动态验证码' }}
+                    </n-tag>
+                  </div>
+                  <div class="profile-subtitle-row">
+                    <span>用户名 {{ selectedProfile.username }}</span>
+                    <span>ID #{{ selectedProfile.id }}</span>
+                    <span>创建于 {{ formatFull(selectedProfile.createdAt) }}</span>
+                  </div>
+                </div>
+              </div>
+              <div class="profile-count-grid">
+                <div class="summary-tile">
+                  <span>登录记录</span>
+                  <strong>{{ selectedProfile.totalLoginCount }}</strong>
+                </div>
+                <div class="summary-tile">
+                  <span>审计轨迹</span>
+                  <strong>{{ selectedProfile.totalAuditCount }}</strong>
+                </div>
+                <div class="summary-tile">
+                  <span>访问日志</span>
+                  <strong>{{ selectedProfile.totalAccessCount }}</strong>
+                </div>
+              </div>
+            </div>
+
+            <div class="profile-summary-grid">
+              <div class="summary-card">
+                <span class="summary-label">最近登录地区</span>
+                <strong>{{ selectedProfile.latestLogin ? formatIpGeoSummary(selectedProfile.latestLogin.ipGeo) : '暂无登录记录' }}</strong>
+                <p>{{ selectedProfile.latestLogin ? `${formatFull(selectedProfile.latestLogin.createdAt)} · ${selectedProfile.latestLogin.ip || '-'}` : '尚未记录到登录来源 IP。' }}</p>
+              </div>
+              <div class="summary-card">
+                <span class="summary-label">最近操作轨迹</span>
+                <strong>{{ selectedProfile.latestAudit ? formatAction(selectedProfile.latestAudit.action) : '暂无审计记录' }}</strong>
+                <p>{{ selectedProfile.latestAudit ? `${formatFull(selectedProfile.latestAudit.createdAt)} · ${selectedProfile.latestAudit.detail || selectedProfile.latestAudit.ip || '-'}` : '尚未记录到后台操作轨迹。' }}</p>
+              </div>
+              <div class="summary-card">
+                <span class="summary-label">最近访问来源</span>
+                <strong>{{ selectedProfile.latestAccess ? formatIpGeoSummary(selectedProfile.latestAccess.ipGeo) : '暂无访问日志' }}</strong>
+                <p>{{ selectedProfile.latestAccess ? `${formatFull(selectedProfile.latestAccess.createdAt)} · ${selectedProfile.latestAccess.clientIp || '-'} · ${selectedProfile.latestAccess.path || '-'}` : '尚未记录到接口访问来源。' }}</p>
+              </div>
+              <div class="summary-card">
+                <span class="summary-label">常用 IP 数</span>
+                <strong>{{ selectedProfile.commonIps.length }}</strong>
+                <p>{{ selectedProfile.commonIps[0] ? `最近常用 IP：${selectedProfile.commonIps[0].ip}` : '暂无可归纳的常用 IP。' }}</p>
+              </div>
+            </div>
+
+            <div class="profile-section">
+              <div class="profile-section-head">
+                <h3>常用 IP 画像</h3>
+                <span>综合登录、审计与访问日志统计</span>
+              </div>
+              <div v-if="selectedProfile.commonIps.length > 0" class="ip-profile-list">
+                <div v-for="item in selectedProfile.commonIps" :key="item.ip" class="ip-profile-card">
+                  <div class="ip-profile-top">
+                    <code>{{ item.ip || '-' }}</code>
+                    <span>{{ formatIpGeoSummary(item.ipGeo) }}</span>
+                  </div>
+                  <div class="ip-profile-meta">
+                    <span>{{ item.ipGeo?.isp || '运营商待确认' }}</span>
+                    <span>最近出现 {{ formatFull(item.lastSeenAt) }}</span>
+                  </div>
+                  <div class="ip-profile-stats">
+                    <span>登录 {{ item.loginCount }}</span>
+                    <span>审计 {{ item.auditCount }}</span>
+                    <span>访问 {{ item.accessCount }}</span>
+                    <span>总计 {{ item.totalCount }}</span>
+                  </div>
+                  <div class="ip-profile-extra">
+                    <span>{{ formatFlags(item.ipGeo) }}</span>
+                    <span>{{ formatCoordinates(item.ipGeo) }}</span>
+                  </div>
+                </div>
+              </div>
+              <n-empty v-else description="暂无可展示的常用 IP 画像" />
+            </div>
+
+            <div class="profile-section">
+              <n-tabs v-model:value="profileTab" type="segment" animated>
+                <n-tab-pane name="logins" tab="最近登录">
+                  <div v-if="selectedProfile.recentLoginLogs.length > 0" class="activity-list">
+                    <div v-for="log in selectedProfile.recentLoginLogs" :key="`login-${log.id}`" class="activity-card">
+                      <div class="activity-title-row">
+                        <strong>{{ formatFull(log.createdAt) }}</strong>
+                        <code>{{ log.ip || '-' }}</code>
+                      </div>
+                      <p>{{ formatIpGeoSummary(log.ipGeo) }}</p>
+                      <div class="activity-meta-row">
+                        <span>{{ log.ipGeo?.isp || '运营商待确认' }}</span>
+                        <span class="break-all">{{ log.userAgent || '-' }}</span>
+                      </div>
+                    </div>
+                  </div>
+                  <n-empty v-else description="暂无登录记录" />
+                </n-tab-pane>
+                <n-tab-pane name="audits" tab="最近操作">
+                  <div v-if="selectedProfile.recentAuditLogs.length > 0" class="activity-list">
+                    <div v-for="log in selectedProfile.recentAuditLogs" :key="`audit-${log.id}`" class="activity-card">
+                      <div class="activity-title-row">
+                        <strong>{{ formatAction(log.action) }}</strong>
+                        <span>{{ formatFull(log.createdAt) }}</span>
+                      </div>
+                      <p class="break-all">{{ log.detail || '暂无详细说明' }}</p>
+                      <div class="activity-meta-row">
+                        <code>{{ log.ip || '-' }}</code>
+                        <span>{{ formatIpGeoSummary(log.ipGeo) }}</span>
+                        <span>{{ log.resourceType || '-' }}{{ log.resourceId != null ? ` #${log.resourceId}` : '' }}</span>
+                      </div>
+                    </div>
+                  </div>
+                  <n-empty v-else description="暂无审计轨迹" />
+                </n-tab-pane>
+                <n-tab-pane name="access" tab="访问日志">
+                  <div v-if="selectedProfile.recentAccessLogs.length > 0" class="activity-list">
+                    <div v-for="log in selectedProfile.recentAccessLogs" :key="`access-${log.id}`" class="activity-card">
+                      <div class="activity-title-row">
+                        <strong>{{ log.method || 'HTTP' }} {{ log.statusCode }}</strong>
+                        <span>{{ formatFull(log.createdAt) }}</span>
+                      </div>
+                      <p class="break-all">{{ log.path || '-' }}</p>
+                      <div class="activity-meta-row">
+                        <code>{{ log.clientIp || '-' }}</code>
+                        <span>{{ formatIpGeoSummary(log.ipGeo) }}</span>
+                        <span>{{ log.durationMs }}ms</span>
+                      </div>
+                    </div>
+                  </div>
+                  <n-empty v-else description="暂无访问日志" />
+                </n-tab-pane>
+              </n-tabs>
+            </div>
+          </div>
+        </template>
+        <n-empty v-else description="用户画像待确认，请稍后重试。" />
+      </n-drawer-content>
+    </n-drawer>
   </div>
 </template>
 
@@ -175,6 +339,7 @@ import { computed, ref, onMounted } from 'vue'
 import { useMessage, useDialog } from 'naive-ui'
 import { Search, Download, Upload, Plus, RefreshCw } from 'lucide-vue-next'
 import request, { API_BASE_URL } from '@/api/request'
+import { formatIpGeoSummary, normalizeIpGeoInfo, type IpGeoInfo } from '@/utils/ipGeo'
 import { PASSWORD_REQUIREMENT_TEXT, validatePasswordStrength } from '@/utils/password'
 import { encryptPassword } from '@/utils/passwordEncryption'
 
@@ -216,6 +381,77 @@ type UserImportResult = {
   generatedCredentials: GeneratedCredential[]
 }
 
+type UserLoginLogRecord = {
+  id: number
+  userId: number
+  username: string
+  ip: string
+  userAgent: string
+  createdAt: string
+  ipGeo: IpGeoInfo | null
+}
+
+type UserAuditLogRecord = {
+  id: number
+  userId: number | null
+  username: string
+  action: string
+  resourceType: string
+  resourceId: number | null
+  detail: string
+  ip: string
+  createdAt: string
+  ipGeo: IpGeoInfo | null
+}
+
+type UserAccessLogRecord = {
+  id: number
+  userId: number | null
+  apiKeyId: number | null
+  clientIp: string
+  userAgent: string
+  method: string
+  path: string
+  queryString: string
+  statusCode: number
+  durationMs: number | null
+  rateLimited: number | null
+  riskReason: string
+  createdAt: string
+  ipGeo: IpGeoInfo | null
+}
+
+type UserIpProfileRecord = {
+  ip: string
+  ipGeo: IpGeoInfo | null
+  loginCount: number
+  auditCount: number
+  accessCount: number
+  totalCount: number
+  lastSeenAt: string
+}
+
+type AdminUserProfile = {
+  id: number
+  username: string
+  nickname: string
+  avatar: string
+  role: string
+  status: number
+  totpEnabled: number
+  createdAt: string
+  totalLoginCount: number
+  totalAuditCount: number
+  totalAccessCount: number
+  latestLogin: UserLoginLogRecord | null
+  latestAudit: UserAuditLogRecord | null
+  latestAccess: UserAccessLogRecord | null
+  commonIps: UserIpProfileRecord[]
+  recentLoginLogs: UserLoginLogRecord[]
+  recentAuditLogs: UserAuditLogRecord[]
+  recentAccessLogs: UserAccessLogRecord[]
+}
+
 const users = ref<AdminUserRecord[] | null>(null)
 const search = ref('')
 const loading = ref(true)
@@ -236,6 +472,10 @@ const editNickname = ref('')
 const showCreate = ref(false)
 const creating = ref(false)
 const createForm = ref({ username: '', password: '', nickname: '', role: '' })
+const profileVisible = ref(false)
+const profileLoading = ref(false)
+const profileTab = ref<'logins' | 'audits' | 'access'>('logins')
+const selectedProfile = ref<AdminUserProfile | null>(null)
 
 // --- 生命周期 ---
 onMounted(async () => {
@@ -260,6 +500,30 @@ function getErrorMessage(error: unknown, fallback: string) {
 
 function normalizeOptionalText(value: unknown) {
   return typeof value === 'string' ? value.trim() : ''
+}
+
+function normalizeOptionalNumber(value: unknown) {
+  if (value == null || value === '') {
+    return null
+  }
+  const normalized = Number(value)
+  return Number.isFinite(normalized) ? normalized : null
+}
+
+function requirePositiveNumber(value: unknown, errorMessage: string) {
+  const normalized = Number(value)
+  if (!Number.isFinite(normalized) || normalized <= 0) {
+    throw new Error(errorMessage)
+  }
+  return normalized
+}
+
+function requireNonNegativeNumber(value: unknown, errorMessage: string) {
+  const normalized = Number(value)
+  if (!Number.isFinite(normalized) || normalized < 0) {
+    throw new Error(errorMessage)
+  }
+  return normalized
 }
 
 function requireUsersPage(value: unknown) {
@@ -379,6 +643,140 @@ function requireImportResult(value: unknown): UserImportResult {
     failed,
     errors,
     generatedCredentials: requireGeneratedCredentials(value.generatedCredentials)
+  }
+}
+
+function normalizeLoginLogRecord(value: unknown): UserLoginLogRecord {
+  if (!isPlainObject(value)) {
+    throw new Error('用户画像待确认')
+  }
+  const id = requirePositiveNumber(value.id, '用户画像待确认')
+  const userId = requirePositiveNumber(value.userId, '用户画像待确认')
+  const username = normalizeOptionalText(value.username)
+  const createdAt = normalizeOptionalText(value.createdAt)
+  if (!username || !createdAt) {
+    throw new Error('用户画像待确认')
+  }
+  return {
+    id,
+    userId,
+    username,
+    ip: normalizeOptionalText(value.ip),
+    userAgent: normalizeOptionalText(value.userAgent),
+    createdAt,
+    ipGeo: normalizeIpGeoInfo(value.ipGeo)
+  }
+}
+
+function normalizeAuditLogRecord(value: unknown): UserAuditLogRecord {
+  if (!isPlainObject(value)) {
+    throw new Error('用户画像待确认')
+  }
+  const id = requirePositiveNumber(value.id, '用户画像待确认')
+  const action = normalizeOptionalText(value.action)
+  const createdAt = normalizeOptionalText(value.createdAt)
+  if (!action || !createdAt) {
+    throw new Error('用户画像待确认')
+  }
+  return {
+    id,
+    userId: normalizeOptionalNumber(value.userId),
+    username: normalizeOptionalText(value.username),
+    action,
+    resourceType: normalizeOptionalText(value.resourceType),
+    resourceId: normalizeOptionalNumber(value.resourceId),
+    detail: normalizeOptionalText(value.detail),
+    ip: normalizeOptionalText(value.ip),
+    createdAt,
+    ipGeo: normalizeIpGeoInfo(value.ipGeo)
+  }
+}
+
+function normalizeAccessLogRecord(value: unknown): UserAccessLogRecord {
+  if (!isPlainObject(value)) {
+    throw new Error('用户画像待确认')
+  }
+  const id = requirePositiveNumber(value.id, '用户画像待确认')
+  const statusCode = requireNonNegativeNumber(value.statusCode, '用户画像待确认')
+  const createdAt = normalizeOptionalText(value.createdAt)
+  if (!createdAt) {
+    throw new Error('用户画像待确认')
+  }
+  return {
+    id,
+    userId: normalizeOptionalNumber(value.userId),
+    apiKeyId: normalizeOptionalNumber(value.apiKeyId),
+    clientIp: normalizeOptionalText(value.clientIp),
+    userAgent: normalizeOptionalText(value.userAgent),
+    method: normalizeOptionalText(value.method),
+    path: normalizeOptionalText(value.path),
+    queryString: normalizeOptionalText(value.queryString),
+    statusCode,
+    durationMs: normalizeOptionalNumber(value.durationMs),
+    rateLimited: normalizeOptionalNumber(value.rateLimited),
+    riskReason: normalizeOptionalText(value.riskReason),
+    createdAt,
+    ipGeo: normalizeIpGeoInfo(value.ipGeo)
+  }
+}
+
+function normalizeUserIpProfileRecord(value: unknown): UserIpProfileRecord {
+  if (!isPlainObject(value)) {
+    throw new Error('用户画像待确认')
+  }
+  const ip = normalizeOptionalText(value.ip)
+  const totalCount = requireNonNegativeNumber(value.totalCount, '用户画像待确认')
+  const lastSeenAt = normalizeOptionalText(value.lastSeenAt)
+  if (!ip || !lastSeenAt) {
+    throw new Error('用户画像待确认')
+  }
+  return {
+    ip,
+    ipGeo: normalizeIpGeoInfo(value.ipGeo),
+    loginCount: requireNonNegativeNumber(value.loginCount, '用户画像待确认'),
+    auditCount: requireNonNegativeNumber(value.auditCount, '用户画像待确认'),
+    accessCount: requireNonNegativeNumber(value.accessCount, '用户画像待确认'),
+    totalCount,
+    lastSeenAt
+  }
+}
+
+function requireAdminUserProfile(value: unknown): AdminUserProfile {
+  if (!isPlainObject(value)) {
+    throw new Error('用户画像待确认')
+  }
+  const id = requirePositiveNumber(value.id, '用户画像待确认')
+  const username = normalizeOptionalText(value.username)
+  const role = normalizeOptionalText(value.role)
+  const createdAt = normalizeOptionalText(value.createdAt)
+  const status = normalizeUserStatus(value.status)
+  const totpEnabled = normalizeUserStatus(value.totpEnabled) ?? 0
+  if (!username || !role || !createdAt || status == null) {
+    throw new Error('用户画像待确认')
+  }
+  const commonIpsRaw = Array.isArray(value.commonIps) ? value.commonIps : []
+  const recentLoginLogsRaw = Array.isArray(value.recentLoginLogs) ? value.recentLoginLogs : []
+  const recentAuditLogsRaw = Array.isArray(value.recentAuditLogs) ? value.recentAuditLogs : []
+  const recentAccessLogsRaw = Array.isArray(value.recentAccessLogs) ? value.recentAccessLogs : []
+  return {
+    id,
+    username,
+    nickname: normalizeOptionalText(value.nickname),
+    avatar: normalizeOptionalText(value.avatar),
+    role,
+    status,
+    totpEnabled,
+    createdAt,
+    totalLoginCount: requireNonNegativeNumber(value.totalLoginCount, '用户画像待确认'),
+    totalAuditCount: requireNonNegativeNumber(value.totalAuditCount, '用户画像待确认'),
+    totalAccessCount: requireNonNegativeNumber(value.totalAccessCount, '用户画像待确认'),
+    latestLogin: value.latestLogin == null ? null : normalizeLoginLogRecord(value.latestLogin),
+    latestAudit: value.latestAudit == null ? null : normalizeAuditLogRecord(value.latestAudit),
+    latestAccess: value.latestAccess == null ? null : normalizeAccessLogRecord(value.latestAccess),
+    commonIps: commonIpsRaw.map(item => normalizeUserIpProfileRecord(item)),
+    recentLoginLogs: recentLoginLogsRaw.map(item => normalizeLoginLogRecord(item)),
+    recentAuditLogs: recentAuditLogsRaw.map(item => normalizeAuditLogRecord(item)),
+    recentAccessLogs: recentAccessLogsRaw.map(item => normalizeAccessLogRecord(item))
   }
 }
 
@@ -730,6 +1128,28 @@ async function loadUserByUsername(username: string) {
   return data.records.find(item => item.username === keyword) || null
 }
 
+async function openUserProfile(user: AdminUserRecord) {
+  profileVisible.value = true
+  profileLoading.value = true
+  profileTab.value = 'logins'
+  selectedProfile.value = null
+  try {
+    const response = await request.get<unknown>(`/api/admin/users/${user.id}/profile`, {
+      headers: NO_CACHE_HEADERS
+    })
+    const profile = requireAdminUserProfile(getResponseData(response, '用户画像待确认'))
+    if (profile.id !== user.id || profile.username !== user.username) {
+      throw new Error('用户画像待确认')
+    }
+    selectedProfile.value = profile
+  } catch (err: unknown) {
+    profileVisible.value = false
+    message.error(getErrorMessage(err, '加载用户画像失败'))
+  } finally {
+    profileLoading.value = false
+  }
+}
+
 function buildGeneratedCredentialSummary(items: GeneratedCredential[]) {
   const visibleItems = items.slice(0, 10).map(item => `${item.username}：${item.initialPassword}`)
   const extraCount = Math.max(0, items.length - visibleItems.length)
@@ -750,6 +1170,30 @@ function formatShort(dateStr: string): string {
 function formatFull(dateStr: string): string {
   if (!dateStr) return '-'
   return dateStr.replace('T', ' ').substring(0, 19)
+}
+
+function formatCoordinates(ipGeo: IpGeoInfo | null) {
+  if (ipGeo?.latitude == null || ipGeo?.longitude == null) {
+    return '-'
+  }
+  return `${ipGeo.latitude.toFixed(4)}, ${ipGeo.longitude.toFixed(4)}`
+}
+
+function formatFlags(ipGeo: IpGeoInfo | null) {
+  if (!ipGeo) return '-'
+  const labels = [
+    ipGeo.privateNetwork ? '内网/保留地址' : '',
+    ipGeo.proxy ? '代理' : '',
+    ipGeo.vpn ? 'VPN' : '',
+    ipGeo.tor ? 'Tor' : '',
+    ipGeo.hosting ? '机房' : ''
+  ].filter(Boolean)
+  return labels.length > 0 ? labels.join(' / ') : '-'
+}
+
+function formatAction(action: string) {
+  if (!action) return '-'
+  return action.replace(/_/g, ' ')
 }
 </script>
 
@@ -778,4 +1222,47 @@ function formatFull(dateStr: string): string {
 
 .never-used { color: var(--text-muted); }
 .pagination-wrap { display: flex; justify-content: flex-end; margin-top: 16px; }
+.profile-panel { display: flex; flex-direction: column; gap: 18px; }
+.profile-header-card { display: flex; flex-direction: column; gap: 16px; padding: 18px; border-radius: 16px; background: rgba(15, 23, 42, 0.72); border: 1px solid var(--border-color); }
+.profile-header-main { display: flex; gap: 14px; align-items: center; }
+.profile-avatar-fallback { width: 54px; height: 54px; border-radius: 50%; background: rgba(128,128,128,0.16); color: var(--text-primary); display: flex; align-items: center; justify-content: center; font-size: 20px; font-weight: 700; flex-shrink: 0; }
+.profile-title-block { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.profile-title-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.profile-title-row strong { font-size: 20px; color: var(--text-primary); }
+.profile-subtitle-row { display: flex; flex-wrap: wrap; gap: 12px; color: var(--text-muted); font-size: 12px; }
+.profile-count-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+.summary-tile { padding: 14px; border-radius: 14px; background: rgba(148, 163, 184, 0.08); display: flex; flex-direction: column; gap: 8px; }
+.summary-tile span { font-size: 12px; color: #94a3b8; }
+.summary-tile strong { font-size: 24px; color: #f8fafc; }
+.profile-summary-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.summary-card { padding: 16px; border-radius: 14px; background: rgba(15, 23, 42, 0.52); border: 1px solid var(--border-light); display: flex; flex-direction: column; gap: 8px; }
+.summary-card strong { font-size: 16px; color: var(--text-primary); }
+.summary-card p { margin: 0; font-size: 12px; line-height: 1.6; color: var(--text-muted); }
+.summary-label { font-size: 12px; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.04em; }
+.profile-section { padding: 16px; border-radius: 16px; background: rgba(15, 23, 42, 0.48); border: 1px solid var(--border-color); }
+.profile-section-head { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; margin-bottom: 14px; }
+.profile-section-head h3 { margin: 0; font-size: 16px; color: var(--text-primary); }
+.profile-section-head span { font-size: 12px; color: var(--text-muted); }
+.ip-profile-list { display: flex; flex-direction: column; gap: 12px; }
+.ip-profile-card { padding: 14px; border-radius: 14px; background: rgba(148, 163, 184, 0.08); display: flex; flex-direction: column; gap: 10px; }
+.ip-profile-top { display: flex; justify-content: space-between; gap: 12px; align-items: center; flex-wrap: wrap; color: var(--text-primary); }
+.ip-profile-meta, .ip-profile-stats, .ip-profile-extra { display: flex; flex-wrap: wrap; gap: 12px; font-size: 12px; color: var(--text-muted); }
+.activity-list { display: flex; flex-direction: column; gap: 12px; margin-top: 12px; }
+.activity-card { padding: 14px; border-radius: 14px; background: rgba(148, 163, 184, 0.08); display: flex; flex-direction: column; gap: 10px; }
+.activity-card p { margin: 0; color: var(--text-secondary); line-height: 1.6; }
+.activity-title-row { display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; align-items: center; color: var(--text-primary); }
+.activity-meta-row { display: flex; flex-wrap: wrap; gap: 12px; font-size: 12px; color: var(--text-muted); }
+.break-all { word-break: break-all; }
+
+@media (max-width: 900px) {
+  .profile-count-grid,
+  .profile-summary-grid { grid-template-columns: 1fr; }
+}
+
+@media (max-width: 640px) {
+  .profile-header-main { align-items: flex-start; }
+  .profile-subtitle-row,
+  .ip-profile-top,
+  .activity-title-row { flex-direction: column; align-items: flex-start; }
+}
 </style>

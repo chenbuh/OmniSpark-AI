@@ -8,12 +8,15 @@ import com.example.aihub.common.util.VoMapper;
 import com.example.aihub.infrastructure.entity.AuditLog;
 import com.example.aihub.infrastructure.mapper.AuditLogMapper;
 import com.example.aihub.infrastructure.vo.AuditLogVO;
+import com.example.aihub.infrastructure.vo.IpGeoInfoVO;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Map;
+import java.util.Objects;
 
 @Service
 @RequiredArgsConstructor
@@ -21,6 +24,7 @@ public class AuditLogService {
     private final AuditLogMapper auditLogMapper;
     private final ClientIpResolver clientIpResolver;
     private final AuditActionCatalog auditActionCatalog;
+    private final IpGeoLookupService ipGeoLookupService;
 
     public void log(Long userId, String username, String action,
                     String resourceType, Long resourceId, String detail, String ip) {
@@ -42,7 +46,7 @@ public class AuditLogService {
     }
 
     /** 分页查询审计日志,返回 PageResult。 */
-    public com.example.aihub.common.result.PageResult<AuditLogVO> page(String action, Long userId, long page, long size) {
+    public com.example.aihub.common.result.PageResult<AuditLogVO> page(String action, Long userId, String username, String ip, long page, long size) {
         long safePage = PagingUtil.normalizePage(page);
         long safePageSize = PagingUtil.clampPageSize(size, 20);
         LambdaQueryWrapper<AuditLog> wrapper = new LambdaQueryWrapper<>();
@@ -52,11 +56,25 @@ public class AuditLogService {
         if (userId != null) {
             wrapper.eq(AuditLog::getUserId, userId);
         }
+        if (username != null && !username.isBlank()) {
+            wrapper.like(AuditLog::getUsername, username.trim());
+        }
+        if (ip != null && !ip.isBlank()) {
+            wrapper.like(AuditLog::getIp, ip.trim());
+        }
         wrapper.orderByDesc(AuditLog::getId);
         var p = auditLogMapper.selectPage(
                 new com.baomidou.mybatisplus.extension.plugins.pagination.Page<>(safePage, safePageSize), wrapper);
+        Map<String, IpGeoInfoVO> ipGeoMap = ipGeoLookupService.resolveBatch(p.getRecords().stream()
+                .map(AuditLog::getIp)
+                .filter(Objects::nonNull)
+                .toList());
         List<AuditLogVO> records = p.getRecords().stream()
-                .map(item -> VoMapper.copy(item, AuditLogVO.class))
+                .map(item -> {
+                    AuditLogVO vo = VoMapper.copy(item, AuditLogVO.class);
+                    vo.setIpGeo(ipGeoMap.get(item.getIp()));
+                    return vo;
+                })
                 .toList();
         return new com.example.aihub.common.result.PageResult<>(p.getTotal(), p.getPages(), records);
     }

@@ -18,7 +18,13 @@
             clearable
             @update:value="onFilter"
           />
+          <template v-if="isAdmin">
+            <n-input-number v-model:value="userIdFilter" size="small" placeholder="用户ID" clearable style="width: 120px;" />
+            <n-input v-model:value="usernameFilter" size="small" placeholder="用户名" clearable style="width: 160px;" />
+          </template>
+          <n-input v-model:value="ipFilter" size="small" placeholder="IP" clearable style="width: 160px;" />
           <n-button type="primary" size="small" @click="loadLogs">刷新</n-button>
+          <n-button size="small" tertiary @click="resetFilters">重置</n-button>
           <!-- 仅管理员可清理 N 天前日志 -->
           <template v-if="isAdmin">
             <n-divider vertical />
@@ -44,7 +50,9 @@
             <th style="width: 140px;">操作</th>
             <th>详情</th>
             <th style="width: 120px;">IP</th>
+            <th style="width: 180px;">地区</th>
             <th style="width: 160px;">时间</th>
+            <th style="width: 80px;">查看</th>
           </tr>
         </thead>
         <tbody>
@@ -54,13 +62,18 @@
             <td><n-tag size="small" :type="actionColor(log.action)">{{ formatAction(log.action) }}</n-tag></td>
             <td><n-ellipsis :line-clamp="1" :tooltip="true">{{ log.detail }}</n-ellipsis></td>
             <td><code>{{ log.ip || '-' }}</code></td>
+            <td>
+              <div>{{ formatIpGeoSummary(log.ipGeo) }}</div>
+              <div v-if="log.ipGeo?.isp" class="sub-line">{{ log.ipGeo?.isp }}</div>
+            </td>
             <td>{{ log.createdAt?.substring(0, 19)?.replace('T', ' ') }}</td>
+            <td><n-button text type="primary" size="small" @click="openDetail(log)">详情</n-button></td>
           </tr>
           <tr v-if="logs !== null && logs.length === 0">
-            <td colspan="6" class="empty-cell">暂无审计日志</td>
+            <td colspan="8" class="empty-cell">暂无审计日志</td>
           </tr>
           <tr v-else-if="logs === null">
-            <td colspan="6" class="empty-cell">审计日志数据待确认</td>
+            <td colspan="8" class="empty-cell">审计日志数据待确认</td>
           </tr>
         </tbody>
       </n-table>
@@ -76,6 +89,33 @@
         />
       </div>
     </n-card>
+
+    <n-drawer v-model:show="detailVisible" :width="700" placement="right">
+      <n-drawer-content title="审计日志详情" closable>
+        <template v-if="selectedLog">
+          <div class="detail-grid">
+            <div class="detail-item"><span>日志ID</span><strong>#{{ selectedLog.id }}</strong></div>
+            <div class="detail-item"><span>用户</span><strong>{{ selectedLog.username || '未知' }}</strong></div>
+            <div class="detail-item"><span>操作</span><strong>{{ formatAction(selectedLog.action) }}</strong></div>
+            <div class="detail-item"><span>时间</span><strong>{{ formatTime(selectedLog.createdAt) }}</strong></div>
+            <div class="detail-item"><span>资源类型</span><strong>{{ selectedLog.resourceType || '-' }}</strong></div>
+            <div class="detail-item"><span>资源ID</span><strong>{{ selectedLog.resourceId ?? '-' }}</strong></div>
+            <div class="detail-item detail-item--wide"><span>来源 IP</span><strong><code>{{ selectedLog.ip || '-' }}</code></strong></div>
+            <div class="detail-item detail-item--wide"><span>地区摘要</span><strong>{{ formatIpGeoSummary(selectedLog.ipGeo) }}</strong></div>
+            <div class="detail-item"><span>国家</span><strong>{{ selectedLog.ipGeo?.country || '-' }}</strong></div>
+            <div class="detail-item"><span>省/州</span><strong>{{ selectedLog.ipGeo?.region || '-' }}</strong></div>
+            <div class="detail-item"><span>城市</span><strong>{{ selectedLog.ipGeo?.city || '-' }}</strong></div>
+            <div class="detail-item"><span>运营商</span><strong>{{ selectedLog.ipGeo?.isp || '-' }}</strong></div>
+            <div class="detail-item"><span>组织</span><strong>{{ selectedLog.ipGeo?.organization || '-' }}</strong></div>
+            <div class="detail-item"><span>时区</span><strong>{{ selectedLog.ipGeo?.timezoneId || selectedLog.ipGeo?.timezoneUtc || '-' }}</strong></div>
+            <div class="detail-item"><span>网络特征</span><strong>{{ formatFlags(selectedLog.ipGeo) }}</strong></div>
+            <div class="detail-item"><span>坐标</span><strong>{{ formatCoordinates(selectedLog.ipGeo) }}</strong></div>
+            <div class="detail-item detail-item--wide"><span>归属说明</span><strong>{{ selectedLog.ipGeo?.detailMessage || '-' }}</strong></div>
+            <div class="detail-item detail-item--wide"><span>审计详情</span><strong class="break-all">{{ selectedLog.detail || '-' }}</strong></div>
+          </div>
+        </template>
+      </n-drawer-content>
+    </n-drawer>
   </div>
 </template>
 
@@ -84,6 +124,7 @@ import { computed, ref, onMounted } from 'vue'
 import { useMessage, useDialog } from 'naive-ui'
 import request from '@/api/request'
 import { useUserStore } from '@/store/user'
+import { formatIpGeoSummary, normalizeIpGeoInfo, type IpGeoInfo } from '@/utils/ipGeo'
 
 const message = useMessage()
 const dialog = useDialog()
@@ -92,15 +133,22 @@ const isAdmin = computed(() => userStore.userInfo?.role === 'admin')
 
 type AuditLogRecord = {
   id: number
+  userId: number | null
   username: string
   action: string
+  resourceType: string
+  resourceId: number | null
   detail: string
   ip: string
   createdAt: string
+  ipGeo: IpGeoInfo | null
 }
 
 const logs = ref<AuditLogRecord[] | null>(null)
 const actionFilter = ref<string | null>(null)
+const userIdFilter = ref<number | null>(null)
+const usernameFilter = ref('')
+const ipFilter = ref('')
 const page = ref(1)
 const pageSize = ref(20)
 const pageSizeOptions = [20, 50, 100]
@@ -109,6 +157,8 @@ const cleanupDays = ref(30)
 const cleaning = ref(false)
 const actions = ref<string[]>([])
 const actionOptionsLoadState = ref<'loading' | 'ready' | 'error'>('loading')
+const detailVisible = ref(false)
+const selectedLog = ref<AuditLogRecord | null>(null)
 const NO_CACHE_HEADERS = { 'X-No-Cache': '1' }
 const actionOptions = computed(() => [
   { label: '全部', value: '' },
@@ -181,11 +231,15 @@ function requireAuditLogRecord(value: unknown): AuditLogRecord {
   }
   return {
     id,
+    userId: toOptionalNumber(record.userId),
     username: typeof record.username === 'string' ? record.username.trim() : '',
     action,
+    resourceType: typeof record.resourceType === 'string' ? record.resourceType.trim() : '',
+    resourceId: toOptionalNumber(record.resourceId),
     detail: typeof record.detail === 'string' ? record.detail.trim() : '',
     ip: typeof record.ip === 'string' ? record.ip.trim() : '',
-    createdAt
+    createdAt,
+    ipGeo: normalizeIpGeoInfo(record.ipGeo)
   }
 }
 
@@ -245,6 +299,11 @@ async function loadLogs() {
   try {
     const params: Record<string, string | number> = { page: page.value, size: pageSize.value }
     if (actionFilter.value) params.action = actionFilter.value
+    if (ipFilter.value.trim()) params.ip = ipFilter.value.trim()
+    if (isAdmin.value) {
+      if (userIdFilter.value != null) params.userId = userIdFilter.value
+      if (usernameFilter.value.trim()) params.username = usernameFilter.value.trim()
+    }
     const endpoint = isAdmin.value ? '/api/audit-logs' : '/api/audit-logs/my'
     const res = await request.get(endpoint, { params, headers: NO_CACHE_HEADERS })
     const data = requireAuditLogPage(getResponseData(res, '审计日志数据待确认'))
@@ -313,11 +372,48 @@ function onFilter() {
   loadLogs()
 }
 
+function resetFilters() {
+  actionFilter.value = null
+  userIdFilter.value = null
+  usernameFilter.value = ''
+  ipFilter.value = ''
+  page.value = 1
+  void loadLogs()
+}
+
 // 切换每页条数时回到第 1 页
 function handlePageSizeChange(size: number) {
   pageSize.value = size
   page.value = 1
   loadLogs()
+}
+
+function openDetail(log: AuditLogRecord) {
+  selectedLog.value = log
+  detailVisible.value = true
+}
+
+function formatTime(value?: string) {
+  return value?.substring(0, 19)?.replace('T', ' ') || '-'
+}
+
+function formatCoordinates(ipGeo: IpGeoInfo | null) {
+  if (ipGeo?.latitude == null || ipGeo?.longitude == null) {
+    return '-'
+  }
+  return `${ipGeo.latitude.toFixed(4)}, ${ipGeo.longitude.toFixed(4)}`
+}
+
+function formatFlags(ipGeo: IpGeoInfo | null) {
+  if (!ipGeo) return '-'
+  const labels = [
+    ipGeo.privateNetwork ? '内网/保留地址' : '',
+    ipGeo.proxy ? '代理' : '',
+    ipGeo.vpn ? 'VPN' : '',
+    ipGeo.tor ? 'Tor' : '',
+    ipGeo.hosting ? '机房' : ''
+  ].filter(Boolean)
+  return labels.length > 0 ? labels.join(' / ') : '-'
 }
 
 // 管理员清理 N 天前的审计日志
@@ -378,6 +474,7 @@ onMounted(async () => {
 .count-lbl { font-size: 12px; color: #9ca3af; }
 .cleanup-lbl { font-size: 12px; color: #9ca3af; }
 .status-note { margin-top: 12px; font-size: 12px; color: #fca5a5; }
+.sub-line { margin-top: 4px; color: #94a3b8; font-size: 11px; }
 
 .audit-table { background-color: transparent !important; }
 .audit-table th {
@@ -394,4 +491,14 @@ onMounted(async () => {
 }
 .empty-cell { text-align: center !important; padding: 40px !important; color: #6b7280; }
 .pager { display: flex; justify-content: flex-end; margin-top: 16px; }
+.detail-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.detail-item { padding: 12px; border-radius: 12px; background: rgba(148, 163, 184, 0.08); display: flex; flex-direction: column; gap: 8px; }
+.detail-item span { font-size: 12px; color: #94a3b8; }
+.detail-item strong { color: #e5e7eb; font-size: 13px; font-weight: 600; }
+.detail-item--wide { grid-column: 1 / -1; }
+.break-all { word-break: break-all; }
+@media (max-width: 980px) {
+  .filter-row { flex-direction: column; align-items: flex-start; gap: 12px; }
+  .detail-grid { grid-template-columns: 1fr; }
+}
 </style>

@@ -5,15 +5,12 @@ import lombok.Data;
 import java.time.LocalDateTime;
 
 @Data
-public class AuditLogVO {
+public class LoginLogAdminVO {
     private Long id;
     private Long userId;
     private String username;
-    private String action;
-    private String resourceType;
-    private Long resourceId;
-    private String detail;
     private String ip;
+    private String userAgent;
     private LocalDateTime createdAt;
     private IpGeoInfoVO ipGeo;
 }

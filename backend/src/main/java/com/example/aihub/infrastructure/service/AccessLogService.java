@@ -5,8 +5,11 @@ import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.example.aihub.common.result.PageResult;
 import com.example.aihub.common.util.PagingUtil;
+import com.example.aihub.common.util.VoMapper;
 import com.example.aihub.infrastructure.entity.AccessLog;
 import com.example.aihub.infrastructure.mapper.AccessLogMapper;
+import com.example.aihub.infrastructure.vo.AccessLogAdminVO;
+import com.example.aihub.infrastructure.vo.IpGeoInfoVO;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
@@ -14,11 +17,13 @@ import java.time.LocalDateTime;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 
 @Service
 @RequiredArgsConstructor
 public class AccessLogService {
     private final AccessLogMapper accessLogMapper;
+    private final IpGeoLookupService ipGeoLookupService;
 
     public void record(AccessLog log) {
         if (log == null) {
@@ -28,8 +33,8 @@ public class AccessLogService {
         accessLogMapper.insert(log);
     }
 
-    public PageResult<AccessLog> page(String clientIp, Long userId, Long apiKeyId, String path,
-                                      Integer statusCode, long page, long size) {
+    public PageResult<AccessLogAdminVO> page(String clientIp, Long userId, Long apiKeyId, String path,
+                                             Integer statusCode, long page, long size) {
         long safePage = PagingUtil.normalizePage(page);
         long safePageSize = PagingUtil.clampPageSize(size, 20);
         LambdaQueryWrapper<AccessLog> wrapper = new LambdaQueryWrapper<>();
@@ -50,7 +55,16 @@ public class AccessLogService {
         }
         wrapper.orderByDesc(AccessLog::getId);
         Page<AccessLog> result = accessLogMapper.selectPage(new Page<>(safePage, safePageSize), wrapper);
-        return new PageResult<>(result.getTotal(), result.getPages(), result.getRecords());
+        Map<String, IpGeoInfoVO> ipGeoMap = ipGeoLookupService.resolveBatch(result.getRecords().stream()
+                .map(AccessLog::getClientIp)
+                .filter(Objects::nonNull)
+                .toList());
+        List<AccessLogAdminVO> records = result.getRecords().stream().map(item -> {
+            AccessLogAdminVO vo = VoMapper.copy(item, AccessLogAdminVO.class);
+            vo.setIpGeo(ipGeoMap.get(item.getClientIp()));
+            return vo;
+        }).toList();
+        return new PageResult<>(result.getTotal(), result.getPages(), records);
     }
 
     public Map<String, Object> summary(int minutes) {

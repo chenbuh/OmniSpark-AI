@@ -62,12 +62,14 @@
             <th style="width: 90px">用户</th>
             <th style="width: 90px">Key</th>
             <th style="width: 130px">IP</th>
+            <th style="width: 180px">地区</th>
             <th style="width: 70px">方法</th>
             <th>路径</th>
             <th style="width: 80px">状态</th>
             <th style="width: 90px">耗时</th>
             <th style="width: 90px">限流</th>
             <th style="width: 160px">时间</th>
+            <th style="width: 80px">详情</th>
           </tr>
         </thead>
         <tbody>
@@ -76,6 +78,10 @@
             <td>{{ log.userId || '-' }}</td>
             <td>{{ log.apiKeyId || '-' }}</td>
             <td><code>{{ log.clientIp || '-' }}</code></td>
+            <td>
+              <div>{{ formatIpGeoSummary(log.ipGeo) }}</div>
+              <div v-if="log.ipGeo?.isp" class="sub-line">{{ log.ipGeo?.isp }}</div>
+            </td>
             <td><n-tag size="small">{{ log.method }}</n-tag></td>
             <td>
               <n-ellipsis :line-clamp="1" :tooltip="true">
@@ -90,9 +96,10 @@
               <span v-else>-</span>
             </td>
             <td>{{ formatTime(log.createdAt) }}</td>
+            <td><n-button text type="primary" size="small" @click="openDetail(log)">详情</n-button></td>
           </tr>
-          <tr v-if="logs !== null && logs.length === 0"><td colspan="10" class="empty">暂无访问日志</td></tr>
-          <tr v-else-if="logs === null"><td colspan="10" class="empty">访问日志数据待确认</td></tr>
+          <tr v-if="logs !== null && logs.length === 0"><td colspan="12" class="empty">暂无访问日志</td></tr>
+          <tr v-else-if="logs === null"><td colspan="12" class="empty">访问日志数据待确认</td></tr>
         </tbody>
       </n-table>
       <div class="pager" v-if="(total ?? 0) > 0">
@@ -104,6 +111,39 @@
         />
       </div>
     </n-card>
+
+    <n-drawer v-model:show="detailVisible" :width="720" placement="right">
+      <n-drawer-content title="访问日志详情" closable>
+        <template v-if="selectedLog">
+          <div class="detail-grid-card">
+            <div class="detail-item"><span>日志ID</span><strong>#{{ selectedLog.id }}</strong></div>
+            <div class="detail-item"><span>用户ID</span><strong>{{ selectedLog.userId || '-' }}</strong></div>
+            <div class="detail-item"><span>API Key ID</span><strong>{{ selectedLog.apiKeyId || '-' }}</strong></div>
+            <div class="detail-item"><span>状态码</span><strong>{{ selectedLog.statusCode }}</strong></div>
+            <div class="detail-item"><span>请求方法</span><strong>{{ selectedLog.method }}</strong></div>
+            <div class="detail-item"><span>耗时</span><strong>{{ selectedLog.durationMs }}ms</strong></div>
+            <div class="detail-item detail-item--wide"><span>来源 IP</span><strong><code>{{ selectedLog.clientIp || '-' }}</code></strong></div>
+            <div class="detail-item detail-item--wide"><span>地区摘要</span><strong>{{ formatIpGeoSummary(selectedLog.ipGeo) }}</strong></div>
+            <div class="detail-item"><span>国家</span><strong>{{ selectedLog.ipGeo?.country || '-' }}</strong></div>
+            <div class="detail-item"><span>省/州</span><strong>{{ selectedLog.ipGeo?.region || '-' }}</strong></div>
+            <div class="detail-item"><span>城市</span><strong>{{ selectedLog.ipGeo?.city || '-' }}</strong></div>
+            <div class="detail-item"><span>运营商</span><strong>{{ selectedLog.ipGeo?.isp || '-' }}</strong></div>
+            <div class="detail-item"><span>组织</span><strong>{{ selectedLog.ipGeo?.organization || '-' }}</strong></div>
+            <div class="detail-item"><span>时区</span><strong>{{ selectedLog.ipGeo?.timezoneId || selectedLog.ipGeo?.timezoneUtc || '-' }}</strong></div>
+            <div class="detail-item"><span>ASN</span><strong>{{ selectedLog.ipGeo?.asn ?? '-' }}</strong></div>
+            <div class="detail-item"><span>坐标</span><strong>{{ formatCoordinates(selectedLog.ipGeo) }}</strong></div>
+            <div class="detail-item detail-item--wide"><span>网络特征</span><strong>{{ formatFlags(selectedLog.ipGeo) }}</strong></div>
+            <div class="detail-item detail-item--wide"><span>接口路径</span><strong class="break-all">{{ selectedLog.path }}</strong></div>
+            <div class="detail-item detail-item--wide"><span>查询串</span><strong class="break-all">{{ selectedLog.queryString || '-' }}</strong></div>
+            <div class="detail-item detail-item--wide"><span>风险原因</span><strong>{{ selectedLog.riskReason || '-' }}</strong></div>
+            <div class="detail-item"><span>限流命中</span><strong>{{ selectedLog.rateLimited ? '是' : '否' }}</strong></div>
+            <div class="detail-item"><span>请求时间</span><strong>{{ formatTime(selectedLog.createdAt) }}</strong></div>
+            <div class="detail-item detail-item--wide"><span>归属说明</span><strong>{{ selectedLog.ipGeo?.detailMessage || '-' }}</strong></div>
+            <div class="detail-item detail-item--wide"><span>User Agent</span><strong class="break-all">{{ selectedLog.userAgent || '-' }}</strong></div>
+          </div>
+        </template>
+      </n-drawer-content>
+    </n-drawer>
   </div>
 </template>
 
@@ -111,6 +151,7 @@
 import { computed, onMounted, reactive, ref } from 'vue'
 import { useMessage } from 'naive-ui'
 import request from '@/api/request'
+import { formatIpGeoSummary, normalizeIpGeoInfo, type IpGeoInfo } from '@/utils/ipGeo'
 
 interface AccessLogSummaryRow {
   name: string
@@ -132,6 +173,7 @@ interface AccessLogRecord {
   userId: number | null
   apiKeyId: number | null
   clientIp: string
+  ipGeo: IpGeoInfo | null
   userAgent: string
   method: string
   path: string
@@ -155,6 +197,8 @@ const summaryLoadState = ref<'loading' | 'ready' | 'error'>('loading')
 const logs = ref<AccessLogRecord[] | null>(null)
 const summary = ref<AccessLogSummary | null>(null)
 const total = ref<number | null>(null)
+const detailVisible = ref(false)
+const selectedLog = ref<AccessLogRecord | null>(null)
 const page = ref(1)
 const pageSize = 20
 const NO_CACHE_HEADERS = { 'X-No-Cache': '1' }
@@ -253,6 +297,7 @@ function normalizeAccessLogRecord(value: unknown): AccessLogRecord {
     userId,
     apiKeyId,
     clientIp: normalizeOptionalText(value.clientIp),
+    ipGeo: normalizeIpGeoInfo(value.ipGeo),
     userAgent: normalizeOptionalText(value.userAgent),
     method,
     path,
@@ -378,6 +423,30 @@ function formatTime(value?: string) {
   return value?.substring(0, 19)?.replace('T', ' ') || '-'
 }
 
+function openDetail(log: AccessLogRecord) {
+  selectedLog.value = log
+  detailVisible.value = true
+}
+
+function formatCoordinates(ipGeo: IpGeoInfo | null) {
+  if (ipGeo?.latitude == null || ipGeo?.longitude == null) {
+    return '-'
+  }
+  return `${ipGeo.latitude.toFixed(4)}, ${ipGeo.longitude.toFixed(4)}`
+}
+
+function formatFlags(ipGeo: IpGeoInfo | null) {
+  if (!ipGeo) return '-'
+  const labels = [
+    ipGeo.privateNetwork ? '内网/保留地址' : '',
+    ipGeo.proxy ? '代理' : '',
+    ipGeo.vpn ? 'VPN' : '',
+    ipGeo.tor ? 'Tor' : '',
+    ipGeo.hosting ? '机房' : ''
+  ].filter(Boolean)
+  return labels.length > 0 ? labels.join(' / ') : '-'
+}
+
 function formatSummaryWindow(value: unknown) {
   const normalized = toOptionalNumber(value)
   if (normalized == null) {
@@ -458,11 +527,19 @@ h3 { margin: 0 0 12px 0; font-size: 14px; color: #e5e7eb; }
 .admin-table { background: transparent !important; }
 .admin-table th { background: rgba(255,255,255,0.02) !important; color: #9ca3af !important; border-bottom: 1px solid rgba(255,255,255,0.06) !important; font-size: 12px; }
 .admin-table td { border-bottom: 1px solid rgba(255,255,255,0.04) !important; color: #e5e7eb; padding: 8px; font-size: 12px; }
+.sub-line { margin-top: 4px; color: #94a3b8; font-size: 11px; }
 .risk-line { margin-top: 4px; color: #f59e0b; font-size: 11px; }
 .empty { text-align: center; padding: 30px; color: #6b7280; }
 .pager { display: flex; justify-content: flex-end; margin-top: 16px; }
+.detail-grid-card { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.detail-item { padding: 12px; border-radius: 12px; background: rgba(148, 163, 184, 0.08); display: flex; flex-direction: column; gap: 8px; }
+.detail-item span { font-size: 12px; color: #94a3b8; }
+.detail-item strong { color: #e5e7eb; font-size: 13px; font-weight: 600; }
+.detail-item--wide { grid-column: 1 / -1; }
+.break-all { word-break: break-all; }
 @media (max-width: 1100px) {
   .summary-grid, .detail-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .filter-row { align-items: flex-start; flex-direction: column; }
+  .detail-grid-card { grid-template-columns: 1fr; }
 }
 </style>

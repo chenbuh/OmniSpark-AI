@@ -23,18 +23,21 @@ public class AuditController {
     public ApiResult<PageResult<AuditLogVO>> list(
             @RequestParam(required = false) String action,
             @RequestParam(required = false) Long userId,
+            @RequestParam(required = false) String username,
+            @RequestParam(required = false) String ip,
             @RequestParam(defaultValue = "1") long page,
             @RequestParam(defaultValue = "20") long size) {
-        return ApiResult.ok(auditLogService.page(action, userId, page, size));
+        return ApiResult.ok(auditLogService.page(action, userId, username, ip, page, size));
     }
 
     @GetMapping("/my")
     public ApiResult<PageResult<AuditLogVO>> myLogs(
             @RequestParam(required = false) String action,
+            @RequestParam(required = false) String ip,
             @RequestParam(defaultValue = "1") long page,
             @RequestParam(defaultValue = "20") long size) {
         Long userId = Long.valueOf(String.valueOf(StpUtil.getLoginId()));
-        return ApiResult.ok(auditLogService.page(action, userId, page, size));
+        return ApiResult.ok(auditLogService.page(action, userId, null, ip, page, size));
     }
 
     @GetMapping("/actions")

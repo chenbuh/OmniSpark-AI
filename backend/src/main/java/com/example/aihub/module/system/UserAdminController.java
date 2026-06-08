@@ -15,7 +15,9 @@ import com.example.aihub.infrastructure.entity.Role;
 import com.example.aihub.infrastructure.entity.User;
 import com.example.aihub.infrastructure.mapper.RoleMapper;
 import com.example.aihub.infrastructure.mapper.UserMapper;
+import com.example.aihub.infrastructure.service.AdminUserProfileService;
 import com.example.aihub.infrastructure.service.PasswordEncryptionService;
+import com.example.aihub.infrastructure.vo.AdminUserProfileVO;
 import com.example.aihub.infrastructure.vo.UserVO;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
@@ -36,6 +38,7 @@ import java.util.Map;
 public class UserAdminController {
     private final UserMapper userMapper;
     private final RoleMapper roleMapper;
+    private final AdminUserProfileService adminUserProfileService;
     private final PasswordEncryptionService passwordEncryptionService;
     private final CanaryTokenService canaryTokenService;
 
@@ -78,6 +81,16 @@ public class UserAdminController {
             return vo;
         }).toList();
         return ApiResult.ok(new PageResult<>(p.getTotal(), p.getPages(), records));
+    }
+
+    @GetMapping("/{id}/profile")
+    @RateLimit(count = 120, seconds = 60, dimension = RateLimit.Dimension.USER_API, message = "用户画像查询过于频繁，请稍后再试")
+    public ApiResult<AdminUserProfileVO> profile(@PathVariable Long id) {
+        AdminUserProfileVO profile = adminUserProfileService.getProfile(id);
+        if (profile == null) {
+            return ApiResult.fail("用户不存在");
+        }
+        return ApiResult.ok(profile);
     }
 
     @PutMapping("/{id}/role")

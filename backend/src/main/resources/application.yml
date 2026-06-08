@@ -59,9 +59,15 @@ app:
     # 默认禁止服务端请求 localhost / 127.0.0.1 / ::1，避免共享部署时被利用探测本机服务。
     # 仅在明确需要访问本机模型代理（如 Ollama / LM Studio）时再通过环境变量 APP_SECURITY_ALLOW_LOOPBACK_TARGETS=true 开启。
     allow-loopback-targets: ${APP_SECURITY_ALLOW_LOOPBACK_TARGETS:false}
-    # 只有 remoteAddr 命中这些可信代理时，后端才读取 X-Real-IP / X-Forwarded-For。
-    # 生产环境请填写实际网关/Nginx/负载均衡 IP 或 CIDR，并在网关层强制覆写这些头。
-    trusted-proxies: ${APP_TRUSTED_PROXIES:127.0.0.1,::1,0:0:0:0:0:0:0:1}
+    # 只有 remoteAddr 命中这些可信代理时，后端才读取 Forwarded / X-Forwarded-For / X-Real-IP 等来源头。
+    # 默认包含回环、常见 RFC1918 内网代理与 CGNAT 网段，兼容 Nginx / Docker / 负载均衡转发。
+    # 生产环境仍建议显式填写实际网关/Nginx/负载均衡 IP 或 CIDR，并在网关层强制覆写这些头。
+    trusted-proxies: ${APP_TRUSTED_PROXIES:127.0.0.1,::1,0:0:0:0:0:0:0:1,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,100.64.0.0/10}
+    ip-geo:
+      enabled: ${APP_IP_GEO_ENABLED:true}
+      base-url: ${APP_IP_GEO_BASE_URL:https://ipwho.is}
+      timeout-ms: ${APP_IP_GEO_TIMEOUT_MS:3000}
+      cache-minutes: ${APP_IP_GEO_CACHE_MINUTES:720}
     signing:
       window-seconds: 300
       challenge-ttl-seconds: 120
