@@ -36,7 +36,7 @@
         <tbody>
           <tr v-for="t in tasks || []" :key="t.id">
             <td><code>#{{ t.id }}</code></td>
-            <td>{{ t.projectId }}</td>
+            <td>{{ t.projectId ?? '-' }}</td>
             <td><n-tag size="small" :type="taskTypeTagType(t.taskType)" round>{{ taskTypeLabel(t.taskType) }}</n-tag></td>
             <td><n-ellipsis :line-clamp="1" :tooltip="true">{{ getTaskDisplayPrompt(t) }}</n-ellipsis></td>
             <td><n-tag size="mini" type="info" :bordered="false"><code>{{ getTaskDisplayModelName(t) }}</code></n-tag></td>
@@ -69,7 +69,7 @@
             <div class="ds-row"><span class="ds-lbl">进度</span><span>{{ formatTaskProgress(detail.progress) }}</span></div>
             <div class="ds-row" v-if="detail.progressText"><span class="ds-lbl">进度描述</span><span class="ds-val">{{ detail.progressText }}</span></div>
             <div class="ds-row"><span class="ds-lbl">类型</span><span>{{ taskTypeLabel(detail.taskType) }}</span></div>
-            <div class="ds-row"><span class="ds-lbl">项目</span><span>项目 #{{ detail.projectId }}</span></div>
+            <div class="ds-row"><span class="ds-lbl">项目</span><span>{{ detail.projectId != null ? `项目 #${detail.projectId}` : '-' }}</span></div>
           </div>
           <div class="ds-card">
             <div class="ds-row"><span class="ds-lbl">模型</span><n-tag size="small" type="info"><code>{{ getTaskDisplayModelName(detail) }}</code></n-tag></div>
@@ -100,7 +100,7 @@ type TaskType = 'image' | 'video'
 
 interface AdminTaskRecord {
   id: number
-  projectId: number
+  projectId: number | null
   providerId: number | null
   taskType: TaskType
   prompt: string
@@ -256,7 +256,7 @@ function normalizeTaskRecord(value: unknown): AdminTaskRecord {
   const progress = normalizeOptionalNumber(value.progress)
   const modelName = typeof value.modelName === 'string' ? value.modelName.trim() : ''
   const createdAt = typeof value.createdAt === 'string' ? value.createdAt.trim() : ''
-  if (!Number.isFinite(id) || id <= 0 || projectId == null || !modelName || !createdAt || (progress != null && (progress < 0 || progress > 100))) {
+  if (!Number.isFinite(id) || id <= 0 || !createdAt || (progress != null && (progress < 0 || progress > 100))) {
     throw new Error('任务数据待确认')
   }
   return {
